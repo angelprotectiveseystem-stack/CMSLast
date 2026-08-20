@@ -3,7 +3,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 # ─── Auth ─────────────────────────────────────────────────────
 def kb_role_select():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👑 مدیر ارشد", callback_data="role_pishva"),
+        [InlineKeyboardButton("👑 رییس کل", callback_data="role_pishva"),
          InlineKeyboardButton("🏆 مدیر مسابقات", callback_data="role_tournament")],
         [InlineKeyboardButton("🛡️ مدیر امنیتی", callback_data="role_security")],
     ])
