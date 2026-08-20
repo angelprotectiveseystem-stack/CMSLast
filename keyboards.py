@@ -3,7 +3,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 # ─── Auth ─────────────────────────────────────────────────────
 def kb_role_select():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👑 پیشوا", callback_data="role_pishva"),
+        [InlineKeyboardButton("👑 مدیر ارشد", callback_data="role_pishva"),
          InlineKeyboardButton("🏆 مدیر مسابقات", callback_data="role_tournament")],
         [InlineKeyboardButton("🛡️ مدیر امنیتی", callback_data="role_security")],
     ])
@@ -25,7 +25,7 @@ def kb_pishva_main():
          InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks")],
         [InlineKeyboardButton("📊 داشبورد پیشوا", callback_data="dashboard_pishva"),
          InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
-        [InlineKeyboardButton("💡 انتقادات", callback_data="menu_feedback")],
+        [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
 # ─── منوی مدیر مسابقات ────────────────────────────────────────
@@ -37,7 +37,7 @@ def kb_tournament_manager_main():
          InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms")],
         [InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks"),
          InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
-        [InlineKeyboardButton("💡 انتقادات", callback_data="menu_feedback")],
+        [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
 # ─── منوی مدیر امنیتی ─────────────────────────────────────────
@@ -48,7 +48,7 @@ def kb_security_manager_main():
         [InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms"),
          InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks")],
         [InlineKeyboardButton("❓ راهنما", callback_data="menu_help"),
-         InlineKeyboardButton("💡 انتقادات", callback_data="menu_feedback")],
+         InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
 # ─── مدیریت مسابقات (همه چیز اینجاست) ──────────────────────
