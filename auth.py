@@ -46,7 +46,7 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text = (
             "👑 *خوش آمدید، " + pname + "*\n"
             "⏱️ `" + ts + "`\n\n"
-            "📡 " + status_map.get(status, status) + " | 🕐 " + wh_txt + "\n"
+            "📡 " + status_map.get(status, status) + " | 🕐 " + wh_txt + "\n" db_txt + "\n"
             "👥 ادمین: `" + str(len(admins)) + "` | "
             "📥 درخواست: `" + str(len(pending)) + "` | "
             "⏳ بی‌نتیجه: `" + str(len(pending_matches)) + "` | "
