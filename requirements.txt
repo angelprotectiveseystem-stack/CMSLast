@@ -4,3 +4,4 @@ openpyxl>=3.1.0
 python-docx>=1.0.0
 jdatetime>=4.1.0
 pytz>=2023.3
+libsql-client
