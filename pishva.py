@@ -369,6 +369,42 @@ async def repair_reason_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ دلیل تعمیر ذخیره شد:\n_{reason}_", parse_mode="Markdown")
     return ConversationHandler.END
 
+# ─── Database Status (Manual) ──────────────────────────────────
+async def _render_dbstatus(query):
+    current = await db.get_setting("db_manual_status", "1")
+    label = "🟢 فعال" if current == "1" else "⚠️ غیرفعال"
+    await query.edit_message_text(
+        f"{box('🗄️ وضعیت دیتابیس')}\n\nوضعیت فعلی: {label}\n\n"
+        f"این وضعیت کاملاً دستی است و مستقل از اتصال واقعی به دیتابیس.",
+        reply_markup=kb.kb_dbstatus_menu(current),
+        parse_mode="Markdown"
+    )
+
+
+async def pishva_dbstatus(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    await _render_dbstatus(query)
+
+
+async def dbstatus_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await db.set_setting("db_manual_status", "1")
+    await db.log_action(PISHVA_ID, "dbstatus_on", "تنظیم دستی وضعیت دیتابیس: فعال")
+    await _render_dbstatus(query)
+
+
+async def dbstatus_off(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await db.set_setting("db_manual_status", "0")
+    await db.log_action(PISHVA_ID, "dbstatus_off", "تنظیم دستی وضعیت دیتابیس: غیرفعال")
+    await _render_dbstatus(query)
+
 
 # ─── Identity ─────────────────────────────────────────────────
 async def pishva_identity(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
