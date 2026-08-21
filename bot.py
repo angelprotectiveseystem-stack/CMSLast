@@ -59,7 +59,8 @@ from matches import (
     lottery_start, lottery_all, lottery_class_select, lottery_class_chosen,
     lottery_confirm, lottery_redo, lottery_manual
 )
-from pishva import (
+from pishva import (from pishva import (
+    pishva_status, set_status, pishva_settings, toggle_setting,
     pishva_status, set_status, pishva_settings, toggle_setting,
     pishva_logs, show_logs, pishva_requests, pishva_backup,
     backup_period_select, backup_format_select, pishva_workhours,
