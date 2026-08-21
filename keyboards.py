@@ -25,6 +25,7 @@ def kb_pishva_main():
          InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks")],
         [InlineKeyboardButton("📊 داشبورد پیشوا", callback_data="dashboard_pishva"),
          InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
+        [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],u
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
