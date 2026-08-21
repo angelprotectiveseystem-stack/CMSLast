@@ -63,6 +63,7 @@ from matches import (
 
 from pishva import (
     pishva_status, set_status, pishva_settings, toggle_setting,
+    pishva_dbstatus, dbstatus_on, dbstatus_off,
     backup_period_select, backup_format_select, pishva_workhours,
     workhour_start, workhour_end, pishva_repair, repair_on, repair_off,
     repair_reason_start, repair_reason_save, pishva_identity,
