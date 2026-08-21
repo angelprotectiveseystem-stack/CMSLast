@@ -567,7 +567,9 @@ def build_application():
     app.add_handler(CallbackQueryHandler(lottery_redo,       pattern="^lottery_redo$"))
 
     # Pishva panel
-    app.add_handler(CallbackQueryHandler(pishva_status,      pattern="^pishva_status$"))
+    app.add_handler(CallbackQueryHandler(pishva_status,      pattern="^pishva_status$"))app.add_handler(CallbackQueryHandler(pishva_dbstatus, pattern="^pishva_dbstatus$"))
+    app.add_handler(CallbackQueryHandler(dbstatus_on, pattern="^dbstatus_on$"))
+    app.add_handler(CallbackQueryHandler(dbstatus_off, pattern="^dbstatus_off$"))
     app.add_handler(CallbackQueryHandler(set_status,         pattern="^set_status_"))
     app.add_handler(CallbackQueryHandler(pishva_settings,    pattern="^pishva_settings$"))
     app.add_handler(CallbackQueryHandler(toggle_setting,     pattern="^setting_"))
