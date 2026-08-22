@@ -42,7 +42,7 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         wh = await db.get_setting("working_hours_active", "0")
         wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
         db_stat = await db.get_setting("db_manual_status", "1")
-        db_txt = "🟢 دیتابیس: فعال" if db_stat == "1" else "⚠️ دیتابیس: غیرفعال"
+        db_txt = "🔗 دیتابیس: فعال" if db_stat == "1" else "⚠️ دیتابیس: غیرفعال"
 
         text = (
             "👑 *خوش آمدید، " + pname + "*\n"
