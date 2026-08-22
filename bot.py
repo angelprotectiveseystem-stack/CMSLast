@@ -54,6 +54,7 @@ from matches import (
     match_date_today, match_date_text, match_result_menu, match_result_select,
     result_white, result_black, result_draw, draw_reason, draw_reason_text,
     eliminate_yes, eliminate_no, match_history, match_hist_filter,
+    pishva_logs, show_logs, pishva_requests, pishva_backup,
     match_hist_search_start, match_hist_search_run, match_full_history,
     match_view, match_delete, match_pin, match_panel,
     lottery_start, lottery_all, lottery_class_select, lottery_class_chosen,
