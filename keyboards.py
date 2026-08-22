@@ -568,7 +568,7 @@ def kb_auto_backup_interval():
          InlineKeyboardButton("⏰ هر ۴۸ ساعت", callback_data="abk_set_interval_48")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_auto_backup")],
     ])
-    def kb_dbstatus_menu(current):
+def kb_dbstatus_menu(current):
     label = "⚠️ تغییر به غیرفعال" if current == "1" else "🟢 فعال"
     action = "dbstatus_off" if current == "1" else "dbstatus_on"
     return InlineKeyboardMarkup([
