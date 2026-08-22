@@ -569,9 +569,9 @@ def kb_auto_backup_interval():
         [InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_auto_backup")],
     ])
     def kb_dbstatus_menu(current):
-        label = "⚠️ تغییر به غیرفعال" if current == "1" else "🟢 فعال"
-        action = "dbstatus_off" if current == "1" else "dbstatus_on"
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton(label, callback_data=action)],
-            [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
-        ])
+    label = "⚠️ تغییر به غیرفعال" if current == "1" else "🟢 فعال"
+    action = "dbstatus_off" if current == "1" else "dbstatus_on"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(label, callback_data=action)],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
+    ])
