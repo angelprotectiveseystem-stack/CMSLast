@@ -61,7 +61,6 @@ from matches import (
     lottery_confirm, lottery_redo, lottery_manual
 
 )
-
 from pishva import (
     pishva_status, set_status, pishva_settings, toggle_setting,
     pishva_dbstatus, dbstatus_on, dbstatus_off,
