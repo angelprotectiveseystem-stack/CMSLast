@@ -54,7 +54,7 @@ async def bulk_register_start(update, ctx):
     ctx.user_data.pop("bulk_items", None)
     await query.edit_message_text(
         f"{box('📋 ثبت‌نام گروهی')}\n\n"
-        "لیست دانش‌آموزها رو به این شکل بفرست، هر نفر توی یه خط:\n\n"
+        "لیست دانش‌آموزها را با رعایت ساختار و شکل توضیح داده شده ارسال نمایید:\n\n"
         "`نام کامل/کلاس`\n\n"
         "مثال:\n`محمد خانی/۹۰۱`\n`عرشیا نجفی/۷۰۲`",
         parse_mode="Markdown"
@@ -116,7 +116,7 @@ async def bulk_edit_start(update, ctx):
     await query.answer()
     items = ctx.user_data.get("bulk_items", [])
     await query.edit_message_text(
-        f"✏️ شماره‌ی خطی که می‌خوای اصلاح کنی رو بفرست (عددی بین ۱ تا {len(items)}):"
+        f"✏️ شماره‌ی خطی که می‌خواهید اصلاح کنید را بنویسید (عددی بین ۱ تا {len(items)}):"
     )
     return ST_BULK_REG_EDIT_NUM
 
