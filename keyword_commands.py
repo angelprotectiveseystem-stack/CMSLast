@@ -105,13 +105,14 @@ async def register_panel_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE, m
 
 
 async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    from telegram.ext import ApplicationHandlerStop
     if not update.message or not update.message.text:
         return
     text = update.message.text.strip()
     action = SIMPLE_KEYWORDS.get(text)
 
     if action is None and text not in ADMIN_KEYWORDS:
-        return
+        return  # نه keyword → بذار ConversationHandler بگیره
 
     uid = update.effective_user.id if update.effective_user else None
     if not uid:
@@ -125,7 +126,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     if action and action in PISHVA_ONLY_ACTIONS and not is_pishva:
         await update.message.reply_text("⛔ این دستور فقط برای پیشواست.")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── پنل پیشوا (کلمه «پیشوا») ───
     if action == "pishva_panel":
@@ -133,7 +134,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             box("👑 پنل پیشوا"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
         )
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── پنل ───
     if action == "panel":
@@ -149,7 +150,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
                 box("📋 پنل — " + role_label), reply_markup=markup, parse_mode="Markdown"
             )
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── داشبورد ───
     if action == "dashboard":
@@ -161,7 +162,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             dtext = await build_dashboard_admin_text(uid)
             sent = await update.message.reply_text(dtext, reply_markup=kb.kb_dashboard_admin(), parse_mode="Markdown")
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── اطلاعات/درباره/کیه — ریپلای روی پیام ───
     if action == "reply_info":
@@ -173,7 +174,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             return
         text_lines = await _build_user_info(target_id, target_name, target_username)
         await update.message.reply_text("\n".join(text_lines), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── آنلاین (ادمین‌های فعال اخیر) ───
     if action == "online_admins":
@@ -203,7 +204,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         if not found:
             lines.append("❗ هیچ ادمینی در ۲۴ ساعت اخیر فعال نبوده.")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── لیست مدیران ───
     if action == "admin_list":
@@ -217,7 +218,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         if not admins_all:
             lines.append("❗ هیچ مدیر فعالی ثبت نشده.")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── آمار سریع ───
     if action == "quick_stats":
@@ -236,7 +237,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             separator(),
         ]
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── آخرین نتایج ───
     if action == "recent_results":
@@ -256,7 +257,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
                 res = "🤝 تساوی"
             lines.append(f"• {m['white_name']} vs {m['black_name']} — {res}")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── لیست اخطارها ───
     if action == "warnings_list":
@@ -271,7 +272,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             bar = "🔴" * min(p["warnings"], 3) + "⚪" * max(0, 3 - p["warnings"])
             lines.append(f"• {p['full_name']} — {bar} ({p['warnings']} اخطار)")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── وظیفه ───
     if action == "tasks":
@@ -280,7 +281,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         else:
             sent = await update.message.reply_text(box("📋 وظایف"), reply_markup=kb.kb_tasks_admin(), parse_mode="Markdown")
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── مسابقه ───
     if action == "matches":
@@ -288,7 +289,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             box("♟️ مدیریت مسابقات"), reply_markup=kb.kb_matches_menu(), parse_mode="Markdown"
         )
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── بازیکن ───
     if action == "players":
@@ -297,7 +298,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             box("👤 مدیریت بازیکنان"), reply_markup=kb.kb_players_menu(role_key), parse_mode="Markdown"
         )
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── مخابره ───
     if action == "comms":
@@ -306,7 +307,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         else:
             sent = await update.message.reply_text(box("📡 مخابرات"), reply_markup=kb.kb_comms_admin(), parse_mode="Markdown")
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── امنیت ───
     if action == "security":
@@ -315,13 +316,13 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             f"{box('🚦 وضعیت سیستم')}\n\nوضعیت فعلی را انتخاب کنید:",
             reply_markup=kb.kb_status_select(current), parse_mode="Markdown"
         )
-        return
+        raise ApplicationHandlerStop()
 
     # ─── وضعیت (گزارش کامل سیستم) ───
     if action == "status":
         report = await _build_system_status_report()
         await update.message.reply_text(report, parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── کلاس ───
     if action == "classes":
@@ -329,7 +330,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             box("🏫 مدیریت کلاس‌ها"), reply_markup=kb.kb_class_manage(), parse_mode="Markdown"
         )
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── تیم ───
     if action == "teams":
@@ -341,7 +342,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             box("🏆 مدیریت تیم‌ها"), reply_markup=kb.kb_teams_menu(), parse_mode="Markdown"
         )
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── بکاپ ───
     if action == "backup":
@@ -349,7 +350,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             f"{box('💾 سیستم پشتیبان‌گیری')}\n\n📌 بازه زمانی را انتخاب کنید:",
             reply_markup=kb.kb_backup_main(), parse_mode="Markdown"
         )
-        return
+        raise ApplicationHandlerStop()
 
     # ─── درخواست ───
     if action == "requests":
@@ -373,7 +374,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(
                 rtext, reply_markup=kb.kb_access_request(req["id"]), parse_mode="Markdown"
             )
-        return
+        raise ApplicationHandlerStop()
 
     # ─── لاگ / گزارش ───
     if action == "logs":
@@ -389,7 +390,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             t = str(log["logged_at"] or "")[:16]
             lines.append(f"`{t}` — {name}: {log['action_type']} — {log['description'] or ''}")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── راهنما / کمک ───
     if action == "help":
@@ -398,7 +399,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(
             box("📚 مرکز راهنمای سیستم"), reply_markup=kb_help_main(role), parse_mode="Markdown"
         )
-        return
+        raise ApplicationHandlerStop()
 
     # ─── قرعه ───
     if action == "lottery":
@@ -407,7 +408,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             reply_markup=kb.kb_lottery_scope(), parse_mode="Markdown"
         )
         await register_panel_owner(update, ctx, sent.message_id)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── جدول / رتبه (Elo) ───
     if action == "elo":
@@ -425,7 +426,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             medal = medals[i] if i < 3 else f"`{i+1}.`"
             lines.append(f"{medal} {p['full_name']} — `{int(p['rating'])}` ({get_elo_title(p['rating'])})")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── قهرمانان ───
     if action == "champions":
@@ -444,7 +445,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             "👑 ماه: " + (f"{monthly['name']} ({monthly['wins']} برد)" if monthly else "—"),
         ]
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── یادآور ───
     if action == "reminders":
@@ -461,7 +462,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             "و بازه‌ی زمانی ارسال آن را تنظیم نمایید."
         )
         await update.message.reply_text(text, reply_markup=kb.kb_reminders_menu(master, items), parse_mode="Markdown")
-        return
+        raise ApplicationHandlerStop()
 
     # ─── تنظیمات ───
     if action == "settings":
@@ -474,14 +475,14 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",
             reply_markup=kb.kb_pishva_settings_simple(settings), parse_mode="Markdown"
         )
-        return
+        raise ApplicationHandlerStop()
 
     # ─── فیدبک / انتقاد ───
     if action == "feedback":
         await update.message.reply_text(
             box("💡 انتقادات و پیشنهادات"), reply_markup=kb.kb_feedback_menu(), parse_mode="Markdown"
         )
-        return
+        raise ApplicationHandlerStop()
 
     # ─── شروع (فقط برای کاربران قبلاً ثبت‌شده — بدون فلوی ثبت‌نام) ───
     if action == "restart":
@@ -490,7 +491,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             await show_pishva_welcome(update, ctx)
         else:
             await show_admin_welcome(update, ctx, admin)
-        return
+        raise ApplicationHandlerStop()
 
     # ─── تنظیم/حذف مدیر (فقط پیشوا، با ریپلای) ───
     if text in ADMIN_KEYWORDS:
@@ -521,7 +522,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             await db.kick_admin(target_id)
             await db.log_action(PISHVA_ID, "kick_admin_keyword", f"حذف مدیر: {target_name}", target_id)
             await update.message.reply_text(f"✅ دسترسی مدیریت {target_name} حذف شد.")
-        return
+        raise ApplicationHandlerStop()
 
 
 # ─── اطلاعات کاربر هنگام ریپلای ────────────────────────────

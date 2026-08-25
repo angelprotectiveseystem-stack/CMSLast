@@ -766,11 +766,11 @@ def build_application():
     app.add_handler(CallbackQueryHandler(teams_settings, pattern="^teams_settings$"))
 
     # ══════════════════════════════════════════
-    # کلمات کلیدی (فقط وقتی مکالمه‌ی فعالی در جریان نباشد)
+    # کلمات کلیدی — قبل از ConversationHandlerها اجرا می‌شود
     # ══════════════════════════════════════════
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_command),
-        group=1
+        group=-1
     )
 
     return app
