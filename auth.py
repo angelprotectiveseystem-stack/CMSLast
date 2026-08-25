@@ -21,10 +21,45 @@ except Exception:  # pragma: no cover
 # ─── زمان و خوش‌آمدگویی هوشمند و خودمونی (ساعت واقعی ایران) ────
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
+
+# ─── فاز واقعی ماه بر اساس چرخه‌ی سینودیکی (۲۹.530588861 روزه) ─
+_MOON_REF_NEW = datetime(2000, 1, 6, 18, 14, tzinfo=timezone.utc)  # ماه نوی مرجع
+_SYNODIC_MONTH = 29.530588861  # طول متوسط یک چرخه‌ی کامل ماه (روز)
+
+
+def moon_phase_emoji() -> str:
+    """اموجی فاز فعلی ماه، محاسبه‌شده از زمان (نه موقعیت جغرافیایی).
+
+    phase = (روزهای گذشته از ماه نوی مرجع mod طول چرخه) / طول چرخه
+    عددی بین ۰ تا ۱ که ۰/۱ = ماه نو، ۰.۲۵ = تربیع اول،
+    ۰.۵ = بدر کامل، ۰.۷۵ = تربیع آخر.
+    """
+    now = datetime.now(timezone.utc)
+    days_since_new = (now - _MOON_REF_NEW).total_seconds() / 86400.0
+    phase = (days_since_new % _SYNODIC_MONTH) / _SYNODIC_MONTH
+
+    if phase < 0.0625 or phase >= 0.9375:
+        return "🌑"  # ماه نو
+    elif phase < 0.1875:
+        return "🌒"  # هلال رو به رشد
+    elif phase < 0.3125:
+        return "🌓"  # تربیع اول
+    elif phase < 0.4375:
+        return "🌔"  # محدب رو به رشد
+    elif phase < 0.5625:
+        return "🌕"  # بدر کامل
+    elif phase < 0.6875:
+        return "🌖"  # محدب رو به کاهش
+    elif phase < 0.8125:
+        return "🌗"  # تربیع آخر
+    else:
+        return "🌘"  # هلال رو به کاهش
+
+
 _GREETINGS = {
     "late_night": [  # 23:00 - 4:00
-        "🌌 شب به‌خیر، *{name} عزیز*! امشب که خیلی دیروقتی، تا صبح بیداری؟",
-        "🌌 *{name} عزیز*، این‌موقع شب هنوز بیدار؟ استراحتم بلدی ها 😄",
+        "{moon} شب به‌خیر، *{name} عزیز*! امشب که خیلی دیروقتی، تا صبح بیداری؟",
+        "{moon} *{name} عزیز*، این‌موقع شب هنوز بیدار؟ استراحتم بلدی ها 😄",
     ],
     "dawn": [  # 4:00 - 7:00
         "🌄 سحر بخیر، *{name} عزیز*! امروز عجب سحرخیز شدی‌ها",
@@ -47,8 +82,8 @@ _GREETINGS = {
         "🌇 *{name} عزیز*، وقت یه چای عصرونه‌ست",
     ],
     "night": [  # 19:00 - 23:00
-        "🌙 شب بخیر، *{name} عزیز*",
-        "🌙 *{name} عزیز*، شب خوبی داشته باشی",
+        "{moon} شب بخیر، *{name} عزیز*",
+        "{moon} *{name} عزیز*، شب خوبی داشته باشی",
     ],
 }
 
@@ -70,7 +105,11 @@ def time_greeting(name: str) -> str:
         bucket = "evening"
     else:
         bucket = "night"
-    return random.choice(_GREETINGS[bucket]).format(name=name)
+
+    template = random.choice(_GREETINGS[bucket])
+    if bucket in ("late_night", "night"):
+        return template.format(name=name, moon=moon_phase_emoji())
+    return template.format(name=name)
 
 
 # ─── آب‌وهوای واقعی سرپل‌ذهاب (بدون نیاز به کلید API) ──────────
