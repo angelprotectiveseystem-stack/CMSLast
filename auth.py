@@ -22,6 +22,7 @@ IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 
 def time_greeting(name: str) -> str:
+    """خوش‌آمدگویی بر اساس ساعت روز — اسم همیشه بولد نمایش داده می‌شود."""
     hour = datetime.now(IRAN_TZ).hour
     if 4 <= hour < 7:
         g = "🌄 سحر بخیر"
@@ -37,7 +38,7 @@ def time_greeting(name: str) -> str:
         g = "🌙 شب بخیر"
     else:
         g = "🌌 شب به‌خیر"
-    return f"{g}، {name} عزیز"
+    return f"{g}، *{name} عزیز*"
 
 
 # ─── آب‌وهوای واقعی سرپل‌ذهاب (بدون نیاز به کلید API) ──────────
@@ -57,23 +58,57 @@ _WEATHER_CODE_FA = {
     95: "رعد و برق", 96: "رعد و برق با تگرگ سبک", 99: "رعد و برق با تگرگ شدید",
 }
 
+# نمایه‌ی تصویری هر وضعیت (روز/شب جداگانه برای آسمان صاف و نیمه‌ابری)
+def _weather_emoji(code: int, is_day: int) -> str:
+    if code in (0, 1):
+        return "☀️" if is_day else "🌕"
+    if code == 2:
+        return "⛅" if is_day else "☁️"
+    if code == 3:
+        return "☁️"
+    if code in (45, 48):
+        return "🌫️"
+    if code in (51, 53, 55, 80, 81, 82):
+        return "🌦️"
+    if code in (56, 57, 66, 67):
+        return "🌧️❄️"
+    if code in (61, 63, 65):
+        return "🌧️"
+    if code in (71, 73, 75, 77, 85, 86):
+        return "❄️"
+    if code == 95:
+        return "⛈️"
+    if code in (96, 99):
+        return "⛈️🧊"
+    return "🌡️"
+
 
 def _temp_feel_fa(temp: float) -> str:
     if temp <= 5:
-        return "خیلی سرد"
+        return "خیلی سرد و منجمدکننده"
     if temp <= 14:
         return "سرد"
     if temp <= 21:
-        return "خنک"
+        return "خنک و دل‌چسب"
     if temp <= 29:
         return "معتدل و مطبوع"
     if temp <= 36:
         return "گرم"
-    return "خیلی گرم"
+    return "خیلی گرم و سوزان"
+
+
+def _wind_desc_fa(speed: float) -> str:
+    if speed < 5:
+        return "آرام و بی‌حرکت"
+    if speed < 20:
+        return "نسیم ملایم"
+    if speed < 40:
+        return "نسبتاً شدید"
+    return "شدید و طوفانی"
 
 
 async def get_weather_line() -> str:
-    """آب‌وهوای واقعیِ سرپل‌ذهاب از Open-Meteo (رایگان، بدون کلید).
+    """آب‌وهوای واقعیِ سرپل‌ذهاب از Open-Meteo (رایگان، بدون کلید) — به‌صورت یک بلوکِ چندخطیِ خوش‌خوان.
     اگر به هر دلیل در دسترس نبود، رشته‌ی خالی برمی‌گرداند و چیزی نمایش داده نمی‌شود."""
     if httpx is None:
         return ""
@@ -85,23 +120,48 @@ async def get_weather_line() -> str:
                     "latitude": SARPOL_LAT,
                     "longitude": SARPOL_LON,
                     "current_weather": "true",
+                    "daily": "temperature_2m_max,temperature_2m_min",
+                    "timezone": "auto",
                 }
             )
             data = resp.json()
             cw = data.get("current_weather", {})
             temp = cw.get("temperature")
             code = cw.get("weathercode")
+            wind = cw.get("windspeed")
+            is_day = cw.get("is_day", 1)
             if temp is None:
                 return ""
+
+            emoji = _weather_emoji(code, is_day)
+            desc = _WEATHER_CODE_FA.get(code, "نامشخص")
             feel = _temp_feel_fa(temp)
-            desc = _WEATHER_CODE_FA.get(code, "")
-            line = f"🌤️ سرپل‌ذهاب امروز {feel} به نظر می‌رسه"
-            if desc:
-                line += f" ({desc})"
-            line += f" — دما: {temp:.0f}°C"
-            return line
+
+            lines = [f"{emoji} *سرپل‌ذهاب* — {desc}، هوا {feel}"]
+            lines.append(f"🌡️ دمای فعلی: `{temp:.0f}°C`")
+
+            daily = data.get("daily", {})
+            tmax_list = daily.get("temperature_2m_max") or []
+            tmin_list = daily.get("temperature_2m_min") or []
+            if tmax_list and tmin_list:
+                lines.append(f"📈 بازه‌ی امروز: `{tmin_list[0]:.0f}°` تا `{tmax_list[0]:.0f}°`")
+
+            if wind is not None:
+                lines.append(f"💨 وزش باد: {_wind_desc_fa(wind)} (`{wind:.0f}` km/h)")
+
+            return "\n".join(lines)
     except Exception:
         return ""
+
+
+def _status_line(status: str) -> str:
+    status_map = {
+        "normal": "🟢 نرمال",
+        "bad": "🟡 احتیاطی",
+        "danger": "🔴 خطرناک",
+        "aps": "🪽 حالت APS",
+    }
+    return status_map.get(status, status)
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -139,34 +199,48 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     greeting = time_greeting(pname)
     weather = await get_weather_line()
 
-    # فقط خلاصه کوتاه — آمار تفصیلی در پنل پیشوا
     try:
         admins = await db.get_active_admins()
         pending = await db.get_pending_requests()
         pending_matches = await db.get_pending_matches()
         pending_tasks = [t for t in await db.get_all_tasks() if t["status"] == "pending"]
         status = await db.get_setting("system_status", "normal")
-        status_map = {"normal": "🟢 نرمال", "bad": "🟡 احتیاطی", "danger": "🔴 خطرناک", "aps": "🪽 APS"}
         wh = await db.get_setting("working_hours_active", "0")
         wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
         db_stat = await db.get_setting("db_manual_status", "1")
-        db_txt = "🔗 دیتابیس: فعال" if db_stat == "1" else "⚠️ دیتابیس: غیرفعال"
+        db_txt = "🔗 فعال" if db_stat == "1" else "⚠️ غیرفعال"
 
-        text = greeting + "\n"
+        parts = [
+            box("👑 پنل فرماندهی پیشوا"),
+            greeting,
+            f"📅 `{now_shamsi()}`",
+        ]
         if weather:
-            text += weather + "\n"
-        text += (
-            "\n"
-            "📡 " + status_map.get(status, status) + " | 🕐 " + wh_txt + "\n" + db_txt + "\n"
-            "👥 ادمین: `" + str(len(admins)) + "` | "
-            "📥 درخواست: `" + str(len(pending)) + "` | "
-            "⏳ بی‌نتیجه: `" + str(len(pending_matches)) + "` | "
-            "📋 وظایف: `" + str(len(pending_tasks)) + "`"
+            parts.append(separator("🌤 آب و هوا"))
+            parts.append(weather)
+
+        parts.append(separator("🚦 وضعیت سیستم"))
+        parts.append(
+            f"📡 وضعیت کلی: {_status_line(status)}\n"
+            f"🕐 ساعت کاری: {wh_txt}\n"
+            f"🗄️ دیتابیس: {db_txt}"
         )
+
+        parts.append(separator("📊 آمار سریع"))
+        parts.append(
+            f"👥 ادمین‌های فعال: `{len(admins)}`\n"
+            f"📥 درخواست در انتظار: `{len(pending)}`\n"
+            f"⏳ مسابقات بی‌نتیجه: `{len(pending_matches)}`\n"
+            f"📋 وظایف در جریان: `{len(pending_tasks)}`"
+        )
+
+        parts.append(separator())
+        parts.append("🏰 آماده‌ی فرماندهی هستید، هر دستوری بدید اجرا می‌کنم.")
+        text = "\n\n".join(parts)
     except Exception:
         text = greeting
         if weather:
-            text += "\n" + weather
+            text += "\n\n" + weather
 
     if update.message:
         await update.message.reply_text(text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
@@ -181,27 +255,43 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
     greeting = time_greeting(_aname)
     weather = await get_weather_line()
 
-    # خلاصه کوتاه — آمار تفصیلی در پنل مدیریت
     try:
         pending_matches = await db.get_pending_matches()
         pending_tasks = [t for t in await db.get_tasks_for(admin["telegram_id"]) if t["status"] == "pending"]
         warned = [p for p in await db.get_all_players() if p["warnings"] > 0]
         status = await db.get_setting("system_status", "normal")
-        status_map = {"normal": "🟢 نرمال", "bad": "🟡 احتیاطی", "danger": "🔴 خطرناک", "aps": "🪽 APS"}
+        wh = await db.get_setting("working_hours_active", "0")
+        wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
 
-        text = role_label + "\n" + greeting + "\n"
+        parts = [
+            box(f"{role_label}"),
+            greeting,
+            f"📅 `{now_shamsi()}`",
+        ]
         if weather:
-            text += weather + "\n"
-        text += (
-            "🚦 " + status_map.get(status, status) + "\n\n"
-            "⏳ بی‌نتیجه: `" + str(len(pending_matches)) + "` | "
-            "⚠️ با اخطار: `" + str(len(warned)) + "` | "
-            "📋 وظایف: `" + str(len(pending_tasks)) + "`"
+            parts.append(separator("🌤 آب و هوا"))
+            parts.append(weather)
+
+        parts.append(separator("🚦 وضعیت سیستم"))
+        parts.append(
+            f"📡 وضعیت کلی: {_status_line(status)}\n"
+            f"🕐 ساعت کاری: {wh_txt}"
         )
+
+        parts.append(separator("📊 خلاصه‌ی مأموریت‌ها"))
+        parts.append(
+            f"⏳ مسابقات بی‌نتیجه: `{len(pending_matches)}`\n"
+            f"⚠️ بازیکنان با اخطار: `{len(warned)}`\n"
+            f"📋 وظایف شما: `{len(pending_tasks)}`"
+        )
+
+        parts.append(separator())
+        parts.append("🎯 آماده‌ی انجام مأموریت‌های امروز هستید؟")
+        text = "\n\n".join(parts)
     except Exception:
         text = role_label + "\n" + greeting
         if weather:
-            text += "\n" + weather
+            text += "\n\n" + weather
 
     markup = kb.kb_tournament_manager_main() if admin["role"] == ROLE_TOURNAMENT_MANAGER else kb.kb_security_manager_main()
     if update.message:
