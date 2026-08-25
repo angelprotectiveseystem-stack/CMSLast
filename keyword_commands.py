@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 import database as db
 import keyboards as kb
 from helpers import box, separator, now_shamsi
-from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
+from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER, BOT_USERNAME
 
 ADMIN_KEYWORDS = {"تنظیم مدیر", "تنظیم مدیر امنیتی", "حذف مدیر", "حذف مدیر امنیتی"}
 
@@ -144,6 +144,146 @@ async def register_panel_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE, m
         ctx.chat_data[f"panel_owner_{msg_id}"] = uid
 
 
+# ─── پرسیدن محل باز شدن پنل (گروه vs پیوی) ──────────────────
+async def ask_panel_location(update: Update, ctx: ContextTypes.DEFAULT_TYPE, action: str):
+    """
+    وقتی در گروه keyword زده می‌شه، اول می‌پرسه:
+    «می‌خواید پنل اینجا (گروه) باز بشه یا در پیوی؟»
+    action رو در user_data ذخیره می‌کنه تا بعد از انتخاب استفاده بشه.
+    """
+    from telegram.ext import ApplicationHandlerStop
+    chat = update.effective_chat
+    if not chat or chat.type not in ("group", "supergroup"):
+        return False  # در پیوی نپرس، مستقیم باز کن
+
+    uid = update.effective_user.id
+    # ذخیره action برای استفاده بعد از انتخاب
+    ctx.user_data["pending_panel_action"] = action
+
+    bot_username = BOT_USERNAME or (await ctx.bot.get_me()).username
+
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📲 همینجا (گروه)", callback_data=f"open_panel_here_{action}"),
+            InlineKeyboardButton("🔒 پیوی (امن‌تر)", url=f"https://t.me/{bot_username}?start=panel_{action}"),
+        ]
+    ])
+    await update.message.reply_text(
+        f"📌 می‌خواید پنل *{_action_label(action)}* کجا باز بشه؟\n\n"
+        "🔒 *پیوی* — امن‌تر، فقط شما می‌بینید\n"
+        "📲 *همینجا* — در گروه، با قفل مالکیت",
+        reply_markup=markup,
+        parse_mode="Markdown"
+    )
+    raise ApplicationHandlerStop()
+
+
+def _action_label(action: str) -> str:
+    labels = {
+        "dashboard": "داشبورد",
+        "matches": "مسابقات",
+        "players": "بازیکنان",
+        "teams": "تیم‌ها",
+        "comms": "مخابرات",
+        "tasks": "وظایف",
+        "classes": "کلاس‌ها",
+        "lottery": "قرعه‌کشی",
+        "pishva_panel": "پنل پیشوا",
+        "security": "امنیت",
+        "backup": "بکاپ",
+        "requests": "درخواست‌ها",
+        "logs": "لاگ‌ها",
+        "settings": "تنظیمات",
+        "reminders": "یادآورها",
+        "help": "راهنما",
+    }
+    return labels.get(action, action)
+
+
+async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """
+    وقتی کاربر «همینجا» رو انتخاب می‌کنه، پنل رو در گروه باز می‌کنه.
+    این callback handler باید در bot.py ثبت بشه.
+    """
+    from telegram.ext import ApplicationHandlerStop
+    query = update.callback_query
+    uid = query.from_user.id
+
+    # بررسی که فقط همون کسی که پرسید می‌تونه جواب بده
+    # action از callback_data می‌گیریم: open_panel_here_{action}
+    parts = query.data.split("_", 3)
+    action = parts[-1] if len(parts) >= 4 else ""
+
+    is_pishva = (uid == PISHVA_ID)
+    admin = await db.get_admin(uid)
+    is_admin = bool(admin and admin["is_active"])
+
+    if not (is_pishva or is_admin):
+        await query.answer("⛔ شما مجوز باز کردن پنل را ندارید.", show_alert=True)
+        return
+
+    await query.answer()
+
+    # پنل مناسب رو باز می‌کنه
+    sent = None
+    if action == "pishva_panel" and is_pishva:
+        sent = await query.edit_message_text(
+            box("👑 پنل پیشوا"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
+        )
+    elif action == "dashboard":
+        from dashboard import build_dashboard_pishva_text, build_dashboard_admin_text
+        if is_pishva:
+            dtext = await build_dashboard_pishva_text()
+            sent = await query.edit_message_text(dtext, reply_markup=kb.kb_dashboard_pishva(), parse_mode="Markdown")
+        else:
+            dtext = await build_dashboard_admin_text(uid)
+            sent = await query.edit_message_text(dtext, reply_markup=kb.kb_dashboard_admin(), parse_mode="Markdown")
+    elif action == "matches":
+        sent = await query.edit_message_text(
+            box("♟️ مدیریت مسابقات"), reply_markup=kb.kb_matches_menu(), parse_mode="Markdown"
+        )
+    elif action == "players":
+        role_key = "pishva" if is_pishva else admin["role"]
+        sent = await query.edit_message_text(
+            box("👤 مدیریت بازیکنان"), reply_markup=kb.kb_players_menu(role_key), parse_mode="Markdown"
+        )
+    elif action == "teams":
+        team_mode = await db.get_setting("team_mode_enabled", "0")
+        if team_mode != "1":
+            await query.edit_message_text("❗ حالت تیمی در حال حاضر غیرفعال است.")
+            return
+        sent = await query.edit_message_text(
+            box("🏆 مدیریت تیم‌ها"), reply_markup=kb.kb_teams_menu(), parse_mode="Markdown"
+        )
+    elif action == "comms":
+        if is_pishva:
+            sent = await query.edit_message_text(box("📡 مخابرات"), reply_markup=kb.kb_comms_pishva(), parse_mode="Markdown")
+        else:
+            sent = await query.edit_message_text(box("📡 مخابرات"), reply_markup=kb.kb_comms_admin(), parse_mode="Markdown")
+    elif action == "tasks":
+        if is_pishva:
+            sent = await query.edit_message_text(box("📋 وظایف"), reply_markup=kb.kb_tasks_pishva(), parse_mode="Markdown")
+        else:
+            sent = await query.edit_message_text(box("📋 وظایف"), reply_markup=kb.kb_tasks_admin(), parse_mode="Markdown")
+    elif action == "classes":
+        sent = await query.edit_message_text(
+            box("🏫 مدیریت کلاس‌ها"), reply_markup=kb.kb_class_manage(), parse_mode="Markdown"
+        )
+    elif action == "lottery":
+        sent = await query.edit_message_text(
+            f"{box('🎲 قرعه‌کشی هوشمند')}\n\n📌 محدوده بازیکنان:",
+            reply_markup=kb.kb_lottery_scope(), parse_mode="Markdown"
+        )
+    else:
+        await query.edit_message_text("❗ این پنل در گروه پشتیبانی نمی‌شود. لطفاً در پیوی باز کنید.")
+        return
+
+    # ثبت مالکیت پنل
+    if sent and ctx.chat_data is not None:
+        msg_id = sent.message_id if hasattr(sent, "message_id") else query.message.message_id
+        ctx.chat_data[f"panel_owner_{msg_id}"] = uid
+
+
 async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     from telegram.ext import ApplicationHandlerStop
     if not update.message or not update.message.text:
@@ -170,22 +310,30 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     # ─── پنل پیشوا (کلمه «پیشوا») ───
     if action == "pishva_panel":
-        sent = await update.message.reply_text(
-            box("👑 پنل پیشوا"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
-        )
-        await register_panel_owner(update, ctx, sent.message_id)
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "pishva_panel")
+        else:
+            sent = await update.message.reply_text(
+                box("👑 پنل پیشوا"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
+            )
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── داشبورد ───
     if action == "dashboard":
-        from dashboard import build_dashboard_pishva_text, build_dashboard_admin_text
-        if is_pishva:
-            dtext = await build_dashboard_pishva_text()
-            sent = await update.message.reply_text(dtext, reply_markup=kb.kb_dashboard_pishva(), parse_mode="Markdown")
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "dashboard")
         else:
-            dtext = await build_dashboard_admin_text(uid)
-            sent = await update.message.reply_text(dtext, reply_markup=kb.kb_dashboard_admin(), parse_mode="Markdown")
-        await register_panel_owner(update, ctx, sent.message_id)
+            from dashboard import build_dashboard_pishva_text, build_dashboard_admin_text
+            if is_pishva:
+                dtext = await build_dashboard_pishva_text()
+                sent = await update.message.reply_text(dtext, reply_markup=kb.kb_dashboard_pishva(), parse_mode="Markdown")
+            else:
+                dtext = await build_dashboard_admin_text(uid)
+                sent = await update.message.reply_text(dtext, reply_markup=kb.kb_dashboard_admin(), parse_mode="Markdown")
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── اطلاعات/درباره/کیه — ریپلای روی پیام ───
@@ -300,37 +448,53 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     # ─── وظیفه ───
     if action == "tasks":
-        if is_pishva:
-            sent = await update.message.reply_text(box("📋 وظایف"), reply_markup=kb.kb_tasks_pishva(), parse_mode="Markdown")
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "tasks")
         else:
-            sent = await update.message.reply_text(box("📋 وظایف"), reply_markup=kb.kb_tasks_admin(), parse_mode="Markdown")
-        await register_panel_owner(update, ctx, sent.message_id)
+            if is_pishva:
+                sent = await update.message.reply_text(box("📋 وظایف"), reply_markup=kb.kb_tasks_pishva(), parse_mode="Markdown")
+            else:
+                sent = await update.message.reply_text(box("📋 وظایف"), reply_markup=kb.kb_tasks_admin(), parse_mode="Markdown")
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── مسابقه ───
     if action == "matches":
-        sent = await update.message.reply_text(
-            box("♟️ مدیریت مسابقات"), reply_markup=kb.kb_matches_menu(), parse_mode="Markdown"
-        )
-        await register_panel_owner(update, ctx, sent.message_id)
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "matches")
+        else:
+            sent = await update.message.reply_text(
+                box("♟️ مدیریت مسابقات"), reply_markup=kb.kb_matches_menu(), parse_mode="Markdown"
+            )
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── بازیکن ───
     if action == "players":
-        role_key = "pishva" if is_pishva else admin["role"]
-        sent = await update.message.reply_text(
-            box("👤 مدیریت بازیکنان"), reply_markup=kb.kb_players_menu(role_key), parse_mode="Markdown"
-        )
-        await register_panel_owner(update, ctx, sent.message_id)
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "players")
+        else:
+            role_key = "pishva" if is_pishva else admin["role"]
+            sent = await update.message.reply_text(
+                box("👤 مدیریت بازیکنان"), reply_markup=kb.kb_players_menu(role_key), parse_mode="Markdown"
+            )
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── مخابره ───
     if action == "comms":
-        if is_pishva:
-            sent = await update.message.reply_text(box("📡 مخابرات"), reply_markup=kb.kb_comms_pishva(), parse_mode="Markdown")
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "comms")
         else:
-            sent = await update.message.reply_text(box("📡 مخابرات"), reply_markup=kb.kb_comms_admin(), parse_mode="Markdown")
-        await register_panel_owner(update, ctx, sent.message_id)
+            if is_pishva:
+                sent = await update.message.reply_text(box("📡 مخابرات"), reply_markup=kb.kb_comms_pishva(), parse_mode="Markdown")
+            else:
+                sent = await update.message.reply_text(box("📡 مخابرات"), reply_markup=kb.kb_comms_admin(), parse_mode="Markdown")
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── امنیت ───
@@ -350,10 +514,14 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     # ─── کلاس ───
     if action == "classes":
-        sent = await update.message.reply_text(
-            box("🏫 مدیریت کلاس‌ها"), reply_markup=kb.kb_class_manage(), parse_mode="Markdown"
-        )
-        await register_panel_owner(update, ctx, sent.message_id)
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "classes")
+        else:
+            sent = await update.message.reply_text(
+                box("🏫 مدیریت کلاس‌ها"), reply_markup=kb.kb_class_manage(), parse_mode="Markdown"
+            )
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── تیم ───
@@ -362,10 +530,14 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         if team_mode != "1":
             await update.message.reply_text("❗ حالت تیمی در حال حاضر غیرفعال است.")
             return
-        sent = await update.message.reply_text(
-            box("🏆 مدیریت تیم‌ها"), reply_markup=kb.kb_teams_menu(), parse_mode="Markdown"
-        )
-        await register_panel_owner(update, ctx, sent.message_id)
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "teams")
+        else:
+            sent = await update.message.reply_text(
+                box("🏆 مدیریت تیم‌ها"), reply_markup=kb.kb_teams_menu(), parse_mode="Markdown"
+            )
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── بکاپ ───
@@ -427,11 +599,15 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     # ─── قرعه ───
     if action == "lottery":
-        sent = await update.message.reply_text(
-            f"{box('🎲 قرعه‌کشی هوشمند')}\n\n📌 محدوده بازیکنان:",
-            reply_markup=kb.kb_lottery_scope(), parse_mode="Markdown"
-        )
-        await register_panel_owner(update, ctx, sent.message_id)
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "lottery")
+        else:
+            sent = await update.message.reply_text(
+                f"{box('🎲 قرعه‌کشی هوشمند')}\n\n📌 محدوده بازیکنان:",
+                reply_markup=kb.kb_lottery_scope(), parse_mode="Markdown"
+            )
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── جدول / رتبه (Elo) ───

@@ -124,7 +124,7 @@ from reminders import (
     reminder_job, pishva_reminders, reminder_toggle,
     reminder_interval_menu, reminder_set_interval
 )
-from keyword_commands import handle_keyword_command, kw_announce_start, kw_news_start, panel_ownership_guard
+from keyword_commands import handle_keyword_command, kw_announce_start, kw_news_start, panel_ownership_guard, open_panel_here
 from security import (
     security_panel, security_queue_list, security_queue_item,
     request_to_queue, queue_approve, queue_release, queue_block_ask,
@@ -236,6 +236,7 @@ def build_application():
 
     # 🔒 محافظ مالکیت پنل در گروه — قبل از همه‌ی CallbackQueryHandler‌ها
     app.add_handler(CallbackQueryHandler(panel_ownership_guard, pattern=".*"), group=-2)
+    app.add_handler(CallbackQueryHandler(open_panel_here, pattern="^open_panel_here_"), group=0)
 
 
     # Auth
