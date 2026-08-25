@@ -254,8 +254,27 @@ async def dashboard_pishva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def dashboard_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("🔄 در حال بارگذاری...")
     uid = query.from_user.id
+
+    # ─── چک امنیتی: وضعیت سیستم و تنظیم داشبورد ادمین ────────────────
+    status = await db.get_setting("system_status", "normal")
+    dashboard_enabled = await db.get_setting("admin_dashboard_enabled", "1")
+
+    if status in ("danger", "aps"):
+        await query.answer(
+            "🔴 در وضعیت امنیتی فعلی دسترسی به داشبورد ادمین‌ها مسدود است.",
+            show_alert=True
+        )
+        return
+
+    if dashboard_enabled != "1":
+        await query.answer(
+            "📊 داشبورد ادمین‌ها توسط پیشوا غیرفعال شده است.",
+            show_alert=True
+        )
+        return
+
+    await query.answer("🔄 در حال بارگذاری...")
     text = await build_dashboard_admin_text(uid)
     from keyboards import kb_dashboard_admin
     await query.edit_message_text(text, reply_markup=kb_dashboard_admin(), parse_mode="Markdown")

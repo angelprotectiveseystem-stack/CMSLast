@@ -291,6 +291,7 @@ def kb_pishva_settings_simple(settings):
         [InlineKeyboardButton(f"🏆 حالت تیمی {tog('team_mode_enabled')}", callback_data="setting_team_mode"),
         InlineKeyboardButton(f"📝 ثبت‌نام با تیم {tog('team_registration_enabled')}", callback_data="setting_team_reg")],
         [InlineKeyboardButton(f"👤 مدیران سازنده تیم {tog('managers_can_create_teams')}", callback_data="setting_mgr_team")],
+        [InlineKeyboardButton(f"📊 داشبورد ادمین‌ها {tog('admin_dashboard_enabled')}", callback_data="setting_admin_dashboard")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
 
