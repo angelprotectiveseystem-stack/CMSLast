@@ -58,8 +58,8 @@ def moon_phase_emoji() -> str:
 
 _GREETINGS = {
     "late_night": [  # 23:00 - 4:00
-        "{moon} شب به‌خیر، *{name} عزیز*! الان که خیلی دیروقته، تا صبح بیداری؟",
-        "{moon} *{name} عزیز*، این‌موقع شب هنوز بیداری که  😄",
+        "{moon} شب به‌خیر، *{name} عزیز*! امشب که خیلی دیروقتی، تا صبح بیداری؟",
+        "{moon} *{name} عزیز*، این‌موقع شب هنوز بیدار؟ استراحتم بلدی ها 😄",
     ],
     "dawn": [  # 4:00 - 7:00
         "🌄 سحر بخیر، *{name} عزیز*! امروز عجب سحرخیز شدی‌ها",
@@ -157,7 +157,7 @@ _FOG_CODES = {45, 48}
 
 def _weather_emoji(code: int, is_day: int) -> str:
     if code in (0, 1):
-        return "☀️" if is_day else "🌙"
+        return "☀️" if is_day else "🌕"
     if code == 2:
         return "⛅" if is_day else "☁️"
     if code == 3:
@@ -224,10 +224,41 @@ def _status_line(status: str) -> str:
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    if uid == PISHVA_ID:
+    is_pishva = (uid == PISHVA_ID)
+    admin = None if is_pishva else await db.get_admin(uid)
+    is_admin = bool(admin and admin["is_active"])
+
+    # ─── دیپ‌لینک پنل (وقتی از دکمه‌ی «🔒 پیوی» در گروه اومده) ───
+    # لینک به‌صورت https://t.me/<bot>?start=panel_<action> ساخته می‌شه؛
+    # تلگرام این پارامتر رو به‌عنوان context.args[0] می‌فرسته.
+    args = ctx.args if ctx.args else []
+    payload = args[0] if args else None
+
+    if payload and payload.startswith("panel_") and (is_pishva or is_admin):
+        action = payload[len("panel_"):]
+        if is_admin:
+            await db.update_admin_activity(uid)
+
+        if action == "restart":
+            if is_pishva:
+                return await show_pishva_welcome(update, ctx)
+            return await show_admin_welcome(update, ctx, admin)
+
+        from keyword_commands import _panel_content, PISHVA_ONLY_ACTIONS
+        if action in PISHVA_ONLY_ACTIONS and not is_pishva:
+            await update.message.reply_text("⛔ این دستور فقط برای پیشواست.")
+            return ConversationHandler.END
+
+        text, markup, err = await _panel_content(action, uid, is_pishva, admin)
+        if text is None:
+            await update.message.reply_text(err or "❗ این پنل در دسترس نیست.")
+        else:
+            await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+        return ConversationHandler.END
+
+    if is_pishva:
         return await show_pishva_welcome(update, ctx)
-    admin = await db.get_admin(uid)
-    if admin and admin["is_active"]:
+    if is_admin:
         await db.update_admin_activity(uid)
         return await show_admin_welcome(update, ctx, admin)
 

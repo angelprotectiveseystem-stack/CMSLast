@@ -196,8 +196,68 @@ def _action_label(action: str) -> str:
         "settings": "تنظیمات",
         "reminders": "یادآورها",
         "help": "راهنما",
+        "restart": "خوش‌آمدگویی",
     }
     return labels.get(action, action)
+
+
+async def _panel_content(action: str, uid: int, is_pishva: bool, admin):
+    """
+    محتوای (متن، کیبورد) مربوط به یه اکشن پنل رو برمی‌گردونه.
+    این تابع منبع مشترکِ محتواست: هم «همینجا (گروه)» و هم دیپ‌لینک پیوی
+    از همینجا محتوا می‌گیرن تا دقیقاً یک چیز نمایش داده بشه.
+
+    خروجی: (text, markup, err)
+    - موفق: (text, markup, None)
+    - ناموفق: (None, None, پیام‌خطا)
+    """
+    if action == "pishva_panel":
+        if not is_pishva:
+            return None, None, "⛔ شما مجوز باز کردن این پنل را ندارید."
+        return box("👑 پنل پیشوا"), kb.kb_pishva_main(), None
+
+    if action == "dashboard":
+        from dashboard import build_dashboard_pishva_text, build_dashboard_admin_text
+        if is_pishva:
+            dtext = await build_dashboard_pishva_text()
+            return dtext, kb.kb_dashboard_pishva(), None
+        dtext = await build_dashboard_admin_text(uid)
+        return dtext, kb.kb_dashboard_admin(), None
+
+    if action == "matches":
+        return box("♟️ مدیریت مسابقات"), kb.kb_matches_menu(), None
+
+    if action == "players":
+        role_key = "pishva" if is_pishva else admin["role"]
+        return box("👤 مدیریت بازیکنان"), kb.kb_players_menu(role_key), None
+
+    if action == "teams":
+        team_mode = await db.get_setting("team_mode_enabled", "0")
+        if team_mode != "1":
+            return None, None, "❗ حالت تیمی در حال حاضر غیرفعال است."
+        return box("🏆 مدیریت تیم‌ها"), kb.kb_teams_menu(), None
+
+    if action == "comms":
+        if is_pishva:
+            return box("📡 مخابرات"), kb.kb_comms_pishva(), None
+        return box("📡 مخابرات"), kb.kb_comms_admin(), None
+
+    if action == "tasks":
+        if is_pishva:
+            return box("📋 وظایف"), kb.kb_tasks_pishva(), None
+        return box("📋 وظایف"), kb.kb_tasks_admin(), None
+
+    if action == "classes":
+        return box("🏫 مدیریت کلاس‌ها"), kb.kb_class_manage(), None
+
+    if action == "lottery":
+        return (
+            f"{box('🎲 قرعه‌کشی هوشمند')}\n\n📌 محدوده بازیکنان:",
+            kb.kb_lottery_scope(),
+            None,
+        )
+
+    return None, None, "❗ این پنل پشتیبانی نمی‌شود."
 
 
 async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -224,64 +284,29 @@ async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     await query.answer()
 
-    # پنل مناسب رو باز می‌کنه
-    sent = None
-    if action == "pishva_panel" and is_pishva:
-        sent = await query.edit_message_text(
-            box("👑 پنل پیشوا"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
-        )
-    elif action == "dashboard":
-        from dashboard import build_dashboard_pishva_text, build_dashboard_admin_text
+    # ─── شروع/پنل پیش‌فرض: همون چیزیه که /start نشون می‌ده ───
+    if action == "restart":
+        from auth import show_pishva_welcome, show_admin_welcome
         if is_pishva:
-            dtext = await build_dashboard_pishva_text()
-            sent = await query.edit_message_text(dtext, reply_markup=kb.kb_dashboard_pishva(), parse_mode="Markdown")
+            await show_pishva_welcome(update, ctx)
         else:
-            dtext = await build_dashboard_admin_text(uid)
-            sent = await query.edit_message_text(dtext, reply_markup=kb.kb_dashboard_admin(), parse_mode="Markdown")
-    elif action == "matches":
-        sent = await query.edit_message_text(
-            box("♟️ مدیریت مسابقات"), reply_markup=kb.kb_matches_menu(), parse_mode="Markdown"
-        )
-    elif action == "players":
-        role_key = "pishva" if is_pishva else admin["role"]
-        sent = await query.edit_message_text(
-            box("👤 مدیریت بازیکنان"), reply_markup=kb.kb_players_menu(role_key), parse_mode="Markdown"
-        )
-    elif action == "teams":
-        team_mode = await db.get_setting("team_mode_enabled", "0")
-        if team_mode != "1":
-            await query.edit_message_text("❗ حالت تیمی در حال حاضر غیرفعال است.")
-            return
-        sent = await query.edit_message_text(
-            box("🏆 مدیریت تیم‌ها"), reply_markup=kb.kb_teams_menu(), parse_mode="Markdown"
-        )
-    elif action == "comms":
-        if is_pishva:
-            sent = await query.edit_message_text(box("📡 مخابرات"), reply_markup=kb.kb_comms_pishva(), parse_mode="Markdown")
-        else:
-            sent = await query.edit_message_text(box("📡 مخابرات"), reply_markup=kb.kb_comms_admin(), parse_mode="Markdown")
-    elif action == "tasks":
-        if is_pishva:
-            sent = await query.edit_message_text(box("📋 وظایف"), reply_markup=kb.kb_tasks_pishva(), parse_mode="Markdown")
-        else:
-            sent = await query.edit_message_text(box("📋 وظایف"), reply_markup=kb.kb_tasks_admin(), parse_mode="Markdown")
-    elif action == "classes":
-        sent = await query.edit_message_text(
-            box("🏫 مدیریت کلاس‌ها"), reply_markup=kb.kb_class_manage(), parse_mode="Markdown"
-        )
-    elif action == "lottery":
-        sent = await query.edit_message_text(
-            f"{box('🎲 قرعه‌کشی هوشمند')}\n\n📌 محدوده بازیکنان:",
-            reply_markup=kb.kb_lottery_scope(), parse_mode="Markdown"
-        )
-    else:
-        await query.edit_message_text("❗ این پنل در گروه پشتیبانی نمی‌شود. لطفاً در پیوی باز کنید.")
+            await show_admin_welcome(update, ctx, admin)
+        if ctx.chat_data is not None:
+            ctx.chat_data[f"panel_owner_{query.message.message_id}"] = uid
         return
+
+    text, markup, err = await _panel_content(action, uid, is_pishva, admin)
+    if text is None:
+        await query.edit_message_text(err or "❗ این پنل در گروه پشتیبانی نمی‌شود. لطفاً در پیوی باز کنید.")
+        return
+
+    sent = await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
 
     # ثبت مالکیت پنل
     if sent and ctx.chat_data is not None:
         msg_id = sent.message_id if hasattr(sent, "message_id") else query.message.message_id
         ctx.chat_data[f"panel_owner_{msg_id}"] = uid
+
 
 
 async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -686,11 +711,17 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     # ─── شروع (فقط برای کاربران قبلاً ثبت‌شده — بدون فلوی ثبت‌نام) ───
     if action == "restart":
-        from auth import show_pishva_welcome, show_admin_welcome
-        if is_pishva:
-            await show_pishva_welcome(update, ctx)
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "restart")
         else:
-            await show_admin_welcome(update, ctx, admin)
+            from auth import show_pishva_welcome, show_admin_welcome
+            if is_pishva:
+                sent = await show_pishva_welcome(update, ctx)
+            else:
+                sent = await show_admin_welcome(update, ctx, admin)
+            if sent is not None and hasattr(sent, "message_id"):
+                await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── تنظیم/حذف مدیر (فقط پیشوا، با ریپلای) ───
