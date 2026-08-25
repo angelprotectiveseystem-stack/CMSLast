@@ -1,4 +1,3 @@
-import random
 from datetime import datetime, timezone, timedelta
 
 from telegram import Update
@@ -18,128 +17,96 @@ except Exception:  # pragma: no cover
     httpx = None
 
 
-# ─── زمان و خوش‌آمدگویی هوشمند و خودمونی (ساعت واقعی ایران) ────
+# ─── زمان و خوش‌آمدگویی هوشمند (ساعت واقعی ایران) ──────────────
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
-_GREETINGS = {
-    "late_night": [  # 23:00 - 4:00
-        "🌌 شب به‌خیر، *{name} عزیز*! امشب که خیلی دیروقتی، تا صبح بیداری؟",
-        "🌌 *{name} عزیز*، این‌موقع شب هنوز بیدار؟ استراحتم بلدی ها 😄",
-    ],
-    "dawn": [  # 4:00 - 7:00
-        "🌄 سحر بخیر، *{name} عزیز*! امروز عجب سحرخیز شدی‌ها",
-        "🌄 *{name} عزیز*، هنوز آفتاب نزده و تو بیداری، دمت گرم!",
-    ],
-    "morning": [  # 7:00 - 11:00
-        "☀️ صبح بخیر، *{name} عزیز*! روزت پرانرژی باشه",
-        "☀️ *{name} عزیز* صبح بخیر، وقت شروع یه روز خوبه",
-    ],
-    "noon": [  # 11:00 - 14:00
-        "🌞 ظهر بخیر، *{name} عزیز*! ناهار یادت نره",
-        "🌞 *{name} عزیز* ظهر بخیر، وسط روزی و بازم سرحالی",
-    ],
-    "afternoon": [  # 14:00 - 17:00
-        "🌤️ عصر بخیر، *{name} عزیز*",
-        "🌤️ *{name} عزیز*، عصر شیرینی داشته باشی",
-    ],
-    "evening": [  # 17:00 - 19:00
-        "🌇 غروب بخیر، *{name} عزیز*",
-        "🌇 *{name} عزیز*، وقت یه چای عصرونه‌ست",
-    ],
-    "night": [  # 19:00 - 23:00
-        "🌙 شب بخیر، *{name} عزیز*",
-        "🌙 *{name} عزیز*، شب خوبی داشته باشی",
-    ],
-}
+# ─── فاز واقعی ماه (بر پایه‌ی ماه سینودیکی، مستقل از API) ──────
+_KNOWN_NEW_MOON = datetime(2000, 1, 6, 18, 14, tzinfo=timezone.utc)
+_SYNODIC_MONTH = 29.530588861  # روز
+
+
+def moon_phase_emoji(dt: datetime | None = None) -> str:
+    """اموجی واقعیِ فاز ماه بر اساس تاریخ/ساعت واقعی (چرخه‌ی سینودیکی ماه).
+    دقت این محاسبه در حد چند ساعت است و برای نمایش در پیام کاملاً کافی‌ست."""
+    if dt is None:
+        dt = datetime.now(IRAN_TZ)
+    dt_utc = dt.astimezone(timezone.utc)
+    days_since_new = (dt_utc - _KNOWN_NEW_MOON).total_seconds() / 86400
+    phase = (days_since_new % _SYNODIC_MONTH) / _SYNODIC_MONTH  # 0..1
+
+    if phase < 0.03 or phase >= 0.97:
+        return "🌑"  # ماه نو
+    elif phase < 0.22:
+        return "🌒"  # هلال رو به رشد
+    elif phase < 0.28:
+        return "🌓"  # تربیع اول
+    elif phase < 0.47:
+        return "🌔"  # ماه محدب رو به رشد
+    elif phase < 0.53:
+        return "🌕"  # ماه کامل (بدر)
+    elif phase < 0.72:
+        return "🌖"  # ماه محدب رو به کاهش
+    elif phase < 0.78:
+        return "🌗"  # تربیع آخر
+    else:
+        return "🌘"  # هلال رو به کاهش
 
 
 def time_greeting(name: str) -> str:
-    """خوش‌آمدگویی خودمونی و متنوع بر اساس ساعت روز — اسم همیشه بولد."""
-    hour = datetime.now(IRAN_TZ).hour
-    if hour >= 23 or hour < 4:
-        bucket = "late_night"
-    elif hour < 7:
-        bucket = "dawn"
-    elif hour < 11:
-        bucket = "morning"
-    elif hour < 14:
-        bucket = "noon"
-    elif hour < 17:
-        bucket = "afternoon"
-    elif hour < 19:
-        bucket = "evening"
+    now = datetime.now(IRAN_TZ)
+    hour = now.hour
+    if 4 <= hour < 7:
+        g = "🌄 سحر بخیر"
+    elif 7 <= hour < 11:
+        g = "☀️ صبح بخیر"
+    elif 11 <= hour < 14:
+        g = "🌞 ظهر بخیر"
+    elif 14 <= hour < 17:
+        g = "🌤️ عصر بخیر"
+    elif 17 <= hour < 19:
+        g = "🌇 غروب خوبی داشته باشید"
+    elif 19 <= hour < 23:
+        g = f"{moon_phase_emoji(now)} شب بخیر"
     else:
-        bucket = "night"
-    return random.choice(_GREETINGS[bucket]).format(name=name)
+        g = f"{moon_phase_emoji(now)} شب به‌خیر"
+    return f"{g}، {name} عزیز"
 
 
 # ─── آب‌وهوای واقعی سرپل‌ذهاب (بدون نیاز به کلید API) ──────────
 SARPOL_LAT = 34.4597
 SARPOL_LON = 45.8646
 
-# هر کد آب‌وهوا چند برداشتِ کوتاه و متفاوت داره تا هربار یه‌شکل نباشه
-_WEATHER_MOOD = {
-    0: ["صاف و آفتابی", "بی‌ابر و روشن"],
-    1: ["تقریباً صاف", "کمی ابری"],
-    2: ["نیمه‌ابری", "ترکیبی از آفتاب و ابر"],
-    3: ["ابری و دلگیر", "یکدست ابری"],
-    45: ["مه‌آلود", "با دید کم به‌خاطر مه"],
-    48: ["مه یخ‌زده و سرد"],
-    51: ["نم‌نم بارونی"],
-    53: ["بارونیِ ملایم"],
-    55: ["بارونیِ نسبتاً شدید"],
-    56: ["بارونِ یخ‌زده‌ی سبک، لغزنده"],
-    57: ["بارونِ یخ‌زده، پرخطر"],
-    61: ["بارونیِ سبک"],
-    63: ["بارونیِ متوسط"],
-    65: ["بارونیِ شدید"],
-    66: ["بارونِ یخ‌زده، جاده‌ها لغزنده"],
-    67: ["بارونِ یخ‌زده‌ی شدید"],
-    71: ["برفیِ سبک"],
-    73: ["برفیِ متوسط"],
-    75: ["برفیِ سنگین"],
-    77: ["با دانه‌های ریز برف"],
-    80: ["با رگبار ناگهانی"],
-    81: ["با رگبارهای پیاپی"],
-    82: ["با رگبار شدید"],
-    85: ["با رگبار برف سبک"],
-    86: ["با رگبار برف شدید"],
-    95: ["طوفانی و رعدوبرقی"],
-    96: ["طوفانی همراه با تگرگ سبک"],
-    99: ["طوفانی و پرتگرگ"],
+_WEATHER_CODE_FA = {
+    0: "صاف و آفتابی", 1: "کمی ابری", 2: "نیمه‌ابری", 3: "ابری",
+    45: "مه‌آلود", 48: "مه یخ‌زده",
+    51: "نم‌نم باران", 53: "باران ملایم", 55: "باران",
+    56: "باران یخ‌زده سبک", 57: "باران یخ‌زده",
+    61: "باران سبک", 63: "باران متوسط", 65: "باران شدید",
+    66: "باران یخ‌زده", 67: "باران یخ‌زده شدید",
+    71: "برف سبک", 73: "برف متوسط", 75: "برف شدید", 77: "دانه‌های برف",
+    80: "رگبار سبک", 81: "رگبار", 82: "رگبار شدید",
+    85: "رگبار برف سبک", 86: "رگبار برف شدید",
+    95: "رعد و برق", 96: "رعد و برق با تگرگ سبک", 99: "رعد و برق با تگرگ شدید",
 }
 
-_STORM_CODES = {95, 96, 99}
-_SNOW_CODES = {71, 73, 75, 77, 85, 86}
-_ICE_CODES = {56, 57, 66, 67}
-_PRECIP_CODES = {51, 53, 55, 61, 63, 65, 80, 81, 82} | _ICE_CODES | _STORM_CODES
-_FOG_CODES = {45, 48}
 
-
-def _weather_emoji(code: int, is_day: int) -> str:
-    if code in (0, 1):
-        return "☀️" if is_day else "🌕"
-    if code == 2:
-        return "⛅" if is_day else "☁️"
-    if code == 3:
-        return "☁️"
-    if code in _FOG_CODES:
-        return "🌫️"
-    if code in _STORM_CODES:
-        return "⛈️"
-    if code in _SNOW_CODES:
-        return "❄️"
-    if code in _ICE_CODES:
-        return "🌧️❄️"
-    if code in _PRECIP_CODES:
-        return "🌧️"
-    return "🌡️"
+def _temp_feel_fa(temp: float) -> str:
+    if temp <= 5:
+        return "خیلی سرد"
+    if temp <= 14:
+        return "سرد"
+    if temp <= 21:
+        return "خنک"
+    if temp <= 29:
+        return "معتدل و مطبوع"
+    if temp <= 36:
+        return "گرم"
+    return "خیلی گرم"
 
 
 async def get_weather_line() -> str:
-    """یک جمله‌ی کوتاه و خودمونی درباره‌ی آب‌وهوای سرپل‌ذهاب.
-    نوعِ توصیف صرفاً بر اساس دما نیست؛ کدِ واقعیِ آب‌وهوا تعیین‌کننده‌ست.
-    اگر در دسترس نبود، رشته‌ی خالی برمی‌گرداند."""
+    """آب‌وهوای واقعیِ سرپل‌ذهاب از Open-Meteo (رایگان، بدون کلید).
+    اگر به هر دلیل در دسترس نبود، رشته‌ی خالی برمی‌گرداند و چیزی نمایش داده نمی‌شود."""
     if httpx is None:
         return ""
     try:
@@ -156,31 +123,17 @@ async def get_weather_line() -> str:
             cw = data.get("current_weather", {})
             temp = cw.get("temperature")
             code = cw.get("weathercode")
-            wind = cw.get("windspeed")
-            is_day = cw.get("is_day", 1)
             if temp is None:
                 return ""
-
-            emoji = _weather_emoji(code, is_day)
-            mood = random.choice(_WEATHER_MOOD.get(code, ["نامشخص"]))
-            time_word = "امروز" if is_day else "امشب"
-
-            line = f"{emoji} سرپل‌ذهاب {time_word} {mood} به‌نظر می‌رسه! (`{temp:.0f}°C`)"
-            if wind is not None and wind >= 35:
-                line += f" 💨 بادش هم شدیده"
+            feel = _temp_feel_fa(temp)
+            desc = _WEATHER_CODE_FA.get(code, "")
+            line = f"🌤️ سرپل‌ذهاب امروز {feel} به نظر می‌رسه"
+            if desc:
+                line += f" ({desc})"
+            line += f" — دما: {temp:.0f}°C"
             return line
     except Exception:
         return ""
-
-
-def _status_line(status: str) -> str:
-    status_map = {
-        "normal": "🟢 نرمال",
-        "bad": "🟡 احتیاطی",
-        "danger": "🔴 خطرناک",
-        "aps": "🪽 حالت APS",
-    }
-    return status_map.get(status, status)
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -218,28 +171,29 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     greeting = time_greeting(pname)
     weather = await get_weather_line()
 
+    # فقط خلاصه کوتاه — آمار تفصیلی در پنل پیشوا
     try:
         admins = await db.get_active_admins()
         pending = await db.get_pending_requests()
         pending_matches = await db.get_pending_matches()
         pending_tasks = [t for t in await db.get_all_tasks() if t["status"] == "pending"]
         status = await db.get_setting("system_status", "normal")
+        status_map = {"normal": "🟢 نرمال", "bad": "🟡 احتیاطی", "danger": "🔴 خطرناک", "aps": "🪽 APS"}
         wh = await db.get_setting("working_hours_active", "0")
         wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
         db_stat = await db.get_setting("db_manual_status", "1")
-        db_txt = "🔗 فعال" if db_stat == "1" else "⚠️ غیرفعال"
+        db_txt = "🔗 دیتابیس: فعال" if db_stat == "1" else "⚠️ دیتابیس: غیرفعال"
 
-        text = (
-            f"👑 *پنل پیشوا*\n"
-            f"{greeting}\n"
-            f"🕰 `{now_shamsi()}`\n"
-        )
+        text = greeting + "\n"
         if weather:
-            text += f"\n{weather}\n"
+            text += weather + "\n"
         text += (
-            f"\n📡 {_status_line(status)} | 🕐 کاری: {wh_txt} | 🗄️ دیتابیس: {db_txt}\n"
-            f"👥 ادمین: `{len(admins)}` | 📥 درخواست: `{len(pending)}` | "
-            f"⏳ بی‌نتیجه: `{len(pending_matches)}` | 📋 وظایف: `{len(pending_tasks)}`"
+            "\n"
+            "📡 " + status_map.get(status, status) + " | 🕐 " + wh_txt + "\n" + db_txt + "\n"
+            "👥 ادمین: `" + str(len(admins)) + "` | "
+            "📥 درخواست: `" + str(len(pending)) + "` | "
+            "⏳ بی‌نتیجه: `" + str(len(pending_matches)) + "` | "
+            "📋 وظایف: `" + str(len(pending_tasks)) + "`"
         )
     except Exception:
         text = greeting
@@ -259,25 +213,22 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
     greeting = time_greeting(_aname)
     weather = await get_weather_line()
 
+    # خلاصه کوتاه — آمار تفصیلی در پنل مدیریت
     try:
         pending_matches = await db.get_pending_matches()
         pending_tasks = [t for t in await db.get_tasks_for(admin["telegram_id"]) if t["status"] == "pending"]
         warned = [p for p in await db.get_all_players() if p["warnings"] > 0]
         status = await db.get_setting("system_status", "normal")
-        wh = await db.get_setting("working_hours_active", "0")
-        wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
+        status_map = {"normal": "🟢 نرمال", "bad": "🟡 احتیاطی", "danger": "🔴 خطرناک", "aps": "🪽 APS"}
 
-        text = (
-            f"{role_label}\n"
-            f"{greeting}\n"
-            f"🕰 `{now_shamsi()}`\n"
-        )
+        text = role_label + "\n" + greeting + "\n"
         if weather:
-            text += f"\n{weather}\n"
+            text += weather + "\n"
         text += (
-            f"\n📡 {_status_line(status)} | 🕐 کاری: {wh_txt}\n"
-            f"⏳ بی‌نتیجه: `{len(pending_matches)}` | ⚠️ اخطار: `{len(warned)}` | "
-            f"📋 وظایف: `{len(pending_tasks)}`"
+            "🚦 " + status_map.get(status, status) + "\n\n"
+            "⏳ بی‌نتیجه: `" + str(len(pending_matches)) + "` | "
+            "⚠️ با اخطار: `" + str(len(warned)) + "` | "
+            "📋 وظایف: `" + str(len(pending_tasks)) + "`"
         )
     except Exception:
         text = role_label + "\n" + greeting
