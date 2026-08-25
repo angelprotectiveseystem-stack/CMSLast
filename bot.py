@@ -770,7 +770,7 @@ def build_application():
     # ══════════════════════════════════════════
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_command),
-        group=-1
+        group=-2
     )
 
     return app
