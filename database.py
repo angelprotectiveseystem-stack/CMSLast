@@ -593,6 +593,53 @@ async def set_match_result(mid: int, result: str, draw_reason: str, updated_by: 
         await db.commit()
 
 
+async def record_match_result(mid: int, result: str, reason: str, updated_by: int):
+    """
+    ثبت نتیجه‌ی مسابقه + آپدیت آمار بازیکن‌ها، با دو تا محافظ:
+
+    1) idempotency guard: اگه مسابقه از قبل نتیجه داشته باشه (مثلاً به‌خاطر
+       دوبار تپ کردن ادمین)، هیچ نوشتنی انجام نمی‌ده و False برمی‌گردونه.
+    2) اگه وسط کار (بین قدم‌ها) خطا بخوریم، دقیقاً می‌فهمیم کدوم قدم شکست
+       خورده (تو لاگ ثبت می‌شه) و exception دوباره raise می‌شه تا لایه‌ی
+       بالاتر (matches.py) بتونه به پیشوا هشدار بده که این مسابقه ممکنه
+       دیتای ناقص داشته باشه و نیاز به بررسی دستی داره.
+
+    توجه: چون هر دستور به Turso جداگانه commit می‌شه، این یه rollback
+    واقعی نیست - فقط جلوی نوشتن دوباره رو می‌گیره و خرابی‌های واقعی رو
+    به‌جای سکوت، بلند اعلام می‌کنه.
+    """
+    m = await get_match(mid)
+    if m is None:
+        raise ValueError(f"مسابقه {mid} پیدا نشد")
+    if m["result"] is not None:
+        return False  # قبلاً ثبت شده - از دوبار شمردن جلوگیری می‌کنیم
+
+    stat_map = {
+        "white": ("win", "loss"),
+        "black": ("loss", "win"),
+        "draw": ("draw", "draw"),
+    }
+    if result not in stat_map:
+        raise ValueError(f"نتیجه‌ی نامعتبر: {result}")
+    white_stat, black_stat = stat_map[result]
+
+    step = "set_match_result"
+    try:
+        await set_match_result(mid, result, reason, updated_by)
+        step = "update_white_stats"
+        await update_player_stats(m["white_player_id"], white_stat)
+        step = "update_black_stats"
+        await update_player_stats(m["black_player_id"], black_stat)
+    except Exception as e:
+        logger.error(
+            f"⚠️ ثبت نتیجه مسابقه {mid} در مرحله '{step}' شکست خورد: {e} — "
+            f"داده ممکنه ناقص مونده باشه، نیاز به بررسی دستیه."
+        )
+        raise
+
+    return True
+
+
 async def get_matches_by_filter(period: str = "all"):
     from datetime import timedelta
     now = datetime.now()

@@ -157,9 +157,18 @@ async def result_white(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     mid = int(query.data.split("_")[-1])
     m = await db.get_match(mid)
-    await db.set_match_result(mid, "white", "", query.from_user.id)
-    await db.update_player_stats(m["white_player_id"], "win")
-    await db.update_player_stats(m["black_player_id"], "loss")
+    try:
+        recorded = await db.record_match_result(mid, "white", "", query.from_user.id)
+    except Exception:
+        await query.edit_message_text(
+            "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
+            "داشته باشه — به پیشوا اطلاع داده شد، لطفاً دستی چک کنید.")
+        await notify_pishva(query.get_bot(),
+            f"🚨 ثبت نتیجه مسابقه {mid} (برد سفید) با خطا مواجه شد. لطفاً دستی بررسی کنید.")
+        return
+    if not recorded:
+        await query.answer("این مسابقه قبلاً نتیجه‌اش ثبت شده.", show_alert=True)
+        return
     await db.log_action(query.from_user.id, "match_result", f"برد سفید — مسابقه {mid}", mid)
     chg_w = chg_b = 0
     try:
@@ -194,9 +203,18 @@ async def result_black(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     mid = int(query.data.split("_")[-1])
     m = await db.get_match(mid)
-    await db.set_match_result(mid, "black", "", query.from_user.id)
-    await db.update_player_stats(m["black_player_id"], "win")
-    await db.update_player_stats(m["white_player_id"], "loss")
+    try:
+        recorded = await db.record_match_result(mid, "black", "", query.from_user.id)
+    except Exception:
+        await query.edit_message_text(
+            "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
+            "داشته باشه — به پیشوا اطلاع داده شد، لطفاً دستی چک کنید.")
+        await notify_pishva(query.get_bot(),
+            f"🚨 ثبت نتیجه مسابقه {mid} (برد سیاه) با خطا مواجه شد. لطفاً دستی بررسی کنید.")
+        return
+    if not recorded:
+        await query.answer("این مسابقه قبلاً نتیجه‌اش ثبت شده.", show_alert=True)
+        return
     await db.log_action(query.from_user.id, "match_result", f"برد سیاه — مسابقه {mid}", mid)
     chg_w = chg_b = 0
     try:
@@ -247,9 +265,18 @@ async def draw_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return ST_MATCH_DRAW_REASON
     reason = reason_map.get(reason_key, reason_key)
     m = await db.get_match(mid)
-    await db.set_match_result(mid, "draw", reason, query.from_user.id)
-    await db.update_player_stats(m["white_player_id"], "draw")
-    await db.update_player_stats(m["black_player_id"], "draw")
+    try:
+        recorded = await db.record_match_result(mid, "draw", reason, query.from_user.id)
+    except Exception:
+        await query.edit_message_text(
+            "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
+            "داشته باشه — به پیشوا اطلاع داده شد، لطفاً دستی چک کنید.")
+        await notify_pishva(query.get_bot(),
+            f"🚨 ثبت نتیجه مسابقه {mid} (تساوی) با خطا مواجه شد. لطفاً دستی بررسی کنید.")
+        return
+    if not recorded:
+        await query.answer("این مسابقه قبلاً نتیجه‌اش ثبت شده.", show_alert=True)
+        return
     await db.log_action(query.from_user.id, "match_result", f"تساوی ({reason}) — {mid}", mid)
     chg_w = chg_b = 0
     try:
@@ -276,10 +303,19 @@ async def draw_reason_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     reason = update.message.text.strip()
     mid = ctx.user_data.get("draw_match")
     if mid:
-        m = await db.get_match(mid)
-        await db.set_match_result(mid, "draw", reason, update.effective_user.id)
-        await db.update_player_stats(m["white_player_id"], "draw")
-        await db.update_player_stats(m["black_player_id"], "draw")
+        try:
+            recorded = await db.record_match_result(mid, "draw", reason, update.effective_user.id)
+        except Exception:
+            await update.message.reply_text(
+                "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
+                "داشته باشه — به پیشوا اطلاع داده شد، لطفاً دستی چک کنید.")
+            await notify_pishva(ctx.bot,
+                f"🚨 ثبت نتیجه مسابقه {mid} (تساوی) با خطا مواجه شد. لطفاً دستی بررسی کنید.")
+            return ConversationHandler.END
+        if not recorded:
+            await update.message.reply_text("این مسابقه قبلاً نتیجه‌اش ثبت شده.")
+            return ConversationHandler.END
+        await db.log_action(update.effective_user.id, "match_result", f"تساوی ({reason}) — {mid}", mid)
         await update.message.reply_text(
             f"🤝 تساوی ثبت شد.\n📋 علت: *{reason}*",
             reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
