@@ -1,0 +1,407 @@
+import random
+from datetime import datetime, timezone, timedelta
+
+from telegram import Update
+from telegram.ext import ContextTypes, ConversationHandler
+
+import database as db
+import keyboards as kb
+from helpers import now_shamsi, box, separator, pishva_display, notify_pishva
+from config import (PISHVA_ID, PISHVA_PASSWORD, ROLE_PISHVA,
+                     ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER,
+                     ST_ROLE_SELECT, ST_PISHVA_PASSWORD, ST_ADMIN_USERNAME,
+                     ST_ADMIN_FULLNAME, ST_ACCESS_REQUEST_MSG)
+
+try:
+    import httpx
+except Exception:  # pragma: no cover
+    httpx = None
+
+
+# ─── زمان و خوش‌آمدگویی هوشمند (ساعت واقعی ایران) ──────────────
+IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
+
+
+def time_greeting(name: str) -> str:
+    """خوش‌آمدگویی بر اساس ساعت روز — اسم همیشه بولد نمایش داده می‌شود."""
+    hour = datetime.now(IRAN_TZ).hour
+    if 4 <= hour < 7:
+        g = "🌄 سحر بخیر"
+    elif 7 <= hour < 11:
+        g = "☀️ صبح بخیر"
+    elif 11 <= hour < 14:
+        g = "🌞 ظهر بخیر"
+    elif 14 <= hour < 17:
+        g = "🌤️ عصر بخیر"
+    elif 17 <= hour < 19:
+        g = "🌇 غروب خوبی داشته باشید"
+    elif 19 <= hour < 23:
+        g = "🌙 شب بخیر"
+    else:
+        g = "🌌 شب به‌خیر"
+    return f"{g}، *{name} عزیز*"
+
+
+# ─── آب‌وهوای واقعی سرپل‌ذهاب (بدون نیاز به کلید API) ──────────
+SARPOL_LAT = 34.4597
+SARPOL_LON = 45.8646
+
+# هر کد آب‌وهوا چند برداشتِ متفاوت داره تا هربار یه شکل نمایش داده نشه
+_WEATHER_MOOD = {
+    0: ["آسمان کاملاً صاف", "هوای صاف و بی‌ابر", "آسمانی شفاف و روشن"],
+    1: ["آسمان تقریباً صاف", "کمی ابر پراکنده در آسمان"],
+    2: ["آسمان نیمه‌ابری", "قسمتی از آسمان ابری‌ست", "ترکیبی از آفتاب و ابر"],
+    3: ["آسمان ابری و پوشیده", "هوای ابری و دلگیر", "آسمانی یکدست ابری"],
+    45: ["مه غلیظ در جاده و اطراف", "دید کم به‌خاطر مه"],
+    48: ["مه یخ‌زده و سرد", "مه سنگین همراه با سرما"],
+    51: ["نم‌نم بارانِ ملایم", "رطوبتی سبک در هوا"],
+    53: ["بارانی ملایم و پیوسته", "باران متوسط در جریانه"],
+    55: ["بارانی نسبتاً شدید", "آسمان بارانی و پرآب"],
+    56: ["بارانِ یخ‌زده‌ی سبک — لغزنده", "سرمای همراه با بارش یخی سبک"],
+    57: ["بارانِ یخ‌زده — احتیاط در تردد", "هوای خطرناک برای رانندگی"],
+    61: ["بارانی سبک می‌باره", "رگبار کوتاه و سبک"],
+    63: ["بارانی با شدت متوسط", "آسمان بارانی معمولی"],
+    65: ["بارانی شدید و پیوسته", "رگبارهای سنگین در راهه"],
+    66: ["بارانِ یخ‌زده — جاده‌ها لغزنده", "سرمای شدید همراه با یخ"],
+    67: ["بارانِ یخ‌زده‌ی شدید", "هوای بسیار خطرناک برای تردد"],
+    71: ["برفی سبک می‌باره", "دانه‌های برف در هوا"],
+    73: ["برفی با شدت متوسط", "برف‌باری پیوسته"],
+    75: ["برف سنگین و انباشته", "کولاک ملایم برفی"],
+    77: ["دانه‌های ریز برف در هوا", "برفکِ پراکنده"],
+    80: ["رگبار ناگهانی و کوتاه", "بارش پراکنده و موقتی"],
+    81: ["رگبارهای پیاپی", "باران‌های موقتی ولی شدید"],
+    82: ["رگبار شدید و ناگهانی", "سیل‌آسا و کوتاه‌مدت"],
+    85: ["رگبار برف سبک", "برفِ ناگهانی و کوتاه"],
+    86: ["رگبار برف شدید", "کولاک ناگهانی برفی"],
+    95: ["رعدوبرق همراه با باران", "طوفان الکتریکی در آسمان"],
+    96: ["رعدوبرق با تگرگ سبک", "طوفان همراه با دانه‌های تگرگ"],
+    99: ["رعدوبرق شدید همراه با تگرگ", "طوفان سهمگین با تگرگ درشت"],
+}
+
+_PRECIP_CODES = {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99}
+_SNOW_CODES = {71, 73, 75, 77, 85, 86}
+_STORM_CODES = {95, 96, 99}
+_FOG_CODES = {45, 48}
+
+
+def _weather_emoji(code: int, is_day: int) -> str:
+    if code in (0, 1):
+        return "☀️" if is_day else "🌕"
+    if code == 2:
+        return "⛅" if is_day else "☁️"
+    if code == 3:
+        return "☁️"
+    if code in _FOG_CODES:
+        return "🌫️"
+    if code in _STORM_CODES:
+        return "⛈️"
+    if code in _SNOW_CODES:
+        return "❄️"
+    if code in (56, 57, 66, 67):
+        return "🌧️❄️"
+    if code in _PRECIP_CODES:
+        return "🌧️"
+    return "🌡️"
+
+
+def _feel_phrase(temp: float, code: int, wind: float) -> str:
+    """احساس دما، نه فقط بر اساس عدد دما بلکه با در نظر گرفتن نوع آب‌وهوا و باد."""
+    if temp <= 0:
+        bucket = ["سرمای منجمدکننده", "یخبندان و طاقت‌فرسا"]
+    elif temp <= 10:
+        bucket = ["هوای سرد", "خنکایی رو به سرما"]
+    elif temp <= 18:
+        bucket = ["هوای خنک و دل‌چسب", "خنکای مطبوع"]
+    elif temp <= 26:
+        bucket = ["هوای معتدل و مطبوع", "دمایی رویایی و دلپذیر"]
+    elif temp <= 33:
+        bucket = ["هوای گرم", "گرمای قابل‌تحمل"]
+    else:
+        bucket = ["گرمای سوزان", "هوای داغ و طاقت‌فرسا"]
+    phrase = random.choice(bucket)
+
+    if code in _STORM_CODES:
+        phrase += "، همراه با طوفان"
+    elif code in _SNOW_CODES:
+        phrase += "، برفی"
+    elif code in (56, 57, 66, 67):
+        phrase += "، لغزنده و پرخطر"
+    elif code in _PRECIP_CODES:
+        phrase += "، بارانی"
+    elif code in _FOG_CODES:
+        phrase += "، در میان مه"
+
+    if wind is not None and wind >= 35:
+        phrase += " و باد شدید"
+
+    return phrase
+
+
+async def get_weather_line() -> str:
+    """آب‌وهوای واقعیِ سرپل‌ذهاب از Open-Meteo — خلاصه، متنوع و بدون نیاز به کلید.
+    اگر در دسترس نبود، رشته‌ی خالی برمی‌گرداند."""
+    if httpx is None:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": SARPOL_LAT,
+                    "longitude": SARPOL_LON,
+                    "current_weather": "true",
+                    "daily": "temperature_2m_max,temperature_2m_min",
+                    "timezone": "auto",
+                }
+            )
+            data = resp.json()
+            cw = data.get("current_weather", {})
+            temp = cw.get("temperature")
+            code = cw.get("weathercode")
+            wind = cw.get("windspeed")
+            is_day = cw.get("is_day", 1)
+            if temp is None:
+                return ""
+
+            emoji = _weather_emoji(code, is_day)
+            mood = random.choice(_WEATHER_MOOD.get(code, ["وضعیت هوا نامشخص"]))
+            feel = _feel_phrase(temp, code, wind)
+
+            daily = data.get("daily", {})
+            tmax = (daily.get("temperature_2m_max") or [None])[0]
+            tmin = (daily.get("temperature_2m_min") or [None])[0]
+            range_txt = f" (امروز `{tmin:.0f}°`–`{tmax:.0f}°`)" if tmax is not None and tmin is not None else ""
+
+            line = f"{emoji} *سرپل‌ذهاب*: {mood}، {feel} `{temp:.0f}°C`{range_txt}"
+            if wind is not None and wind >= 25:
+                line += f"\n💨 وزش باد نسبتاً شدید (`{wind:.0f}` km/h)"
+            return line
+    except Exception:
+        return ""
+
+
+def _status_line(status: str) -> str:
+    status_map = {
+        "normal": "🟢 نرمال",
+        "bad": "🟡 احتیاطی",
+        "danger": "🔴 خطرناک",
+        "aps": "🪽 حالت APS",
+    }
+    return status_map.get(status, status)
+
+
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if uid == PISHVA_ID:
+        return await show_pishva_welcome(update, ctx)
+    admin = await db.get_admin(uid)
+    if admin and admin["is_active"]:
+        await db.update_admin_activity(uid)
+        return await show_admin_welcome(update, ctx, admin)
+
+    # ⏳ اگر این شخص در صف انتظار امنیتی است، اجازه‌ی درخواست جدید نمی‌دهیم
+    queued = await db.get_queued_request_by_uid(uid)
+    if queued:
+        await update.message.reply_text(
+            "⏳ *در صف انتظار امنیتی*\n\n"
+            "درخواست شما در حال بررسی توسط واحد امنیتی APS است.\n"
+            "تا اطلاع ثانویه امکان ارسال درخواست جدید برای شما وجود ندارد. لطفاً صبور باشید.",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
+    admin_login = await db.get_setting("admin_login_enabled", "1")
+    if admin_login != "1":
+        await update.message.reply_text("🔒 ورود ادمین‌ها غیرفعال است.")
+        return ConversationHandler.END
+    text = "⚔️ *سیستم فرماندهی شطرنج*\n\n🪪 نقش خود را انتخاب کنید:"
+    await update.message.reply_text(text, reply_markup=kb.kb_role_select(), parse_mode="Markdown")
+    return ST_ROLE_SELECT
+
+
+async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await db.log_action(PISHVA_ID, "login", "ورود پیشوا")
+    pname = await pishva_display()
+    greeting = time_greeting(pname)
+    weather = await get_weather_line()
+
+    try:
+        admins = await db.get_active_admins()
+        pending = await db.get_pending_requests()
+        pending_matches = await db.get_pending_matches()
+        pending_tasks = [t for t in await db.get_all_tasks() if t["status"] == "pending"]
+        status = await db.get_setting("system_status", "normal")
+        wh = await db.get_setting("working_hours_active", "0")
+        wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
+        db_stat = await db.get_setting("db_manual_status", "1")
+        db_txt = "🔗 فعال" if db_stat == "1" else "⚠️ غیرفعال"
+
+        text = box("👑 پنل فرماندهی پیشوا") + "\n"
+        text += f"{greeting} — `{now_shamsi()}`\n\n"
+        if weather:
+            text += weather + "\n\n"
+        text += (
+            f"📡 {_status_line(status)} | 🕐 ساعت کاری: {wh_txt} | 🗄️ دیتابیس: {db_txt}\n"
+            f"👥 ادمین: `{len(admins)}` | 📥 درخواست: `{len(pending)}` | "
+            f"⏳ بی‌نتیجه: `{len(pending_matches)}` | 📋 وظایف: `{len(pending_tasks)}`"
+        )
+    except Exception:
+        text = greeting
+        if weather:
+            text += "\n" + weather
+
+    if update.message:
+        await update.message.reply_text(text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
+    else:
+        await update.callback_query.edit_message_text(text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
+    return ConversationHandler.END
+
+
+async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, admin):
+    role_label = "🏆 مدیر مسابقات" if admin["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
+    _aname = admin["display_name"] or admin["full_name"]
+    greeting = time_greeting(_aname)
+    weather = await get_weather_line()
+
+    try:
+        pending_matches = await db.get_pending_matches()
+        pending_tasks = [t for t in await db.get_tasks_for(admin["telegram_id"]) if t["status"] == "pending"]
+        warned = [p for p in await db.get_all_players() if p["warnings"] > 0]
+        status = await db.get_setting("system_status", "normal")
+        wh = await db.get_setting("working_hours_active", "0")
+        wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
+
+        text = box(role_label) + "\n"
+        text += f"{greeting} — `{now_shamsi()}`\n\n"
+        if weather:
+            text += weather + "\n\n"
+        text += (
+            f"📡 {_status_line(status)} | 🕐 ساعت کاری: {wh_txt}\n"
+            f"⏳ بی‌نتیجه: `{len(pending_matches)}` | ⚠️ اخطار: `{len(warned)}` | "
+            f"📋 وظایف: `{len(pending_tasks)}`"
+        )
+    except Exception:
+        text = role_label + "\n" + greeting
+        if weather:
+            text += "\n" + weather
+
+    markup = kb.kb_tournament_manager_main() if admin["role"] == ROLE_TOURNAMENT_MANAGER else kb.kb_security_manager_main()
+    if update.message:
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+    else:
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    return ConversationHandler.END
+
+
+async def on_role_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "role_pishva":
+        uid = query.from_user.id
+        if uid == PISHVA_ID:
+            return await show_pishva_welcome(update, ctx)
+        await query.edit_message_text("🔐 رمز پیشوا را وارد کنید:")
+        ctx.user_data["pending_role"] = ROLE_PISHVA
+        return ST_PISHVA_PASSWORD
+    role = ROLE_TOURNAMENT_MANAGER if data == "role_tournament" else ROLE_SECURITY_MANAGER
+    ctx.user_data["pending_role"] = role
+    await query.edit_message_text(
+        "👤 یوزرنیم تلگرام خود را وارد کنید:\n_(باید با @ شروع شود و شامل حروف باشد)_",
+        parse_mode="Markdown"
+    )
+    return ST_ADMIN_USERNAME
+
+
+async def on_pishva_password(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ این حساب مجاز نیست.")
+    return ConversationHandler.END
+
+
+async def on_admin_username(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    username = update.message.text.strip()
+    if not username.startswith("@") or not any(c.isalpha() for c in username[1:]):
+        await update.message.reply_text("❌ یوزرنیم باید با @ شروع شود و حاوی حروف باشد.\nدوباره وارد کنید:")
+        return ST_ADMIN_USERNAME
+    ctx.user_data["reg_username"] = username
+    await update.message.reply_text("✍️ نام و نام‌خانوادگی خود را وارد کنید:")
+    return ST_ADMIN_FULLNAME
+
+
+async def on_admin_fullname(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["reg_fullname"] = update.message.text.strip()
+    await update.message.reply_text(
+        "📝 یک پیام برای پیشوا بنویسید (یا /skip):",
+        parse_mode="Markdown"
+    )
+    return ST_ACCESS_REQUEST_MSG
+
+
+async def on_access_request_msg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = ""
+    if update.message.text and update.message.text != "/skip":
+        msg = update.message.text.strip()
+    uid = update.effective_user.id
+    username = ctx.user_data.get("reg_username", "")
+    full_name = ctx.user_data.get("reg_fullname", "")
+    role = ctx.user_data.get("pending_role", ROLE_TOURNAMENT_MANAGER)
+    req_id = await db.create_access_request(uid, username, full_name, role, msg)
+    role_label = "🏆 مدیر مسابقات" if role == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
+    ts = now_shamsi()
+    notif = (
+        "📥 *درخواست دسترسی جدید*\n\n"
+        "👤 " + full_name + " | " + username + "\n"
+        "💼 " + role_label + "\n"
+        "📝 " + (msg or "—") + "\n"
+        "⏱️ `" + ts + "`"
+    )
+    await notify_pishva(ctx.bot, notif, reply_markup=kb.kb_access_request(req_id))
+    await update.message.reply_text("✅ درخواست ارسال شد. منتظر تأیید مدیر ارشد باشید.")
+    return ConversationHandler.END
+
+
+async def on_approve_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
+        return
+    req_id = int(query.data.split("_")[-1])
+    req = await db.get_access_request(req_id)
+    if not req or req["status"] != "pending":
+        await query.answer("قبلاً پردازش شده.", show_alert=True)
+        return
+    await db.update_access_request(req_id, "approved")
+    await db.create_admin(req["telegram_id"], req["username"], req["full_name"], req["role"])
+    role_label = "🏆 مدیر مسابقات" if req["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
+    try:
+        await ctx.bot.send_message(
+            chat_id=req["telegram_id"],
+            text="✅ *دسترسی تأیید شد*\n💼 " + role_label + "\n\n/start بزنید.",
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
+    await query.edit_message_text(query.message.text + "\n\n✅ *تأیید شد*", parse_mode="Markdown")
+    await query.answer("✅ تأیید شد.")
+
+
+async def on_reject_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
+        return
+    req_id = int(query.data.split("_")[-1])
+    req = await db.get_access_request(req_id)
+    if not req or req["status"] != "pending":
+        await query.answer("قبلاً پردازش شده.", show_alert=True)
+        return
+    await db.update_access_request(req_id, "rejected")
+    try:
+        await ctx.bot.send_message(
+            chat_id=req["telegram_id"],
+            text="❌ درخواست دسترسی شما رد شد.\nبرای اطلاعات بیشتر با مدیر ارشد تماس بگیرید."
+        )
+    except Exception:
+        pass
+    await query.edit_message_text(query.message.text + "\n\n❌ *رد شد*", parse_mode="Markdown")
+    await query.answer("❌ رد شد.")
