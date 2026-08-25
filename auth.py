@@ -274,14 +274,14 @@ async def on_access_request_msg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "⏱️ `" + ts + "`"
     )
     await notify_pishva(ctx.bot, notif, reply_markup=kb.kb_access_request(req_id))
-    await update.message.reply_text("✅ درخواست ارسال شد. منتظر تأیید پیشوا باشید.")
+    await update.message.reply_text("✅ درخواست ارسال شد. منتظر تأیید مدیر ارشد باشید.")
     return ConversationHandler.END
 
 
 async def on_approve_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     req_id = int(query.data.split("_")[-1])
     req = await db.get_access_request(req_id)
@@ -306,7 +306,7 @@ async def on_approve_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def on_reject_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     req_id = int(query.data.split("_")[-1])
     req = await db.get_access_request(req_id)
@@ -317,7 +317,7 @@ async def on_reject_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         await ctx.bot.send_message(
             chat_id=req["telegram_id"],
-            text="❌ درخواست دسترسی شما رد شد.\nبرای اطلاعات بیشتر با پیشوا تماس بگیرید."
+            text="❌ درخواست دسترسی شما رد شد.\nبرای اطلاعات بیشتر با مدیر ارشد تماس بگیرید."
         )
     except Exception:
         pass
