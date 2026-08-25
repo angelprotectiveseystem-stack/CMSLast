@@ -4,7 +4,7 @@ import database as db
 import keyboards as kb
 from helpers import (now_shamsi, box, separator, pishva_display,
                      check_status_gate, get_user_role, power_bar, progress_bar,
-                     warning_bar_player)
+                     warning_bar_player, check_perm)
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
 
 
@@ -53,6 +53,8 @@ async def menu_players(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await check_status_gate(query, "view_players"):
         return
+    if await check_perm(query, "view_players"):
+        return
     await query.answer()
     role = await get_user_role(query.from_user.id)
     await query.edit_message_text(
@@ -65,6 +67,8 @@ async def menu_players(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def menu_matches(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await check_status_gate(query, "match_management"):
+        return
+    if await check_perm(query, "match_management"):
         return
     await query.answer()
     await query.edit_message_text(
@@ -97,6 +101,8 @@ async def menu_pishva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def menu_comms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await check_status_gate(query, "communications"):
+        return
+    if await check_perm(query, "communications"):
         return
     uid = query.from_user.id
     comms_on = await db.get_setting("communications_enabled", "1")

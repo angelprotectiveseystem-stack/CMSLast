@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 import database as db
 import keyboards as kb
 from helpers import (box, separator, now_shamsi, today_gregorian, today_shamsi,
-    notify_pishva, check_status_gate, smart_lottery, progress_bar)
+    notify_pishva, check_status_gate, smart_lottery, progress_bar, check_perm)
 from config import (PISHVA_ID, ST_MATCH_WHITE, ST_MATCH_BLACK, ST_MATCH_DATE,
     ST_MATCH_DRAW_REASON, ST_MATCH_CANCEL_REASON, ST_SEARCH_MATCH, ST_ADV_LOTTERY_SCOPE,
     ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT)
@@ -17,6 +17,8 @@ async def match_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("♟️ ثبت مسابقه غیرفعال است.", show_alert=True)
         return ConversationHandler.END
     if await check_status_gate(query, "match_registration"):
+        return ConversationHandler.END
+    if await check_perm(query, "match_management"):
         return ConversationHandler.END
     await query.answer()
     players = await db.get_continuing_players()

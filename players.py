@@ -4,7 +4,7 @@ import database as db
 import keyboards as kb
 from helpers import (box, separator, warning_bar_player, power_bar,
                      now_shamsi, notify_pishva, log_line, check_status_gate,
-                     progress_bar, get_rank_label)
+                     progress_bar, get_rank_label, check_perm)
 from config import (PISHVA_ID, ST_CLASS_NAME, ST_PLAYER_CLASS_SELECT,
                     ST_PLAYER_NAME, ST_WARNING_REASON, ST_NOTE_TEXT,
                     ST_EDIT_PLAYER_NAME, ST_SEARCH_PLAYER)
@@ -267,6 +267,8 @@ async def player_warn_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await check_status_gate(query, "warning"):
         return
+    if await check_perm(query, "issue_warning"):
+        return
     await query.answer()
     pid = int(query.data.split("_")[-1])
     ctx.user_data["warning_player"] = pid
@@ -296,6 +298,8 @@ async def player_warn_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def player_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await check_status_gate(query, "ban_player"):
+        return
+    if await check_perm(query, "request_ban"):
         return
     await query.answer()
     pid = int(query.data.split("_")[-1])
