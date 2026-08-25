@@ -58,7 +58,7 @@ def moon_phase_emoji() -> str:
 
 _GREETINGS = {
     "late_night": [  # 23:00 - 4:00
-        "{moon} شب به‌خیر، *{name} عزیز*! امشب که خیلی دیروقته، تا صبح بیداری؟",
+        "{moon} شب به‌خیر، *{name} عزیز*! الان که خیلی دیروقته، تا صبح بیداری؟",
         "{moon} *{name} عزیز*، این‌موقع شب هنوز بیداری که  😄",
     ],
     "dawn": [  # 4:00 - 7:00
@@ -157,7 +157,7 @@ _FOG_CODES = {45, 48}
 
 def _weather_emoji(code: int, is_day: int) -> str:
     if code in (0, 1):
-        return "☀️" if is_day else "🌕"
+        return "☀️" if is_day else "🌙"
     if code == 2:
         return "⛅" if is_day else "☁️"
     if code == 3:
