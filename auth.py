@@ -134,12 +134,12 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await db.log_action(PISHVA_ID, "login", "ورود پیشوا")
+    await db.log_action(PISHVA_ID, "login", "ورود مدیر ارشد")
     pname = await pishva_display()
     greeting = time_greeting(pname)
     weather = await get_weather_line()
 
-    # فقط خلاصه کوتاه — آمار تفصیلی در پنل پیشوا
+    # فقط خلاصه کوتاه — آمار تفصیلی در پنل مدیر ارشد
     try:
         admins = await db.get_active_admins()
         pending = await db.get_pending_requests()
@@ -219,7 +219,7 @@ async def on_role_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         uid = query.from_user.id
         if uid == PISHVA_ID:
             return await show_pishva_welcome(update, ctx)
-        await query.edit_message_text("🔐 رمز پیشوا را وارد کنید:")
+        await query.edit_message_text("🔐 رمز مدیر ارشد را وارد کنید:")
         ctx.user_data["pending_role"] = ROLE_PISHVA
         return ST_PISHVA_PASSWORD
     role = ROLE_TOURNAMENT_MANAGER if data == "role_tournament" else ROLE_SECURITY_MANAGER
@@ -249,7 +249,7 @@ async def on_admin_username(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def on_admin_fullname(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["reg_fullname"] = update.message.text.strip()
     await update.message.reply_text(
-        "📝 یک پیام برای پیشوا بنویسید (یا /skip):",
+        "📝 یک پیام برای مدیر ارشد بنویسید (یا /skip):",
         parse_mode="Markdown"
     )
     return ST_ACCESS_REQUEST_MSG
@@ -274,14 +274,14 @@ async def on_access_request_msg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "⏱️ `" + ts + "`"
     )
     await notify_pishva(ctx.bot, notif, reply_markup=kb.kb_access_request(req_id))
-    await update.message.reply_text("✅ درخواست ارسال شد. منتظر تأیید پیشوا باشید.")
+    await update.message.reply_text("✅ درخواست ارسال شد. منتظر تأیید مدیر ارشد باشید.")
     return ConversationHandler.END
 
 
 async def on_approve_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     req_id = int(query.data.split("_")[-1])
     req = await db.get_access_request(req_id)
@@ -306,7 +306,7 @@ async def on_approve_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def on_reject_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     req_id = int(query.data.split("_")[-1])
     req = await db.get_access_request(req_id)
@@ -317,7 +317,7 @@ async def on_reject_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         await ctx.bot.send_message(
             chat_id=req["telegram_id"],
-            text="❌ درخواست دسترسی شما رد شد.\nبرای اطلاعات بیشتر با پیشوا تماس بگیرید."
+            text="❌ درخواست دسترسی شما رد شد.\nبرای اطلاعات بیشتر با مدیر ارشد تماس بگیرید."
         )
     except Exception:
         pass
