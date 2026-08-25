@@ -23,11 +23,11 @@ IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 _GREETINGS = {
     "late_night": [  # 23:00 - 4:00
-        "🌌 شب به‌خیر، *{name} عزیز*! امشب که خیلی دیروقته، تا صبح بیداری؟",
-        "🌌 *{name} عزیز*، این‌موقع شب هنوز بیداری؟",
+        "🌌 شب به‌خیر، *{name} عزیز*! امشب که خیلی دیروقتی، تا صبح بیداری؟",
+        "🌌 *{name} عزیز*، این‌موقع شب هنوز بیدار؟ استراحتم بلدی ها 😄",
     ],
     "dawn": [  # 4:00 - 7:00
-        "🌄 سحر بخیر، *{name} عزیز*! امروز عجیب سحرخیز شدی‌ها",
+        "🌄 سحر بخیر، *{name} عزیز*! امروز عجب سحرخیز شدی‌ها",
         "🌄 *{name} عزیز*، هنوز آفتاب نزده و تو بیداری، دمت گرم!",
     ],
     "morning": [  # 7:00 - 11:00
@@ -36,7 +36,7 @@ _GREETINGS = {
     ],
     "noon": [  # 11:00 - 14:00
         "🌞 ظهر بخیر، *{name} عزیز*! ناهار یادت نره",
-        "🌞 *{name} عزیز* ظهر بخیر، وسط روزه و بازم سرحالی",
+        "🌞 *{name} عزیز* ظهر بخیر، وسط روزی و بازم سرحالی",
     ],
     "afternoon": [  # 14:00 - 17:00
         "🌤️ عصر بخیر، *{name} عزیز*",
@@ -229,9 +229,13 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         db_stat = await db.get_setting("db_manual_status", "1")
         db_txt = "🔗 فعال" if db_stat == "1" else "⚠️ غیرفعال"
 
-        text = f"👑 *پنل پیشوا*\n{greeting} — `{now_shamsi()}`\n"
+        text = (
+            f"👑 *پنل پیشوا*\n"
+            f"{greeting}\n"
+            f"🕰 `{now_shamsi()}`\n"
+        )
         if weather:
-            text += weather + "\n"
+            text += f"\n{weather}\n"
         text += (
             f"\n📡 {_status_line(status)} | 🕐 کاری: {wh_txt} | 🗄️ دیتابیس: {db_txt}\n"
             f"👥 ادمین: `{len(admins)}` | 📥 درخواست: `{len(pending)}` | "
@@ -263,9 +267,13 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
         wh = await db.get_setting("working_hours_active", "0")
         wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
 
-        text = f"{role_label}\n{greeting} — `{now_shamsi()}`\n"
+        text = (
+            f"{role_label}\n"
+            f"{greeting}\n"
+            f"🕰 `{now_shamsi()}`\n"
+        )
         if weather:
-            text += weather + "\n"
+            text += f"\n{weather}\n"
         text += (
             f"\n📡 {_status_line(status)} | 🕐 کاری: {wh_txt}\n"
             f"⏳ بی‌نتیجه: `{len(pending_matches)}` | ⚠️ اخطار: `{len(warned)}` | "

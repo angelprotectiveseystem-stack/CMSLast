@@ -12,7 +12,7 @@ ADMIN_KEYWORDS = {"تنظیم مدیر", "تنظیم مدیر امنیتی", "ح
 
 # کلمه‌ی گفته‌شده -> نام یکتای عملیات (برای پشتیبانی از مترادف‌ها)
 SIMPLE_KEYWORDS = {
-    "پنل": "panel",
+    "پنل": "restart",
     "داشبورد": "dashboard",
     "وظیفه": "tasks",
     "مسابقه": "matches",
@@ -133,22 +133,6 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         sent = await update.message.reply_text(
             box("👑 پنل پیشوا"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
         )
-        await register_panel_owner(update, ctx, sent.message_id)
-        raise ApplicationHandlerStop()
-
-    # ─── پنل ───
-    if action == "panel":
-        if is_pishva:
-            sent = await update.message.reply_text(
-                box("👑 پنل پیشوا"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
-            )
-        else:
-            markup = (kb.kb_tournament_manager_main() if admin["role"] == ROLE_TOURNAMENT_MANAGER
-                      else kb.kb_security_manager_main())
-            role_label = "🏆 مدیر مسابقات" if admin["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
-            sent = await update.message.reply_text(
-                box("📋 پنل — " + role_label), reply_markup=markup, parse_mode="Markdown"
-            )
         await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
