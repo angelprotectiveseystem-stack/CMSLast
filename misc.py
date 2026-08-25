@@ -7,7 +7,7 @@ import database as db
 import keyboards as kb
 from helpers import (box, separator, now_shamsi, broadcast_to_admins,
                      notify_pishva, pishva_display, warning_bar_admin,
-                     power_bar, send_notification)
+                     power_bar, send_notification, check_perm, check_status_gate)
 from config import (PISHVA_ID, ST_TASK_SELECT_ADMIN, ST_TASK_TITLE,
                     ST_TASK_DESC, ST_TASK_DONE_REASON, ST_FEEDBACK_TEXT,
                     ST_SUGGESTION_TEXT, ST_FEATURE_TITLE, ST_FEATURE_DESC,
@@ -752,6 +752,8 @@ async def team_member_actions(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def team_remove_member(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await check_perm(query, "match_management"):
+        return
     await query.answer()
     parts = query.data.split("_")
     tid = int(parts[-2])
@@ -767,6 +769,8 @@ async def team_remove_member(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def team_captain_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await check_perm(query, "match_management"):
+        return
     await query.answer()
     tid = int(query.data.split("_")[-1])
     members = await db.get_team_members(tid)
@@ -783,6 +787,8 @@ async def team_captain_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def team_captain_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await check_perm(query, "match_management"):
+        return
     await query.answer()
     parts = query.data.split("_")
     tid = int(parts[-2])
@@ -798,6 +804,10 @@ async def team_captain_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def team_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    # حذف تیم فقط برای پیشواست
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ حذف تیم فقط توسط پیشوا مجاز است.", show_alert=True)
+        return
     await query.answer()
     tid = int(query.data.split("_")[-1])
     team = await db.get_team(tid)

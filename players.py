@@ -314,6 +314,10 @@ async def player_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def player_suspend(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await check_status_gate(query, "ban_player"):
+        return
+    if await check_perm(query, "request_ban"):
+        return
     await query.answer()
     pid = int(query.data.split("_")[-1])
     p = await db.get_player(pid)
@@ -324,6 +328,10 @@ async def player_suspend(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def player_revive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await check_status_gate(query, "ban_player"):
+        return
+    if await check_perm(query, "request_ban"):
+        return
     await query.answer()
     pid = int(query.data.split("_")[-1])
     p = await db.get_player(pid)

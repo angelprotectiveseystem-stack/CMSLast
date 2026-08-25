@@ -233,26 +233,38 @@ def get_rank_label(wins: int, total: int) -> str:
 async def check_perm(query, perm: str, default: bool = True) -> bool:
     """
     اگر کاربر پیشوا باشه: همیشه False (یعنی pass).
-    اگر ادمین باشه: permission رو از دیتابیس چک میکنه.
+    اگر ادمین فعال باشه: permission رو از دیتابیس چک میکنه.
+    اگر اصلاً ادمین نباشه: بلاک می‌کنه (True برمیگردونه).
     مقدار True برمیگردونه یعنی «بلاک شو».
+
+    FIX: قبلاً اگه user اصلاً ادمین نبود، default=True بود و pass می‌شد.
+         حالا non-admin همیشه بلاک می‌شه.
     """
     uid = query.from_user.id
     if uid == PISHVA_ID:
         return False
-    perm_ok = await db.get_admin_permission(uid, perm)
-    # اگه permission صریحاً False باشه بلاک کن
-    # get_admin_permission مقدار default رو برنمیگردونه پس باید جداگانه چک کنیم
+
     admin = await db.get_admin(uid)
-    if admin:
-        import json
-        try:
-            perms = json.loads(admin["permissions"])
-            allowed = perms.get(perm, default)
-        except Exception:
-            allowed = default
-    else:
+
+    # ── کاربر اصلاً ادمین نیست یا غیرفعاله ──────────────────
+    if not admin or not admin["is_active"]:
+        await query.answer(
+            "⛔ شما مجوز دسترسی به این بخش را ندارید.\n"
+            "این عملیات فقط برای مدیران ثبت‌شده مجاز است.",
+            show_alert=True
+        )
+        return True
+
+    # ── ادمین فعال: بررسی permission خاص ────────────────────
+    import json
+    try:
+        perms = json.loads(admin["permissions"])
+        allowed = perms.get(perm, default)
+    except Exception:
         allowed = default
+
     if not allowed:
         await query.answer("⛔ شما اجازه انجام این عملیات را ندارید.", show_alert=True)
         return True
+
     return False

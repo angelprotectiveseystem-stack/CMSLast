@@ -424,6 +424,8 @@ async def match_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def match_pin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if await check_perm(query, "match_management"):
+        return
     await query.answer()
     mid = int(query.data.split("_")[-1])
     m = await db.get_match(mid)

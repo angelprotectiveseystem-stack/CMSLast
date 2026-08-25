@@ -122,6 +122,9 @@ async def tourn_edit_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def tourn_end(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ پایان دادن به تورنمنت فقط توسط پیشوا مجاز است.", show_alert=True)
+        return
     await query.answer()
     tid = int(query.data.split("_")[-1])
     t = await db.get_tournament(tid)
@@ -137,6 +140,9 @@ async def tourn_end(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def tourn_pause(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ تعویق تورنمنت فقط توسط پیشوا مجاز است.", show_alert=True)
+        return
     await query.answer()
     tid = int(query.data.split("_")[-1])
     t = await db.get_tournament(tid)

@@ -62,6 +62,11 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """
     اگه کسی روی پنل یه نفر دیگه دست بزنه، هشدار بده و متوقف کن.
     فقط در گروه/سوپرگروه فعاله.
+
+    FIX 1: اگه owner_id ثبت نشده (None)، در گروه دکمه‌ها رو بلاک می‌کنه
+            (قبلاً با None بود pass می‌شد — یعنی هر کسی می‌تونست بزنه).
+    FIX 2: اگه پیشوا روی پنل «مدیریت مدیران» بزنه، اخطار امنیتی می‌گیره.
+            (پیشوا نباید توی گروه به پنل مدیران دست بزنه.)
     """
     from telegram.ext import ApplicationHandlerStop
     query = update.callback_query
@@ -76,14 +81,49 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not msg:
         return
 
+    requester_id = query.from_user.id
+    callback_data = query.data or ""
+
+    # ── FIX 2: پیشوا روی پنل مدیران در گروه → اخطار امنیتی ──────────
+    ADMIN_MGMT_PATTERNS = (
+        "menu_admins", "admin_view_", "admin_perms_",
+        "admin_warn_", "admin_kick_", "perm_toggle_",
+    )
+    if requester_id == PISHVA_ID:
+        if any(callback_data.startswith(p) for p in ADMIN_MGMT_PATTERNS):
+            await query.answer(
+                "🚨 هشدار امنیتی!\n"
+                "مدیریت مدیران در فضای گروه مجاز نیست.\n"
+                "لطفاً این عملیات را در پیوی انجام دهید.",
+                show_alert=True
+            )
+            raise ApplicationHandlerStop()
+        # پیشوا روی بقیه‌ی پنل‌ها آزاده — اگه صاحب پنل باشه
+        msg_key = f"panel_owner_{msg.message_id}"
+        owner_id = ctx.chat_data.get(msg_key) if ctx.chat_data is not None else None
+        if owner_id is not None and requester_id != owner_id:
+            await query.answer(
+                "⛔ این پنل متعلق به شما نیست!\n"
+                "برای باز کردن پنل خودتان، کلمه «پنل» را بفرستید.",
+                show_alert=True
+            )
+            raise ApplicationHandlerStop()
+        return
+
+    # ── FIX 1: بررسی مالکیت پنل برای همه ────────────────────────────
     msg_key = f"panel_owner_{msg.message_id}"
     owner_id = ctx.chat_data.get(msg_key) if ctx.chat_data is not None else None
 
     if owner_id is None:
-        return
+        # در گروه هیچ owner ثبت نشده → پنل قدیمی یا ناامن → بلاک کن
+        await query.answer(
+            "⛔ این پنل قابل استفاده نیست.\n"
+            "برای باز کردن پنل خودتان، کلمه «پنل» را بفرستید.",
+            show_alert=True
+        )
+        raise ApplicationHandlerStop()
 
-    requester_id = query.from_user.id
-    if requester_id == owner_id or requester_id == PISHVA_ID:
+    if requester_id == owner_id:
         return
 
     await query.answer(
