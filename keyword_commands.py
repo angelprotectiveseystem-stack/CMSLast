@@ -175,13 +175,18 @@ async def ask_panel_location(update: Update, ctx: ContextTypes.DEFAULT_TYPE, act
             InlineKeyboardButton("🔒 پیوی (امن‌تر)", url=f"https://t.me/{bot_username}?start=panel_{action}"),
         ]
     ])
-    await update.message.reply_text(
+    sent = await update.message.reply_text(
         f"📌 می‌خواید پنل *{_action_label(action)}* کجا باز بشه؟\n\n"
         "🔒 *پیوی* — امن‌تر، فقط شما می‌بینید\n"
         "📲 *همینجا* — در گروه، با قفل مالکیت",
         reply_markup=markup,
         parse_mode="Markdown"
     )
+    # ثبت مالکیت پیام سوال، وگرنه وقتی کاربر روی «همینجا» کلیک کنه،
+    # panel_ownership_guard چون owner_id ثبت‌نشده می‌بینه، پیام «پنل قابل استفاده نیست» می‌ده.
+    if ctx.chat_data is not None:
+        ctx.chat_data[f"panel_owner_{sent.message_id}"] = uid
+        schedule_panel_timeout(ctx, chat.id, sent.message_id, uid)
     raise ApplicationHandlerStop()
 
 
