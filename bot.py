@@ -25,7 +25,8 @@ from config import (
     ST_TEAM_DATE, ST_TEAM_REQUESTER,
     ST_BULK_REG_TEXT, ST_BULK_REG_PREVIEW, ST_BULK_REG_EDIT_NUM, ST_BULK_REG_EDIT_VALUE,
     ST_CHANNEL_ID,
-    ST_ADV_LOTTERY_SCOPE, ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT
+    ST_ADV_LOTTERY_SCOPE, ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT,
+    ST_RESTORE_FILE
 )
 
 from auth import (
@@ -85,6 +86,7 @@ from pishva import (
     pishva_broadcast, broadcast_toggle, pishva_vault,
     pishva_auto_backup, auto_backup_toggle, auto_backup_interval_menu,
     auto_backup_set_interval, auto_backup_fmt_toggle, auto_backup_period_toggle,
+    pishva_restore_start, restore_file_received, restore_confirm_apply, restore_cancel,
 )
 from comms import (
     comms_msg_admin_start, comms_msg_target, comms_msg_send,
@@ -523,6 +525,22 @@ def build_application():
         **CONV_KWARGS
     )
 
+    # Restore (بازگردانی بکاپ)
+    restore_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(pishva_restore_start, pattern="^pishva_restore$"),
+        ],
+        states={
+            ST_RESTORE_FILE: [
+                CallbackQueryHandler(restore_confirm_apply, pattern="^restore_apply$"),
+                CallbackQueryHandler(restore_cancel, pattern="^restore_cancel$"),
+                MessageHandler(filters.Document.ALL, restore_file_received),
+            ],
+        },
+        fallbacks=[CallbackQueryHandler(pishva_backup, pattern="^pishva_backup$")],
+        **CONV_KWARGS
+    )
+
     # Team
     team_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(teams_add_start, pattern="^teams_add$")],
@@ -553,7 +571,7 @@ def build_application():
 
     # ─── Add all ConversationHandlers first ───────────────────
     for conv in [auth_conv, tourn_conv, player_conv, match_conv,
-                 comms_conv, task_conv, feedback_conv, pishva_conv, team_conv]:
+                 comms_conv, task_conv, feedback_conv, pishva_conv, restore_conv, team_conv]:
         app.add_handler(conv)
 
     # ══════════════════════════════════════════

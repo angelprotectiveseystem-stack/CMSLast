@@ -8,7 +8,8 @@ from config import (PISHVA_ID, STATUS_NORMAL, STATUS_BAD, STATUS_DANGER, STATUS_
     ST_TOURNAMENT_NAME, ST_PISHVA_NAME_CHANGE, ST_ADMIN_NAME_CHANGE,
     ST_NEW_YEAR_CONFIRM, ST_NEW_YEAR_PASSWORD, ST_REPAIR_REASON,
     ST_GROUP_ID, ST_CHANNEL_ID, ST_UPDATE_VERSION, ST_UPDATE_DESC,
-    NEW_YEAR_PASSWORD)
+    ST_RESTORE_FILE, NEW_YEAR_PASSWORD)
+from telegram.ext import ConversationHandler
 import io
 
 # ─── Status Management ────────────────────────────────────────
@@ -237,6 +238,104 @@ async def backup_format_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=kb.kb_back("pishva_panel"),
             parse_mode="Markdown"
         )
+
+# ─── Restore (بازگردانی بکاپ — برعکسِ بکاپ) ────────────────────
+async def pishva_restore_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return ConversationHandler.END
+    await query.answer()
+    ctx.user_data.pop("restore_data", None)
+    await query.edit_message_text(
+        f"{box('📥 بازگردانی بکاپ')}\n\n"
+        f"📎 فایل بکاپ (Excel یا Word) را که قبلاً از همین ربات دریافت کرده‌اید ارسال کنید.\n"
+        f"می‌توانید قبل از ارسال، داده‌های داخل فایل را ویرایش کنید — ربات محتوا را می‌خواند و "
+        f"دقیقاً برعکسِ فرآیند بکاپ، آن‌ها را در سیستم وارد می‌کند.",
+        reply_markup=kb.kb_back("pishva_backup"),
+        parse_mode="Markdown"
+    )
+    return ST_RESTORE_FILE
+
+async def restore_file_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != PISHVA_ID:
+        return ST_RESTORE_FILE
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("❗ لطفاً فایل بکاپ (xlsx یا docx) را به‌صورت سند ارسال کنید.")
+        return ST_RESTORE_FILE
+
+    from restore_utils import detect_format, parse_excel_backup, parse_word_backup
+    fmt = detect_format(doc.file_name)
+    if fmt is None:
+        await update.message.reply_text("❌ فرمت فایل شناسایی نشد. فقط فایل‌های xlsx یا docx پشتیبانی می‌شوند.")
+        return ST_RESTORE_FILE
+
+    msg = await update.message.reply_text("⏳ در حال خواندن فایل، لطفاً صبر کنید...")
+    try:
+        tg_file = await ctx.bot.get_file(doc.file_id)
+        file_bytes = bytes(await tg_file.download_as_bytearray())
+        data = parse_excel_backup(file_bytes) if fmt == "excel" else parse_word_backup(file_bytes)
+    except Exception as e:
+        await msg.edit_text(f"❌ خطا در خواندن فایل:\n`{str(e)}`", parse_mode="Markdown")
+        return ST_RESTORE_FILE
+
+    total = len(data["classes"]) + len(data["players"]) + len(data["tournaments"]) + len(data["matches"])
+    if total == 0:
+        await msg.edit_text(
+            "❗ هیچ داده‌ی قابل‌شناسایی‌ای در این فایل پیدا نشد.\n"
+            "فایل باید همان ساختار بکاپ ربات (شیت‌ها/جدول‌های بازیکنان، مسابقات، تورنمنت‌ها، کلاس‌ها) را داشته باشد."
+        )
+        return ST_RESTORE_FILE
+
+    ctx.user_data["restore_data"] = data
+    await msg.edit_text(
+        f"{box('📋 پیش‌نمایش بازگردانی')}\n\n"
+        f"🏷️ کلاس‌ها: {len(data['classes'])}\n"
+        f"👤 بازیکنان: {len(data['players'])}\n"
+        f"🏆 تورنمنت‌ها: {len(data['tournaments'])}\n"
+        f"♟️ مسابقات: {len(data['matches'])}\n\n"
+        f"⚠️ با تایید، این داده‌ها در سیستم فعلی درج/به‌روزرسانی می‌شوند. آیا ادامه می‌دهید؟",
+        reply_markup=kb.kb_restore_confirm(),
+        parse_mode="Markdown"
+    )
+    return ST_RESTORE_FILE
+
+async def restore_confirm_apply(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return ST_RESTORE_FILE
+    await query.answer()
+    data = ctx.user_data.get("restore_data")
+    if not data:
+        await query.edit_message_text("❗ داده‌ای برای بازگردانی یافت نشد. دوباره فایل را ارسال کنید.")
+        return ST_RESTORE_FILE
+    await query.edit_message_text("⏳ در حال بازگردانی اطلاعات...")
+    from restore_utils import apply_restore, build_summary_text
+    try:
+        counts = await apply_restore(data, PISHVA_ID)
+        await db.log_action(PISHVA_ID, "restore", "بازگردانی بکاپ از فایل آپلودی")
+        await query.edit_message_text(
+            f"{box('✅ بازگردانی انجام شد')}\n\n{build_summary_text(counts)}",
+            reply_markup=kb.kb_back("pishva_panel"),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        await query.edit_message_text(
+            f"❌ خطا در بازگردانی:\n`{str(e)}`",
+            reply_markup=kb.kb_back("pishva_panel"),
+            parse_mode="Markdown"
+        )
+    ctx.user_data.pop("restore_data", None)
+    return ConversationHandler.END
+
+async def restore_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    ctx.user_data.pop("restore_data", None)
+    await query.edit_message_text("❌ بازگردانی لغو شد.", reply_markup=kb.kb_back("pishva_backup"))
+    return ConversationHandler.END
 
 # ─── Working Hours ────────────────────────────────────────────
 async def pishva_workhours(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

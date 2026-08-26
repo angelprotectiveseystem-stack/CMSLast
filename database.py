@@ -1163,3 +1163,104 @@ async def get_all_blocked():
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM blocked_users ORDER BY blocked_at DESC") as cur:
             return await cur.fetchall()
+
+
+# ─── Restore (بازگردانی بکاپ) ──────────────────────────────────
+async def get_class_by_name(name: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM classes WHERE name=?", (name,)) as cur:
+            return await cur.fetchone()
+
+
+async def get_or_create_class(name: str) -> int:
+    """کلاس رو با نام پیدا می‌کنه، اگه نبود می‌سازه و شناسه رو برمی‌گردونه."""
+    name = (name or "").strip()
+    if not name:
+        return None
+    row = await get_class_by_name(name)
+    if row:
+        return row["id"]
+    await create_class(name)
+    row = await get_class_by_name(name)
+    return row["id"] if row else None
+
+
+async def get_player_by_name(full_name: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM players WHERE lower(trim(full_name))=lower(trim(?))", (full_name,)
+        ) as cur:
+            return await cur.fetchone()
+
+
+async def restore_upsert_player(full_name: str, class_id=None, status=None, warnings=0,
+                                 is_elite=0, is_special=0, wins=0, losses=0, draws=0,
+                                 created_at=None) -> tuple:
+    """بازیکن رو از روی نام کامل پیدا یا ایجاد می‌کنه و اطلاعات بکاپ رو روش اعمال می‌کنه.
+    خروجی: (player_id, created: bool)"""
+    full_name = (full_name or "").strip()
+    if not full_name:
+        return None, False
+    existing = await get_player_by_name(full_name)
+    now = created_at or datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        if existing:
+            await db.execute(
+                """UPDATE players SET class_id=COALESCE(?, class_id), status=COALESCE(?, status),
+                   warnings=?, is_elite=?, is_special=?, wins=?, losses=?, draws=? WHERE id=?""",
+                (class_id, status, warnings, is_elite, is_special, wins, losses, draws, existing["id"])
+            )
+            await db.commit()
+            return existing["id"], False
+        else:
+            cur = await db.execute(
+                """INSERT INTO players(full_name,class_id,status,warnings,is_elite,is_special,
+                   wins,losses,draws,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (full_name, class_id, status or "active", warnings, is_elite, is_special,
+                 wins, losses, draws, now)
+            )
+            await db.commit()
+            return cur.lastrowid, True
+
+
+async def get_tournament_by_name(name: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM tournaments WHERE name=?", (name,)) as cur:
+            return await cur.fetchone()
+
+
+async def get_or_create_tournament(name: str, status: str = "active", is_default: bool = False) -> tuple:
+    """خروجی: (tournament_id, created: bool)"""
+    name = (name or "").strip()
+    if not name:
+        return None, False
+    existing = await get_tournament_by_name(name)
+    if existing:
+        if status:
+            await update_tournament(existing["id"], status=status)
+        if is_default:
+            await set_default_tournament(existing["id"])
+        return existing["id"], False
+    tid = await create_tournament(name)
+    if status and status != "active":
+        await update_tournament(tid, status=status)
+    if is_default:
+        await set_default_tournament(tid)
+    return tid, True
+
+
+async def insert_match_raw(white_id, black_id, result, draw_reason, match_date,
+                            tournament_id, created_by, created_at) -> int:
+    """درج مستقیم مسابقه با حفظ زمان اصلی (برای بازگردانی بکاپ)."""
+    now = created_at or datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            """INSERT INTO matches(white_player_id,black_player_id,result,draw_reason,
+               match_date,tournament_id,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)""",
+            (white_id, black_id, result, draw_reason, match_date, tournament_id, created_by, now)
+        )
+        await db.commit()
+        return cur.lastrowid

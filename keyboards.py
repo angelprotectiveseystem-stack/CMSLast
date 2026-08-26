@@ -322,6 +322,7 @@ def kb_backup_main():
         [InlineKeyboardButton("🗓️ این ماه", callback_data="backup_period_month"),
         InlineKeyboardButton("📚 از ابتدا", callback_data="backup_period_all")],
         [InlineKeyboardButton("🔄 تنظیمات بکاپ خودکار", callback_data="pishva_auto_backup")],
+        [InlineKeyboardButton("📥 بازگردانی از فایل", callback_data="pishva_restore")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
 
@@ -330,6 +331,12 @@ def kb_backup_format():
         [InlineKeyboardButton("📄 Word", callback_data="backup_fmt_word"),
         InlineKeyboardButton("📊 Excel", callback_data="backup_fmt_excel")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_backup")],
+    ])
+
+def kb_restore_confirm():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ تایید و اعمال", callback_data="restore_apply"),
+        InlineKeyboardButton("❌ انصراف", callback_data="restore_cancel")],
     ])
 
 def kb_workhours():
