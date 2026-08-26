@@ -7,6 +7,7 @@ import database as db
 import keyboards as kb
 from helpers import box, separator, now_shamsi
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER, BOT_USERNAME
+from panel_timeout import schedule_panel_timeout, reset_panel_timeout, cancel_panel_timeout
 
 ADMIN_KEYWORDS = {"تنظیم مدیر", "تنظیم مدیر امنیتی", "حذف مدیر", "حذف مدیر امنیتی"}
 
@@ -108,6 +109,9 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 show_alert=True
             )
             raise ApplicationHandlerStop()
+        # کلیک معتبر صاحب پنل → تایمر بی‌فعالیتی رو ریست کن
+        if owner_id is not None:
+            reset_panel_timeout(ctx, chat.id, msg.message_id, owner_id)
         return
 
     # ── FIX 1: بررسی مالکیت پنل برای همه ────────────────────────────
@@ -124,6 +128,8 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         raise ApplicationHandlerStop()
 
     if requester_id == owner_id:
+        # کلیک معتبر صاحب پنل → تایمر بی‌فعالیتی رو ریست کن
+        reset_panel_timeout(ctx, chat.id, msg.message_id, owner_id)
         return
 
     await query.answer(
@@ -135,13 +141,14 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def register_panel_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg_id: int):
-    """صاحب پنل رو ثبت می‌کنه"""
+    """صاحب پنل رو ثبت می‌کنه و تایمر بسته‌شدن خودکار (عدم فعالیت) رو راه‌اندازی می‌کنه"""
     chat = update.effective_chat
     if not chat or chat.type not in ("group", "supergroup"):
         return
     uid = update.effective_user.id if update.effective_user else None
     if uid and ctx.chat_data is not None:
         ctx.chat_data[f"panel_owner_{msg_id}"] = uid
+        schedule_panel_timeout(ctx, chat.id, msg_id, uid)
 
 
 # ─── پرسیدن محل باز شدن پنل (گروه vs پیوی) ──────────────────
@@ -292,7 +299,9 @@ async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else:
             await show_admin_welcome(update, ctx, admin)
         if ctx.chat_data is not None:
-            ctx.chat_data[f"panel_owner_{query.message.message_id}"] = uid
+            msg_id = query.message.message_id
+            ctx.chat_data[f"panel_owner_{msg_id}"] = uid
+            schedule_panel_timeout(ctx, query.message.chat_id, msg_id, uid)
         return
 
     text, markup, err = await _panel_content(action, uid, is_pishva, admin)
@@ -306,6 +315,7 @@ async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if sent and ctx.chat_data is not None:
         msg_id = sent.message_id if hasattr(sent, "message_id") else query.message.message_id
         ctx.chat_data[f"panel_owner_{msg_id}"] = uid
+        schedule_panel_timeout(ctx, query.message.chat_id, msg_id, uid)
 
 
 
