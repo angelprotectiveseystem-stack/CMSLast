@@ -202,6 +202,18 @@ async def init_db():
         );
         """)
 
+        # ─── Lightweight migrations (add columns if missing) ──────────
+        # از ALTER TABLE استفاده می‌کنیم چون ستون‌های جدید بعد از اولین
+        # اجرای init_db اضافه شدن. اگه ستون از قبل باشه، خطا رو نادیده می‌گیریم.
+        for stmt in (
+            "ALTER TABLE matches ADD COLUMN claimed_by INTEGER",
+            "ALTER TABLE matches ADD COLUMN claimed_at TEXT",
+        ):
+            try:
+                await db.execute(stmt)
+            except Exception:
+                pass  # ستون قبلاً وجود داره
+
         # Default settings
         defaults = {
             "system_status": STATUS_NORMAL,
@@ -574,13 +586,30 @@ async def get_pending_matches():
         db.row_factory = aiosqlite.Row
         async with db.execute(
             """SELECT m.*,
-               wp.full_name as white_name, bp.full_name as black_name
+               wp.full_name as white_name, bp.full_name as black_name,
+               COALESCE(a.display_name, a.full_name) as claimed_by_name
                FROM matches m
                LEFT JOIN players wp ON m.white_player_id=wp.id
                LEFT JOIN players bp ON m.black_player_id=bp.id
+               LEFT JOIN admins a ON m.claimed_by=a.telegram_id
                WHERE m.result IS NULL ORDER BY m.created_at DESC"""
         ) as cur:
             return await cur.fetchall()
+
+
+async def claim_match(mid: int, admin_id: int):
+    """
+    فقط برای نمایش — می‌گه کدوم ادمین داره روی این مسابقه کار می‌کنه، تا
+    بقیه‌ی ادمین‌ها تو لیست ببینن و همزمان سراغش نرن. جلوی هیچ‌کس رو
+    نمی‌گیره (soft marker)، فقط اطلاع‌رسانیه.
+    """
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE matches SET claimed_by=?, claimed_at=? WHERE id=?",
+            (admin_id, now, mid)
+        )
+        await db.commit()
 
 
 async def set_match_result(mid: int, result: str, draw_reason: str, updated_by: int):

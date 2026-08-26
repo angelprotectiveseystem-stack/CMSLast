@@ -9,6 +9,15 @@ from config import (PISHVA_ID, ST_MATCH_WHITE, ST_MATCH_BLACK, ST_MATCH_DATE,
     ST_MATCH_DRAW_REASON, ST_MATCH_CANCEL_REASON, ST_SEARCH_MATCH, ST_ADV_LOTTERY_SCOPE,
     ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT)
 
+PLAYER_PAGE_SIZE = 8
+PENDING_PAGE_SIZE = 10
+
+def _page_hint(players, page, page_size=PLAYER_PAGE_SIZE):
+    total = len(players)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return (f"📄 صفحه {page+1} از {total_pages} ({total} نفر)\n"
+            f"🔍 برای جستجوی سریع، بخشی از اسم رو تایپ کنید (یا «همه» برای پاک کردن فیلتر)")
+
 # ─── Add Match ────────────────────────────────────────────────
 async def match_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -28,11 +37,47 @@ async def match_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
         return ConversationHandler.END
     ctx.user_data["match_players_pool"] = [dict(p) for p in players]
+    ctx.user_data["mw_view"] = ctx.user_data["match_players_pool"]
+    ctx.user_data["mw_page"] = 0
     ctx.user_data.pop("match_white", None)
     ctx.user_data.pop("match_black", None)
     await query.edit_message_text(
-        f"{box('➕ ثبت مسابقه جدید')}\n\n⬜ مرحله ۱: بازیکن *سفید* را انتخاب کنید:",
-        reply_markup=kb.kb_player_select(players, "mwhite", "matches"),
+        f"{box('➕ ثبت مسابقه جدید')}\n\n⬜ مرحله ۱: بازیکن *سفید* را انتخاب کنید:\n\n"
+        f"{_page_hint(players, 0)}",
+        reply_markup=kb.kb_player_select(players, "mwhite", "matches", page=0, nav_prefix="mw"),
+        parse_mode="Markdown")
+    return ST_MATCH_WHITE
+
+async def match_white_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split("_")[-1])
+    ctx.user_data["mw_page"] = page
+    view = ctx.user_data.get("mw_view", ctx.user_data.get("match_players_pool", []))
+    await query.edit_message_text(
+        f"{box('➕ ثبت مسابقه جدید')}\n\n⬜ مرحله ۱: بازیکن *سفید* را انتخاب کنید:\n\n"
+        f"{_page_hint(view, page)}",
+        reply_markup=kb.kb_player_select(view, "mwhite", "matches", page=page, nav_prefix="mw"),
+        parse_mode="Markdown")
+    return ST_MATCH_WHITE
+
+async def match_white_search_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    full_pool = ctx.user_data.get("match_players_pool", [])
+    if text in ("همه", "reset", "all"):
+        view = full_pool
+    else:
+        view = [p for p in full_pool if text in p["full_name"]]
+    ctx.user_data["mw_view"] = view
+    ctx.user_data["mw_page"] = 0
+    if not view:
+        await update.message.reply_text(
+            "❌ کسی با این اسم پیدا نشد. دوباره تایپ کنید یا «همه» را بفرستید.")
+        return ST_MATCH_WHITE
+    await update.message.reply_text(
+        f"{box('➕ ثبت مسابقه جدید')}\n\n⬜ مرحله ۱: بازیکن *سفید* را انتخاب کنید:\n\n"
+        f"{_page_hint(view, 0)}",
+        reply_markup=kb.kb_player_select(view, "mwhite", "matches", page=0, nav_prefix="mw"),
         parse_mode="Markdown")
     return ST_MATCH_WHITE
 
@@ -43,11 +88,56 @@ async def match_white_selected(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["match_white"] = white_id
     wp = await db.get_player(white_id)
     pool = [p for p in ctx.user_data.get("match_players_pool", []) if p["id"] != white_id]
+    ctx.user_data["match_black_pool"] = pool
+    ctx.user_data["mb_view"] = pool
+    ctx.user_data["mb_page"] = 0
     await query.edit_message_text(
         f"{box('➕ ثبت مسابقه جدید')}\n\n"
         f"⬜ سفید: *{wp['full_name']}*\n\n"
-        f"⬛ مرحله ۲: بازیکن *سیاه* را انتخاب کنید:",
-        reply_markup=kb.kb_player_select(pool, "mblack", "matches"),
+        f"⬛ مرحله ۲: بازیکن *سیاه* را انتخاب کنید:\n\n"
+        f"{_page_hint(pool, 0)}",
+        reply_markup=kb.kb_player_select(pool, "mblack", "matches", page=0, nav_prefix="mb"),
+        parse_mode="Markdown")
+    return ST_MATCH_BLACK
+
+async def match_black_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split("_")[-1])
+    ctx.user_data["mb_page"] = page
+    view = ctx.user_data.get("mb_view", ctx.user_data.get("match_black_pool", []))
+    wp = await db.get_player(ctx.user_data.get("match_white"))
+    wname = wp["full_name"] if wp else ""
+    await query.edit_message_text(
+        f"{box('➕ ثبت مسابقه جدید')}\n\n"
+        f"⬜ سفید: *{wname}*\n\n"
+        f"⬛ مرحله ۲: بازیکن *سیاه* را انتخاب کنید:\n\n"
+        f"{_page_hint(view, page)}",
+        reply_markup=kb.kb_player_select(view, "mblack", "matches", page=page, nav_prefix="mb"),
+        parse_mode="Markdown")
+    return ST_MATCH_BLACK
+
+async def match_black_search_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    full_pool = ctx.user_data.get("match_black_pool", [])
+    if text in ("همه", "reset", "all"):
+        view = full_pool
+    else:
+        view = [p for p in full_pool if text in p["full_name"]]
+    ctx.user_data["mb_view"] = view
+    ctx.user_data["mb_page"] = 0
+    if not view:
+        await update.message.reply_text(
+            "❌ کسی با این اسم پیدا نشد. دوباره تایپ کنید یا «همه» را بفرستید.")
+        return ST_MATCH_BLACK
+    wp = await db.get_player(ctx.user_data.get("match_white"))
+    wname = wp["full_name"] if wp else ""
+    await update.message.reply_text(
+        f"{box('➕ ثبت مسابقه جدید')}\n\n"
+        f"⬜ سفید: *{wname}*\n\n"
+        f"⬛ مرحله ۲: بازیکن *سیاه* را انتخاب کنید:\n\n"
+        f"{_page_hint(view, 0)}",
+        reply_markup=kb.kb_player_select(view, "mblack", "matches", page=0, nav_prefix="mb"),
         parse_mode="Markdown")
     return ST_MATCH_BLACK
 
@@ -120,6 +210,30 @@ async def _finalize_match(update, ctx, via_query: bool):
     return ConversationHandler.END
 
 # ─── Match Result ─────────────────────────────────────────────
+def _render_pending_page(pending, page):
+    total = len(pending)
+    total_pages = max(1, (total + PENDING_PAGE_SIZE - 1) // PENDING_PAGE_SIZE)
+    start = page * PENDING_PAGE_SIZE
+    page_items = pending[start:start + PENDING_PAGE_SIZE]
+    rows = []
+    for m in page_items:
+        label = f"⬜{m['white_name']} ⚔️ {m['black_name']}⬛"
+        if m["claimed_by_name"]:
+            label += f" — 🔒{m['claimed_by_name']}"
+        rows.append([InlineKeyboardButton(label, callback_data=f"result_select_{m['id']}")])
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"mrpage_{page-1}"))
+    if start + PENDING_PAGE_SIZE < total:
+        nav_row.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"mrpage_{page+1}"))
+    if nav_row:
+        rows.append(nav_row)
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_matches")])
+    text = (f"{box('🏆 ثبت نتیجه')}\n\n📌 مسابقه را انتخاب کنید:\n\n"
+            f"📄 صفحه {page+1} از {total_pages} ({total} مسابقه بدون نتیجه)\n"
+            f"🔒 = یه ادمین دیگه داره روش کار می‌کنه")
+    return text, InlineKeyboardMarkup(rows)
+
 async def match_result_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -129,21 +243,30 @@ async def match_result_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"{box('🏆 ثبت نتیجه')}\n\n✅ همه مسابقات نتیجه دارند.",
             reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
         return
-    rows = []
-    for m in pending[:15]:
-        rows.append([InlineKeyboardButton(
-            f"⬜{m['white_name']} ⚔️ {m['black_name']}⬛",
-            callback_data=f"result_select_{m['id']}")])
-    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_matches")])
-    await query.edit_message_text(
-        f"{box('🏆 ثبت نتیجه')}\n\n📌 مسابقه را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+    ctx.user_data["mr_pending"] = pending
+    text, markup = _render_pending_page(pending, 0)
+    await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+
+async def match_result_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split("_")[-1])
+    pending = await db.get_pending_matches()  # تازه می‌خونیم تا وضعیت claim به‌روز باشه
+    ctx.user_data["mr_pending"] = pending
+    if not pending:
+        await query.edit_message_text(
+            f"{box('🏆 ثبت نتیجه')}\n\n✅ همه مسابقات نتیجه دارند.",
+            reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
+        return
+    text, markup = _render_pending_page(pending, page)
+    await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
 
 async def match_result_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     mid = int(query.data.split("_")[-1])
     m = await db.get_match(mid)
+    await db.claim_match(mid, query.from_user.id)  # فقط برای نمایش به بقیه ادمین‌ها
     await query.edit_message_text(
         f"{box('🏆 ثبت نتیجه')}\n\n"
         f"⬜ سفید: *{m['white_name']}*\n"
@@ -592,9 +715,12 @@ async def lottery_manual(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     players = await db.get_continuing_players()
     ctx.user_data["match_players_pool"] = [dict(p) for p in players]
+    ctx.user_data["mw_view"] = ctx.user_data["match_players_pool"]
+    ctx.user_data["mw_page"] = 0
     await query.edit_message_text(
-        f"{box('✏️ انتخاب دستی')}\n\n⬜ بازیکن سفید را انتخاب کنید:",
-        reply_markup=kb.kb_player_select(players, "mwhite", "matches"),
+        f"{box('✏️ انتخاب دستی')}\n\n⬜ بازیکن سفید را انتخاب کنید:\n\n"
+        f"{_page_hint(players, 0)}",
+        reply_markup=kb.kb_player_select(players, "mwhite", "matches", page=0, nav_prefix="mw"),
         parse_mode="Markdown")
     return ST_MATCH_WHITE
 

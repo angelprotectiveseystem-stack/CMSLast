@@ -56,7 +56,9 @@ from players import (
 )
 from matches import (
     match_add_start, match_white_selected, match_black_selected,
+    match_white_page, match_white_search_text, match_black_page, match_black_search_text,
     match_date_today, match_date_text, match_result_menu, match_result_select,
+    match_result_page,
     result_white, result_black, result_draw, draw_reason, draw_reason_text,
     result_cancel_ask, match_cancel_reason_text,
     eliminate_yes, eliminate_no, match_history, match_hist_filter,
@@ -348,10 +350,14 @@ def build_application():
         ],
         states={
             ST_MATCH_WHITE: [
-                CallbackQueryHandler(match_white_selected, pattern="^mwhite_")
+                CallbackQueryHandler(match_white_page, pattern="^mwpage_"),
+                CallbackQueryHandler(match_white_selected, pattern="^mwhite_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, match_white_search_text),
             ],
             ST_MATCH_BLACK: [
-                CallbackQueryHandler(match_black_selected, pattern="^mblack_")
+                CallbackQueryHandler(match_black_page, pattern="^mbpage_"),
+                CallbackQueryHandler(match_black_selected, pattern="^mblack_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, match_black_search_text),
             ],
             ST_MATCH_DATE: [
                 CallbackQueryHandler(match_date_today, pattern="^mdate_today$"),
@@ -633,6 +639,7 @@ def build_application():
 
     # Matches (non-conversation)
     app.add_handler(CallbackQueryHandler(match_result_menu, pattern="^match_result$"))
+    app.add_handler(CallbackQueryHandler(match_result_page, pattern="^mrpage_"))
     app.add_handler(CallbackQueryHandler(match_result_select,pattern="^result_select_"))
     app.add_handler(CallbackQueryHandler(result_white, pattern="^result_white_"))
     app.add_handler(CallbackQueryHandler(result_black, pattern="^result_black_"))

@@ -130,14 +130,25 @@ def kb_player_list(players, page=0, page_size=8):
     rows.append(kb_back_row("players"))
     return InlineKeyboardMarkup(rows)
 
-def kb_player_select(players, prefix, back="matches"):
+def kb_player_select(players, prefix, back="matches", page=0, page_size=8, nav_prefix=None):
+    total = len(players)
+    start = page * page_size
+    page_players = players[start:start + page_size]
     rows = []
-    for i in range(0, len(players), 2):
+    for i in range(0, len(page_players), 2):
         row = [InlineKeyboardButton(
             f"{'⬜' if 'white' in prefix else '⬛' if 'black' in prefix else '👤'} {p['full_name']} [{p['class_name'] if p['class_name'] else ''}]",
             callback_data=f"{prefix}_{p['id']}"
-        ) for p in players[i:i+2]]
+        ) for p in page_players[i:i + 2]]
         rows.append(row)
+    if nav_prefix:
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"{nav_prefix}page_{page-1}"))
+        if start + page_size < total:
+            nav_row.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"{nav_prefix}page_{page+1}"))
+        if nav_row:
+            rows.append(nav_row)
     rows.append(kb_back_row(back))
     return InlineKeyboardMarkup(rows)
 
