@@ -400,10 +400,11 @@ def kb_admin_actions(tid):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⬆️ دسترسی‌ها", callback_data=f"admin_perms_{tid}"),
         InlineKeyboardButton("⚠️ ثبت اخطار", callback_data=f"admin_warn_{tid}")],
-        [InlineKeyboardButton("🚫 اخراج", callback_data=f"admin_kick_{tid}"),
-        InlineKeyboardButton("💬 ارسال پیام", callback_data=f"admin_msg_{tid}")],
-        [InlineKeyboardButton("📋 اعطای وظیفه", callback_data=f"admin_task_{tid}"),
-        InlineKeyboardButton("👁️ پروفایل", callback_data=f"admin_profile_{tid}")],
+        [InlineKeyboardButton("🧹 پاک‌کردن اخطارها", callback_data=f"admin_clearwarn_{tid}"),
+        InlineKeyboardButton("🚫 اخراج", callback_data=f"admin_kick_{tid}")],
+        [InlineKeyboardButton("💬 ارسال پیام", callback_data=f"admin_msg_{tid}"),
+        InlineKeyboardButton("📋 اعطای وظیفه", callback_data=f"admin_task_{tid}")],
+        [InlineKeyboardButton("👁️ پروفایل", callback_data=f"admin_profile_{tid}")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_admins")],
     ])
 

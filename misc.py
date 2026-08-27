@@ -373,6 +373,41 @@ async def admin_warn_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def admin_clear_warnings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    tid = int(query.data.split("_")[-1])
+    admin = await db.get_admin(tid)
+    if not admin:
+        await query.answer("مدیر یافت نشد.", show_alert=True)
+        return
+    await db.set_admin_warnings(tid, 0)
+    await db.log_action(PISHVA_ID, "admin_clear_warnings", "پاک‌کردن اخطارهای مدیر", tid)
+    await query.answer("✅ اخطارها پاک شد.", show_alert=True)
+    admin2 = await db.get_admin(tid)
+    warn_bar = warning_bar_admin(admin2["warnings"])
+    role_label = "🏆 مدیر مسابقات" if admin2["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
+    tasks = await db.get_tasks_for(tid)
+    logs = await db.get_action_logs("all", tid)
+    _name = admin2["display_name"] or admin2["full_name"]
+    text = (
+        f"{box("👤 پروفایل: " + _name + "")}\n\n"
+        f"🔗 یوزرنیم: {admin2['username']}\n"
+        f"💼 نقش: {role_label}\n"
+        f"🆔 آیدی: `{admin2['telegram_id']}`\n"
+        f"📅 تاریخ ثبت: `{str(admin2['joined_at'])[:10]}`\n"
+        f"⏱️ آخرین فعالیت: `{str(admin2['last_active'] or '')[:16]}`\n"
+        f"📊 اقدامات: `{len(logs)}`\n"
+        f"📋 وظایف: `{len(tasks)}`\n"
+        f"{'✅ فعال' if admin2['is_active'] else '🔴 غیرفعال'}\n\n"
+        f"{separator('⚠️ اخطارها')}\n"
+        f"{warn_bar}"
+    )
+    await query.edit_message_text(text, reply_markup=kb.kb_admin_actions(tid), parse_mode="Markdown")
+
+
 async def admin_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
