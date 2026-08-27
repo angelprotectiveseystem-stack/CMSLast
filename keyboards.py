@@ -27,6 +27,7 @@ def kb_pishva_main():
         [InlineKeyboardButton("📊 داشبورد پیشوا", callback_data="dashboard_pishva"),
         InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
         [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],
+        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
@@ -39,6 +40,7 @@ def kb_tournament_manager_main():
         InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms")],
         [InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks"),
         InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
+        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
@@ -51,6 +53,7 @@ def kb_security_manager_main():
         InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks")],
         [InlineKeyboardButton("❓ راهنما", callback_data="menu_help"),
         InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
+        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
     ])
 
 # ─── مدیریت مسابقات (همه چیز اینجاست) ──────────────────────

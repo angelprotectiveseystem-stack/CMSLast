@@ -18,6 +18,7 @@ import logging
 import httpx
 from telegram import Update
 from telegram.ext import ContextTypes
+from telegram.error import BadRequest
 
 import database as db
 from helpers import get_user_role
@@ -87,6 +88,24 @@ def _extract_parts(data: dict):
         return data["candidates"][0]["content"]["parts"]
     except (KeyError, IndexError):
         return []
+
+
+async def ai_assistant_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """وقتی کاربر دکمه‌ی «🤖 دستیار هوشمند» رو توی منو می‌زنه."""
+    query = update.callback_query
+    await query.answer()
+    ctx.user_data["ai_mode"] = True
+    ctx.user_data["ai_history"] = []
+    try:
+        await query.edit_message_text(
+            "🤖 دستیار هوشمند فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
+            "گزارش بدم یا فقط باهات حرف بزنم.\nبرای خروج بنویس «خروج از دستیار»."
+        )
+    except BadRequest:
+        await query.message.reply_text(
+            "🤖 دستیار هوشمند فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
+            "گزارش بدم یا فقط باهات حرف بزنم.\nبرای خروج بنویس «خروج از دستیار»."
+        )
 
 
 async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -165,8 +184,15 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ این درخواست خیلی پیچیده شد؛ لطفاً واضح‌تر یا مرحله‌به‌مرحله بگو.")
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"Gemini API error: {e.response.text}")
-        await update.message.reply_text("⚠️ ارتباط با هوش مصنوعی موقتاً مشکل داشت، چند لحظه دیگه امتحان کن.")
-    except Exception:
+        body = e.response.text[:500]
+        logger.error(f"Gemini API error {e.response.status_code}: {body}")
+        msg = "⚠️ ارتباط با هوش مصنوعی موقتاً مشکل داشت، چند لحظه دیگه امتحان کن."
+        if role == ROLE_PISHVA:
+            msg += f"\n\n🔧 جزئیات فنی (فقط برای پیشوا):\nکد: {e.response.status_code}\n{body}"
+        await update.message.reply_text(msg)
+    except Exception as e:
         logger.exception("AI assistant failed")
-        await update.message.reply_text("⚠️ یه خطای غیرمنتظره پیش اومد.")
+        msg = "⚠️ یه خطای غیرمنتظره پیش اومد."
+        if role == ROLE_PISHVA:
+            msg += f"\n\n🔧 جزئیات فنی: {type(e).__name__}: {e}"
+        await update.message.reply_text(msg)
