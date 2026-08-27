@@ -375,6 +375,20 @@ async def kick_admin(telegram_id: int):
         await db.commit()
 
 
+async def set_admin_warnings(telegram_id: int, count: int):
+    """تنظیم دقیق تعداد اخطارهای یک ادمین (برای پاک‌کردن، count=0 بفرست)."""
+    count = max(0, int(count))
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE admins SET warnings=? WHERE telegram_id=?", (count, telegram_id))
+        await db.commit()
+
+
+async def set_admin_role(telegram_id: int, new_role: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE admins SET role=? WHERE telegram_id=?", (new_role, telegram_id))
+        await db.commit()
+
+
 # ─── Classes ─────────────────────────────────────────────────
 async def get_all_classes():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -744,6 +758,57 @@ async def update_match(mid: int, **kwargs):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(f"UPDATE matches SET {sets} WHERE id=?", vals)
         await db.commit()
+
+
+async def reverse_player_stats(player_id: int, result: str):
+    """معکوس‌کردن اثر یک نتیجه‌ی قبلی روی آمار بازیکن (برای ویرایش/حذف مسابقه). زیر صفر نمی‌ره."""
+    col = {"win": "wins", "loss": "losses", "draw": "draws"}.get(result)
+    if col:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(f"UPDATE players SET {col}=MAX(0,{col}-1) WHERE id=?", (player_id,))
+            await db.commit()
+
+
+async def correct_match_result(mid: int, new_result: str, reason: str, updated_by: int):
+    """
+    ویرایش نتیجه‌ی یک مسابقه‌ی از قبل ثبت‌شده: اگه قبلاً نتیجه داشته،
+    اول اثرش رو از آمار دو بازیکن برمی‌داره، بعد نتیجه‌ی جدید رو ثبت و آمار رو
+    دوباره اعمال می‌کنه. اگه مسابقه پیدا نشه، None برمی‌گردونه.
+    """
+    m = await get_match(mid)
+    if m is None:
+        return None
+    stat_map = {"white": ("win", "loss"), "black": ("loss", "win"), "draw": ("draw", "draw")}
+    if new_result not in stat_map:
+        raise ValueError(f"نتیجه‌ی نامعتبر: {new_result}")
+
+    if m["result"] in stat_map:
+        old_white_stat, old_black_stat = stat_map[m["result"]]
+        await reverse_player_stats(m["white_player_id"], old_white_stat)
+        await reverse_player_stats(m["black_player_id"], old_black_stat)
+
+    white_stat, black_stat = stat_map[new_result]
+    await set_match_result(mid, new_result, reason, updated_by)
+    await update_player_stats(m["white_player_id"], white_stat)
+    await update_player_stats(m["black_player_id"], black_stat)
+    return m
+
+
+async def delete_match_safely(mid: int):
+    """
+    حذف یک مسابقه: اگه از قبل نتیجه داشته، اول اثرش رو از آمار بازیکن‌ها
+    برمی‌داره تا برد/باخت/مساوی‌ها بعد از حذف درست بمونن. اگه پیدا نشه None.
+    """
+    m = await get_match(mid)
+    if m is None:
+        return None
+    stat_map = {"white": ("win", "loss"), "black": ("loss", "win"), "draw": ("draw", "draw")}
+    if m["result"] in stat_map:
+        white_stat, black_stat = stat_map[m["result"]]
+        await reverse_player_stats(m["white_player_id"], white_stat)
+        await reverse_player_stats(m["black_player_id"], black_stat)
+    await delete_match(mid)
+    return m
 
 
 async def get_player_match_history(player_id: int):

@@ -61,6 +61,8 @@ TOOL_PERMISSIONS = {
     # ── مدیریت ادمین‌ها — فقط پیشوا ──
     "list_admins":        [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
     "warn_admin":         [ROLE_PISHVA],
+    "clear_admin_warnings": [ROLE_PISHVA],
+    "set_admin_role":     [ROLE_PISHVA],
 
     # ── امنیت — پیشوا و مدیر امنیتی ──
     "block_user":         [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
@@ -68,6 +70,10 @@ TOOL_PERMISSIONS = {
 
     # ── باز کردن پنل‌ها (دکمه‌ی شیشه‌ای زیر پیام) — دسترسی داخل خود دیسپچر هم چک می‌شود ──
     "open_panel":          ALL_ROLES,
+
+    # ── اصلاح مسابقات ثبت‌شده — فقط پیشوا ──
+    "edit_match_result":   [ROLE_PISHVA],
+    "delete_match":        [ROLE_PISHVA],
 
     # ── ابزارهای سطح‌بالای مدیریتی — فقط پیشوا ──
     "get_admin_profile":   [ROLE_PISHVA],
@@ -204,6 +210,30 @@ TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "edit_match_result",
+        "description": "اصلاح نتیجه‌ی یک مسابقه‌ی از قبل ثبت‌شده (با شناسه‌ی مسابقه که از recent_matches می‌گیری). آمار برد/باخت/مساوی بازیکن‌ها خودکار درست می‌شود.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "match_id": {"type": "integer", "description": "شناسه‌ی مسابقه (عدد # جلوی هر ردیف در recent_matches)"},
+                "winner": {"type": "string", "description": "برنده‌ی صحیح: 'white'، 'black' یا 'draw'"},
+                "reason": {"type": "string", "description": "دلیل اصلاح (اختیاری)"},
+            },
+            "required": ["match_id", "winner"],
+        },
+    },
+    {
+        "name": "delete_match",
+        "description": "حذف کامل یک مسابقه‌ی ثبت‌شده (مثلاً اگر اشتباهی ثبت شده). اگر نتیجه داشته، آمار بازیکن‌ها خودکار اصلاح می‌شود.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "match_id": {"type": "integer", "description": "شناسه‌ی مسابقه (عدد # جلوی هر ردیف در recent_matches)"},
+            },
+            "required": ["match_id"],
+        },
+    },
+    {
         "name": "recent_matches",
         "description": "نمایش آخرین نتایج مسابقات ثبت‌شده.",
         "parameters": {
@@ -254,6 +284,30 @@ TOOL_DECLARATIONS = [
                 "reason": {"type": "string"},
             },
             "required": ["identifier", "reason"],
+        },
+    },
+    {
+        "name": "clear_admin_warnings",
+        "description": "پاک‌کردن اخطارهای یک مدیر (صفر کردن شمارنده‌ی اخطار). برای اصلاح یا بخشیدن اخطارهای قبلی.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "identifier": {"type": "string", "description": "آیدی عددی، یوزرنیم یا نام کامل مدیر"},
+            },
+            "required": ["identifier"],
+        },
+    },
+    {
+        "name": "set_admin_role",
+        "description": "تغییر نقش یک مدیر بین «مدیر مسابقات» و «مدیر امنیتی».",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "identifier": {"type": "string", "description": "آیدی عددی، یوزرنیم یا نام کامل مدیر"},
+                "new_role": {"type": "string", "enum": ["tournament_manager", "security_manager"],
+                             "description": "نقش جدید"},
+            },
+            "required": ["identifier", "new_role"],
         },
     },
     {
@@ -474,6 +528,32 @@ async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx)
                 return "این مسابقه قبلاً نتیجه داشته، دوباره ثبت نشد."
             return f"✅ نتیجه ثبت شد: {wp['full_name']} ⚔️ {bp['full_name']} → {'مساوی' if result=='draw' else (wp['full_name'] if result=='white' else bp['full_name']) + ' برد'}"
 
+        elif name == "edit_match_result":
+            mid = int(args["match_id"])
+            winner_raw = str(args["winner"]).strip().lower()
+            if winner_raw in ("white", "سفید"):
+                new_result = "white"
+            elif winner_raw in ("black", "سیاه"):
+                new_result = "black"
+            elif winner_raw in ("draw", "مساوی", "تساوی"):
+                new_result = "draw"
+            else:
+                return "برنده باید 'white'، 'black' یا 'draw' باشد."
+            try:
+                m = await db.correct_match_result(mid, new_result, args.get("reason", ""), caller_id)
+            except ValueError as e:
+                return str(e)
+            if m is None:
+                return f"مسابقه‌ای با شناسه‌ی #{mid} پیدا نشد."
+            return f"✅ نتیجه‌ی مسابقه‌ی #{mid} اصلاح شد و آمار بازیکن‌ها به‌روزرسانی شد."
+
+        elif name == "delete_match":
+            mid = int(args["match_id"])
+            m = await db.delete_match_safely(mid)
+            if m is None:
+                return f"مسابقه‌ای با شناسه‌ی #{mid} پیدا نشد."
+            return f"🗑️ مسابقه‌ی #{mid} حذف شد و آمار بازیکن‌ها (در صورت داشتن نتیجه) اصلاح شد."
+
         elif name == "recent_matches":
             limit = int(args.get("limit") or 5)
             rows = await db.get_matches_by_filter("all")
@@ -483,7 +563,7 @@ async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx)
             lines = []
             for r in rows:
                 res = r["result"] or "در انتظار"
-                lines.append(f"- {r.get('white_name','?')} vs {r.get('black_name','?')} → {res}")
+                lines.append(f"- #{r['id']} | {r.get('white_name','?')} vs {r.get('black_name','?')} → {res}")
             return "آخرین مسابقات:\n" + "\n".join(lines)
 
         # ── گزارش‌گیری ──
@@ -526,6 +606,24 @@ async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx)
                 return f"مدیری با مشخصات «{args['identifier']}» پیدا نشد."
             await db.add_admin_warning(a["telegram_id"], args["reason"], caller_id)
             return f"⚠️ به {a['full_name']} اخطار داده شد. دلیل: {args['reason']}"
+
+        elif name == "clear_admin_warnings":
+            a = await _find_admin_by_identifier(args["identifier"])
+            if not a:
+                return f"مدیری با مشخصات «{args['identifier']}» پیدا نشد."
+            await db.set_admin_warnings(a["telegram_id"], 0)
+            return f"✅ اخطارهای {a['full_name']} پاک شد."
+
+        elif name == "set_admin_role":
+            a = await _find_admin_by_identifier(args["identifier"])
+            if not a:
+                return f"مدیری با مشخصات «{args['identifier']}» پیدا نشد."
+            new_role = args["new_role"]
+            if new_role not in (ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER):
+                return "نقش نامعتبر است."
+            await db.set_admin_role(a["telegram_id"], new_role)
+            label = "مدیر مسابقات" if new_role == ROLE_TOURNAMENT_MANAGER else "مدیر امنیتی"
+            return f"✅ نقش {a['full_name']} به «{label}» تغییر کرد."
 
         # ── امنیت ──
         elif name == "block_user":
