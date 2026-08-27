@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
-# اگه مدل اصلی موقتاً شلوغ بود (خطای 503)، این‌ها رو به‌ترتیب امتحان می‌کنیم
-FALLBACK_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"]
+# اگه مدل اصلی موقتاً شلوغ بود (خطای 503) یا از رده خارج شد (404)، این‌ها رو به‌ترتیب امتحان می‌کنیم
+FALLBACK_MODELS = ["gemini-flash-latest", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
 if GEMINI_MODEL in FALLBACK_MODELS:
     FALLBACK_MODELS.remove(GEMINI_MODEL)
 MODEL_CHAIN = [GEMINI_MODEL] + FALLBACK_MODELS
@@ -88,8 +88,9 @@ async def _call_gemini(contents: list, tools):
 
     last_error = None
     async with httpx.AsyncClient(timeout=30) as client:
-        for model in MODEL_CHAIN:
+        for i, model in enumerate(MODEL_CHAIN):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            is_last_model = (i == len(MODEL_CHAIN) - 1)
             for attempt in range(RETRIES_PER_MODEL):
                 try:
                     resp = await client.post(url, headers=headers, json=payload)
@@ -97,13 +98,19 @@ async def _call_gemini(contents: list, tools):
                     return resp.json()
                 except httpx.HTTPStatusError as e:
                     last_error = e
-                    # فقط برای «شلوغی موقت سرور» (503) یا «محدودیت نرخ» (429) دوباره امتحان کن
-                    if e.response.status_code in (503, 429):
-                        logger.warning(f"Gemini {model} attempt {attempt+1} failed ({e.response.status_code}), retrying...")
+                    code = e.response.status_code
+                    if code in (503, 429):
+                        # شلوغی موقت سرور یا محدودیت نرخ — همین مدل رو دوباره امتحان کن
+                        logger.warning(f"Gemini {model} attempt {attempt+1} failed ({code}), retrying...")
                         await asyncio.sleep(RETRY_DELAY_SECONDS)
                         continue
-                    raise  # خطاهای دیگه (مثل کلید نامعتبر) فوراً بالا بره، تلاش دوباره فایده نداره
-            # این مدل بعد از چند تلاش هم جواب نداد؛ برو سراغ مدل بعدی در MODEL_CHAIN
+                    elif code == 404 and not is_last_model:
+                        # این مدل دیگه در دسترس نیست — برو سراغ مدل بعدی، تلاش دوباره روی همین بی‌فایده‌ست
+                        logger.warning(f"Gemini model {model} not found (404), trying next model...")
+                        break
+                    else:
+                        raise  # خطای دیگه (کلید نامعتبر و ...) یا آخرین مدل هم بود — دیگه فایده‌ای نداره
+            # اگه به اینجا رسیدیم یعنی این مدل بعد از چند تلاش/یا 404 جواب نداد؛ برو مدل بعدی
     raise last_error
 
 
