@@ -970,43 +970,6 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
-async def cmd_open(update: Update, ctx):
-    if update.effective_user.id != PISHVA_ID:
-        return
-    import database as db
-    from helpers import broadcast_to_admins, now_shamsi, box
-    await db.set_setting("bot_active_for_admins", "1")
-    await db.set_setting("working_hours_active", "1")
-    ts = now_shamsi()
-    notif = (
-        f"{box('🟢 آغاز ساعت کاری')}\n\n"
-        f"درود بر شما،\n"
-        f"⏱️ ساعت کاری از `{ts}`\n"
-        f"   توسط پیشوا آغاز شد.\n\n"
-        f"✅ دسترسی شما به ربات فعال است.\n"
-        f"سیستم آماده دریافت فرمان. 🛰️"
-    )
-    await broadcast_to_admins(ctx.bot, notif)
-    await db.log_action(PISHVA_ID, "workhour_start", f"آغاز ساعت کاری: {ts}")
-    await update.message.reply_text(f"🟢 ساعت کاری آغاز شد و به همه اطلاع داده شد.\n⏱️ `{ts}`", parse_mode="Markdown")
-
-
-async def cmd_close(update: Update, ctx):
-    if update.effective_user.id != PISHVA_ID:
-        return
-    import database as db
-    from helpers import broadcast_to_admins, now_shamsi, box
-    await db.set_setting("bot_active_for_admins", "0")
-    await db.set_setting("working_hours_active", "0")
-    ts = now_shamsi()
-    notif = (
-        f"{box('🔴 پایان ساعت کاری')}\n\n"
-        f"خسته نباشید! 🌙\n"
-        f"⏱️ ساعت کاری در `{ts}`\n"
-        f"   به پایان رسید.\n\n"
-        f"🔒 دسترسی شما موقتاً قطع شد.\n"
-        f"ممنون از زحمات شما! 🏆"
-    )
-    await broadcast_to_admins(ctx.bot, notif)
-    await db.log_action(PISHVA_ID, "workhour_end", f"پایان ساعت کاری: {ts}")
-    await update.message.reply_text(f"🔴 ساعت کاری پایان یافت و به همه اطلاع داده شد.\n⏱️ `{ts}`", parse_mode="Markdown")
+# cmd_open / cmd_close (دستورات /open و /close) به workhours.py منتقل
+# شدن — همون workhour_start/workhour_end هستن که هم از دکمه هم از
+# دستور متنی صدا زده می‌شن و پایان خودکار/یادآور رو هم پشتیبانی می‌کنن.

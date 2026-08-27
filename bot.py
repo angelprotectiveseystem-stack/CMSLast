@@ -26,7 +26,8 @@ from config import (
     ST_BULK_REG_TEXT, ST_BULK_REG_PREVIEW, ST_BULK_REG_EDIT_NUM, ST_BULK_REG_EDIT_VALUE,
     ST_CHANNEL_ID,
     ST_ADV_LOTTERY_SCOPE, ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT,
-    ST_RESTORE_FILE
+    ST_RESTORE_FILE,
+    ST_WORKHOURS_AUTOEND_MINUTES, ST_WORKHOURS_REMINDER_MINUTES,
 )
 
 from auth import (
@@ -75,8 +76,8 @@ from pishva import (
     pishva_status, set_status, pishva_settings, toggle_setting,
     pishva_dbstatus, dbstatus_on, dbstatus_off,
     pishva_logs, show_logs, pishva_requests, pishva_backup,
-    backup_period_select, backup_format_select, pishva_workhours,
-    workhour_start, workhour_end, pishva_repair, repair_on, repair_off,
+    backup_period_select, backup_format_select,
+    pishva_repair, repair_on, repair_off,
     repair_reason_start, repair_reason_save, pishva_identity,
     identity_pishva_start, identity_pishva_save, identity_admin_start,
     identity_admin_select, identity_admin_save, pishva_newyear,
@@ -109,7 +110,12 @@ from misc import (
     team_delete, team_warnings_view,
     cmd_panic, cmd_unpanic, cmd_freeze_all, cmd_terminal, cmd_backup_now,
     cmd_override_strike, cmd_help,
-    cmd_open, cmd_close,
+)
+from workhours import (
+    pishva_workhours, workhour_start, workhour_start_minutes_received,
+    workhour_end, workhours_autoend_toggle, workhours_reminder_toggle,
+    workhours_reminder_minutes_start, workhours_reminder_minutes_received,
+    restore_workhours_jobs,
 )
 from help_center import help_main, help_tutorial
 from dashboard import dashboard_pishva, dashboard_admin
@@ -189,19 +195,32 @@ async def post_init(application: Application) -> None:
     except Exception as e:
         logger.warning(f"Could not set commands: {e}")
 
-    # Schedule weekly champion announcement (every Monday)
+    # Schedule weekly champion announcement — دقیقاً هر دوشنبه ساعت ۹ صبح
+    # به‌وقت تهران، با precise_scheduler روی یک لحظهٔ مطلق (نه run_repeating
+    # نسبی که با هر ری‌استارت رایلوی جابه‌جا می‌شد و انحراف جمع می‌کرد)
     try:
-        from features import weekly_champion_job
-        from datetime import timedelta
-        application.job_queue.run_repeating(
-            weekly_champion_job,
-            interval=timedelta(days=7),
-            first=timedelta(hours=1),
-            name='weekly_champion'
-        )
-        logger.info('Weekly champion job scheduled')
+        from features import weekly_champion_wrapper, next_monday_9am
+        import precise_scheduler as sched
+        from datetime import datetime
+        from helpers import TEHRAN_TZ
+        existing, _ = await sched.load_target("weekly_champion")
+        if existing is None:
+            target = next_monday_9am(datetime.now(TEHRAN_TZ))
+            await sched.schedule_persistent(application.job_queue, weekly_champion_wrapper, target, "weekly_champion")
+            logger.info(f"Weekly champion job scheduled for {target}")
+        else:
+            await sched.restore_pending(application.job_queue, weekly_champion_wrapper, "weekly_champion")
+            logger.info("Weekly champion job restored from previous schedule")
     except Exception as e:
         logger.warning(f'Could not schedule weekly champion: {e}')
+
+    # Restore working-hours auto-end / reminder jobs (survives Railway restarts)
+    try:
+        from workhours import restore_workhours_jobs
+        await restore_workhours_jobs(application)
+        logger.info("Working-hours precise jobs restored.")
+    except Exception as e:
+        logger.warning(f"Could not restore working-hours jobs: {e}")
 
     # Schedule auto-backup if enabled
     try:
@@ -615,9 +634,31 @@ def build_application():
         **CONV_KWARGS
     )
 
+    # ساعت کاری: /open و دکمهٔ wh_start ممکنه (اگه پایان خودکار روشن باشه)
+    # یه عدد دقیقه از پیشوا بخوان، پس باید Conversation باشن نه هندلر ساده.
+    workhours_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("open", workhour_start),
+            CallbackQueryHandler(workhour_start, pattern="^wh_start$"),
+            CallbackQueryHandler(workhours_reminder_minutes_start, pattern="^wh_reminder_set_minutes$"),
+        ],
+        states={
+            ST_WORKHOURS_AUTOEND_MINUTES: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, workhour_start_minutes_received)
+            ],
+            ST_WORKHOURS_REMINDER_MINUTES: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, workhours_reminder_minutes_received)
+            ],
+        },
+        fallbacks=[CallbackQueryHandler(pishva_workhours, pattern="^pishva_workhours$"),
+                   CallbackQueryHandler(menu_pishva, pattern="^menu_pishva$")],
+        **CONV_KWARGS
+    )
+
     # ─── Add all ConversationHandlers first ───────────────────
     for conv in [auth_conv, tourn_conv, player_conv, match_conv,
-                 comms_conv, task_conv, feedback_conv, pishva_conv, restore_conv, team_conv]:
+                 comms_conv, task_conv, feedback_conv, pishva_conv, restore_conv, team_conv,
+                 workhours_conv]:
         app.add_handler(conv)
 
     # ══════════════════════════════════════════
@@ -630,8 +671,7 @@ def build_application():
     app.add_handler(CommandHandler("backup_now", cmd_backup_now))
     app.add_handler(CommandHandler("override_strike", cmd_override_strike))
     app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("open", cmd_open))
-    app.add_handler(CommandHandler("close", cmd_close))
+    app.add_handler(CommandHandler("close", workhour_end))
 
     # ══════════════════════════════════════════
     # GLOBAL CALLBACK HANDLERS
@@ -742,8 +782,10 @@ def build_application():
     app.add_handler(CallbackQueryHandler(backup_period_select,pattern="^backup_period_"))
     app.add_handler(CallbackQueryHandler(backup_format_select,pattern="^backup_fmt_"))
     app.add_handler(CallbackQueryHandler(pishva_workhours, pattern="^pishva_workhours$"))
-    app.add_handler(CallbackQueryHandler(workhour_start, pattern="^wh_start$"))
     app.add_handler(CallbackQueryHandler(workhour_end, pattern="^wh_end$"))
+    app.add_handler(CallbackQueryHandler(workhours_autoend_toggle, pattern="^wh_autoend_toggle$"))
+    app.add_handler(CallbackQueryHandler(workhours_reminder_toggle, pattern="^wh_reminder_toggle$"))
+    # wh_start و wh_reminder_set_minutes به‌عنوان entry_points توی workhours_conv ثبت شدن
     app.add_handler(CallbackQueryHandler(pishva_repair, pattern="^pishva_repair$"))
     app.add_handler(CallbackQueryHandler(repair_on, pattern="^repair_on$"))
     app.add_handler(CallbackQueryHandler(repair_off, pattern="^repair_off$"))

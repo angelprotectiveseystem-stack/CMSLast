@@ -339,12 +339,27 @@ def kb_restore_confirm():
         InlineKeyboardButton("❌ انصراف", callback_data="restore_cancel")],
     ])
 
-def kb_workhours():
-    return InlineKeyboardMarkup([
+def kb_workhours(autoend_on: bool = False, reminder_on: bool = False, reminder_minutes: int = 60):
+    rows = [
         [InlineKeyboardButton("🟢 آغاز ساعت کاری", callback_data="wh_start"),
         InlineKeyboardButton("🔴 پایان ساعت کاری", callback_data="wh_end")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
-    ])
+        [InlineKeyboardButton(
+            f"⏱ پایان خودکار: {'✅ روشن' if autoend_on else '❌ خاموش'}",
+            callback_data="wh_autoend_toggle"
+        )],
+    ]
+    if not autoend_on:
+        rows.append([InlineKeyboardButton(
+            f"⏰ یادآور عدم پایان: {'✅ روشن' if reminder_on else '❌ خاموش'}",
+            callback_data="wh_reminder_toggle"
+        )])
+        if reminder_on:
+            rows.append([InlineKeyboardButton(
+                f"✏️ دقیقهٔ یادآور (فعلی: {reminder_minutes})",
+                callback_data="wh_reminder_set_minutes"
+            )])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")])
+    return InlineKeyboardMarkup(rows)
 
 def kb_repair_menu():
     return InlineKeyboardMarkup([

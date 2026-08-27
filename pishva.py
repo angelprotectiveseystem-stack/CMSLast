@@ -338,53 +338,10 @@ async def restore_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ─── Working Hours ────────────────────────────────────────────
-async def pishva_workhours(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔", show_alert=True)
-        return
-    await query.answer()
-    await query.edit_message_text(
-        f"{box('🕐 ساعت کاری')}\n\n📌 عملیات را انتخاب کنید:",
-        reply_markup=kb.kb_workhours(),
-        parse_mode="Markdown"
-    )
-
-async def workhour_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await db.set_setting("bot_active_for_admins", "1")
-    await db.set_setting("working_hours_active", "1")
-    ts = now_shamsi()
-    notif = (
-        f"{box('🟢 آغاز ساعت کاری')}\n\n"
-        f"درود بر شما،\n"
-        f"⏱️ ساعت کاری از `{ts}`\n"
-        f" توسط پیشوا آغاز شد.\n\n"
-        f"✅ دسترسی شما به ربات فعال است.\n"
-        f"سیستم آماده دریافت فرمان. 🛰️"
-    )
-    await broadcast_to_admins(ctx.bot, notif)
-    await db.log_action(PISHVA_ID, "workhour_start", f"آغاز ساعت کاری: {ts}")
-    await query.edit_message_text(f"🟢 ساعت کاری آغاز شد و اعلان برای همه ارسال شد.", reply_markup=kb.kb_back("pishva_panel"))
-
-async def workhour_end(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await db.set_setting("bot_active_for_admins", "0")
-    await db.set_setting("working_hours_active", "0")
-    ts = now_shamsi()
-    notif = (
-        f"{box('🔴 پایان ساعت کاری')}\n\n"
-        f"خسته نباشید! 🌙\n"
-        f"⏱️ ساعت کاری در `{ts}`\n"
-        f" به پایان رسید.\n\n"
-        f"🔒 دسترسی شما موقتاً قطع شد.\n"
-        f"ممنون از زحمات شما! 🏆"
-    )
-    await broadcast_to_admins(ctx.bot, notif)
-    await db.log_action(PISHVA_ID, "workhour_end", f"پایان ساعت کاری: {ts}")
-    await query.edit_message_text(f"🔴 ساعت کاری پایان یافت.", reply_markup=kb.kb_back("pishva_panel"))
+# منطق ساعت کاری (شروع/پایان دستی + پایان خودکار + یادآور) به‌طور کامل
+# به ماژول workhours.py منتقل شد؛ اونجا pishva_workhours/workhour_start/
+# workhour_end (به‌علاوهٔ قابلیت‌های جدید) تعریف شدن. bot.py مستقیماً از
+# workhours.py ایمپورت می‌کنه.
 
 # ─── Repair Mode ──────────────────────────────────────────────
 async def pishva_repair(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

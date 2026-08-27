@@ -447,3 +447,36 @@ async def weekly_champion_job(context):
         except Exception as e:
             logger.warning(f"Weekly champion send to {tid} failed: {e}")
     await db.log_action(PISHVA_ID, "weekly_champion", f"قهرمان هفته: {champion['name']}")
+
+
+def next_monday_9am(from_dt):
+    """اولین دوشنبهٔ ساعت ۹:۰۰ بعد از from_dt رو برمی‌گردونه (لحظهٔ مطلق،
+    برای لنگر زدنِ دقیق قهرمان هفتگی — نه یک بازهٔ نسبی که انحراف می‌گیره)."""
+    from datetime import timedelta
+    days_ahead = (0 - from_dt.weekday()) % 7  # Monday == 0
+    candidate = (from_dt + timedelta(days=days_ahead)).replace(
+        hour=9, minute=0, second=0, microsecond=0
+    )
+    if candidate <= from_dt:
+        candidate += timedelta(days=7)
+    return candidate
+
+
+async def weekly_champion_wrapper(context):
+    """جابی که واقعاً روی جاب‌کیو می‌شینه: اول قهرمان هفته رو اعلام می‌کنه،
+    بعد بلافاصله لحظهٔ دقیق هفتهٔ بعد رو زمان‌بندی می‌کنه — با جمع‌کردن
+    ۷ روز به لنگر قبلی (نه به «الان»)، تا هیچ‌وقت انحراف جمع نشه."""
+    import precise_scheduler as sched
+    from datetime import timedelta, datetime
+    from helpers import TEHRAN_TZ
+    try:
+        await weekly_champion_job(context)
+    except Exception as e:
+        logger.warning(f"weekly_champion_job failed: {e}")
+
+    anchor, _ = await sched.load_target("weekly_champion")
+    base = anchor if anchor else datetime.now(TEHRAN_TZ)
+    next_target = base + timedelta(days=7)
+    await sched.schedule_persistent(
+        context.job_queue, weekly_champion_wrapper, next_target, "weekly_champion"
+    )
