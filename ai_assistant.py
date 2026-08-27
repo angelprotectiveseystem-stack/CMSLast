@@ -37,7 +37,7 @@ if GEMINI_MODEL in FALLBACK_MODELS:
 MODEL_CHAIN = [GEMINI_MODEL] + FALLBACK_MODELS
 
 RETRIES_PER_MODEL = 2
-RETRY_DELAY_SECONDS = 2
+RETRY_DELAY_SECONDS = 1
 
 MAX_HISTORY_TURNS = 8          # چند رفت‌وبرگشت آخر رو نگه داریم (برای هزینه/سرعت)
 MAX_TOOL_HOPS = 3              # جلوگیری از حلقه‌ی بی‌نهایت اگر مدل پشت‌سرهم تابع صدا بزنه
@@ -81,7 +81,12 @@ def _tools_for_role(role: str):
 
 
 async def _call_gemini(contents: list, tools):
-    payload = {"contents": contents}
+    payload = {
+        "contents": contents,
+        "generationConfig": {
+            "thinkingConfig": {"thinkingBudget": 0}  # خاموش‌کردن «تفکر» برای سرعت بیشتر
+        },
+    }
     if tools:
         payload["tools"] = tools
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
