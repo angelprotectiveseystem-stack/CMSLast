@@ -22,7 +22,7 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
 import database as db
-from helpers import get_user_role
+from helpers import get_user_role, pishva_display, admin_display
 from config import PISHVA_ID, ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
 import ai_tools
 
@@ -102,15 +102,17 @@ async def _can_use_ai(uid: int, role: str) -> bool:
     return perms.get("ai_access", True)
 
 
-def _system_prompt(role: str) -> str:
+def _system_prompt(role: str, display_name: str = "") -> str:
     role_label = ROLE_LABELS.get(role, role)
     allowed = [n for n, roles in ai_tools.TOOL_PERMISSIONS.items() if role in roles]
+    who = f"«{display_name}» (نقش: {role_label})" if display_name else f"نقشش «{role_label}»"
     return (
         "تو دستیار هوشمند داخلی یک ربات مدیریت مدرسه/آکادمی شطرنج هستی، به فارسی محاوره‌ای و "
         "گرم و دوستانه صحبت می‌کنی — مثل یه همکار باتجربه و قابل‌اعتماد، نه یه ربات رسمی. "
         "می‌تونی درددل بشنوی، تحلیل بدی، گزارش بسازی، و کارها رو با ابزارهایی که در اختیارت "
         "گذاشته شده مستقیم انجام بدی.\n\n"
-        f"کاربر فعلی نقشش «{role_label}» است.\n\n"
+        f"کاربر فعلی {who} است. می‌دونی داری با همین شخص صحبت می‌کنی — نیازی نیست ازش "
+        "بپرسی کیه یا نقشش چیه؛ لحن و خطابت رو متناسب با اسم و نقشش تنظیم کن.\n\n"
         "قوانین مهم:\n"
         "- فقط وقتی کاربر صراحتاً یه کار اجرایی خواست (ثبت، حذف، اخطار، شروع/پایان ساعت کاری، "
         "ارسال بیانیه، ثبت نتیجه‌ی مسابقه و مانند آن) از ابزارها استفاده کن.\n"
@@ -280,7 +282,11 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     history = ctx.user_data.setdefault("ai_history", [])
     history.append({"role": "user", "parts": [{"text": text}]})
 
-    system_prompt = _system_prompt(role)
+    if role == ROLE_PISHVA:
+        display_name = await pishva_display()
+    else:
+        display_name = await admin_display(await db.get_admin(uid))
+    system_prompt = _system_prompt(role, display_name)
     contents = [{"role": "user", "parts": [{"text": system_prompt}]},
                 {"role": "model", "parts": [{"text": "باشه، آماده‌ام کمک کنم."}]}] + history
 
