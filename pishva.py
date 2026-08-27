@@ -1,5 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
+from telegram.error import BadRequest
 import database as db
 import keyboards as kb
 from helpers import (box, separator, now_shamsi, broadcast_to_admins,
@@ -159,7 +160,10 @@ async def show_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         t = str(log["logged_at"] or "")[:16]
         lines.append(log_line(t, name, log["action_type"] + ": " + (log["description"] or "")))
     text = f"{box('🔍 لاگ اقدامات')}\n\n" + "\n".join(lines)
-    await query.edit_message_text(text, reply_markup=kb.kb_logs_filter(), parse_mode="Markdown")
+    try:
+        await query.edit_message_text(text, reply_markup=kb.kb_logs_filter(), parse_mode="Markdown")
+    except BadRequest:
+        await query.edit_message_text(text, reply_markup=kb.kb_logs_filter())
 
 # ─── Access Requests ─────────────────────────────────────────
 async def pishva_requests(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

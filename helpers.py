@@ -65,8 +65,20 @@ def separator(label: str = "") -> str:
         return f"╼╼╼╼╼╼ {label} ╾╾╾╾╾╾"
     return "╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼"
 
+def escape_md_legacy(text: str) -> str:
+    """فرار دادن کاراکترهای خاص Markdown قدیمی تلگرام (_ * ` [) توی متن‌های دینامیک
+    (نام‌ها، دلایل، توضیح لاگ‌ها) که کاربر/ادمین وارد کرده، تا با تعداد فرد
+    این کاراکترها (مثلاً یه زیرخط توی 'ai_access') تلگرام خطای
+    'can't find end of the entity' ندهد."""
+    if not text:
+        return text
+    for ch in ("\\", "_", "*", "`", "["):
+        text = text.replace(ch, "\\" + ch)
+    return text
+
+
 def log_line(time_str: str, name: str, action: str) -> str:
-    return f"⏱️ `{time_str}` | 👤 {name} ╼ {action} 📌"
+    return f"⏱️ `{time_str}` | 👤 {escape_md_legacy(name)} ╼ {escape_md_legacy(action)} 📌"
 
 # ─── Notification sender ─────────────────────────────────────
 async def send_notification(bot, user_id: int, text: str, reply_markup=None):
