@@ -7,6 +7,10 @@ from telegram.ext import (
 
 import database as db
 from ai_assistant import ai_assistant_message, ai_assistant_open
+from ai_history import (
+    ai_exit, ai_menu, ai_menu_close, ai_new_start, ai_hist_list, ai_hist_open,
+    ai_admlog_menu, ai_admlog_pick, ai_admlog_range, ai_admlog_view,
+)
 from config import BOT_TOKEN, PISHVA_ID
 from config import (
     ST_ROLE_SELECT, ST_PISHVA_PASSWORD, ST_ADMIN_USERNAME, ST_ADMIN_FULLNAME,
@@ -892,6 +896,16 @@ def build_application():
     # دستیار هوشمند (Gemini)
     # ══════════════════════════════════════════
     app.add_handler(CallbackQueryHandler(ai_assistant_open, pattern="^ai_assistant_open$"))
+    app.add_handler(CallbackQueryHandler(ai_exit, pattern="^ai_exit$"))
+    app.add_handler(CallbackQueryHandler(ai_menu_close, pattern="^ai_menu_close$"))
+    app.add_handler(CallbackQueryHandler(ai_menu, pattern="^ai_menu$"))
+    app.add_handler(CallbackQueryHandler(ai_new_start, pattern="^ai_new_start$"))
+    app.add_handler(CallbackQueryHandler(ai_hist_list, pattern="^ai_hist_list$"))
+    app.add_handler(CallbackQueryHandler(ai_hist_open, pattern="^ai_hist_open_"))
+    app.add_handler(CallbackQueryHandler(ai_admlog_menu, pattern="^ai_admlog_menu$"))
+    app.add_handler(CallbackQueryHandler(ai_admlog_pick, pattern="^ai_admlog_pick_"))
+    app.add_handler(CallbackQueryHandler(ai_admlog_range, pattern="^ai_admlog_range_"))
+    app.add_handler(CallbackQueryHandler(ai_admlog_view, pattern="^ai_admlog_view_"))
     # بعد از همه‌ی هندلرهای دیگر (کلمات کلیدی، مکالمه‌ها) بررسی می‌شود
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, ai_assistant_message),

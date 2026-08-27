@@ -84,7 +84,7 @@ async def pishva_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keys = ["notifications_enabled", "communications_enabled", "help_enabled",
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
-        "admin_dashboard_enabled"]
+        "admin_dashboard_enabled", "ai_online"]
     settings = {}
     for k in keys:
         settings[k] = await db.get_setting(k, "1")
@@ -111,6 +111,7 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "setting_team_reg": "team_registration_enabled",
         "setting_mgr_team": "managers_can_create_teams",
         "setting_admin_dashboard": "admin_dashboard_enabled",
+        "setting_ai_online": "ai_online",
     }
     key = key_map.get(query.data)
     if key:
@@ -121,7 +122,7 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keys = ["notifications_enabled", "communications_enabled", "help_enabled",
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
-        "admin_dashboard_enabled"]
+        "admin_dashboard_enabled", "ai_online"]
     settings = {k: await db.get_setting(k, "1") for k in keys}
     await query.edit_message_text(
         f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",

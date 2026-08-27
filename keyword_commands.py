@@ -839,6 +839,7 @@ async def _build_user_info(target_id: int, target_name: str, target_username: st
                 "report": "🚨 گزارش",
                 "senior_admin": "🌟 ارشد",
                 "settings_access": "⚙️ تنظیمات",
+                "ai_access": "🤖 دستیار هوشمند",
             }
             active_perms = [lbl for k, lbl in perm_labels.items() if perms.get(k, True)]
             inactive_perms = [lbl for k, lbl in perm_labels.items() if not perms.get(k, True)]

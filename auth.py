@@ -298,6 +298,8 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
         db_stat = await db.get_setting("db_manual_status", "1")
         db_txt = "🔗 فعال" if db_stat == "1" else "⚠️ غیرفعال"
+        ai_on = await db.get_setting("ai_online", "1")
+        ai_txt = "🟢 آنلاین" if ai_on == "1" else "🔴 آفلاین"
 
         text = (
             f"👑 *پنل پیشوا*\n"
@@ -307,7 +309,7 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if weather:
             text += f"\n{weather}\n"
         text += (
-            f"\n📡 {_status_line(status)} | 🕐 کاری: {wh_txt} | 🗄️ دیتابیس: {db_txt}\n"
+            f"\n📡 {_status_line(status)} | 🕐 کاری: {wh_txt} | 🗄️ دیتابیس: {db_txt} | 🤖 AI: {ai_txt}\n"
             f"👥 ادمین: `{len(admins)}` | 📥 درخواست: `{len(pending)}` | "
             f"⏳ بی‌نتیجه: `{len(pending_matches)}` | 📋 وظایف: `{len(pending_tasks)}`"
         )
@@ -336,6 +338,8 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
         status = await db.get_setting("system_status", "normal")
         wh = await db.get_setting("working_hours_active", "0")
         wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
+        ai_on = await db.get_setting("ai_online", "1")
+        ai_txt = "🟢 آنلاین" if ai_on == "1" else "🔴 آفلاین (فعلا در دسترس نیست)"
 
         text = (
             f"{role_label}\n"
@@ -345,7 +349,7 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
         if weather:
             text += f"\n{weather}\n"
         text += (
-            f"\n📡 {_status_line(status)} | 🕐 کاری: {wh_txt}\n"
+            f"\n📡 {_status_line(status)} | 🕐 کاری: {wh_txt} | 🤖 AI: {ai_txt}\n"
             f"⏳ بی‌نتیجه: `{len(pending_matches)}` | ⚠️ اخطار: `{len(warned)}` | "
             f"📋 وظایف: `{len(pending_tasks)}`"
         )

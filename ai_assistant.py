@@ -17,13 +17,13 @@ import json
 import logging
 
 import httpx
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
 import database as db
 from helpers import get_user_role
-from config import ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
+from config import PISHVA_ID, ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
 import ai_tools
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,49 @@ ROLE_LABELS = {
 
 ACTIVATE_WORDS = {"دستیار", "دستیار هوشمند", "🤖 دستیار هوشمند"}
 DEACTIVATE_WORDS = {"خروج از دستیار", "بستن دستیار", "بسه"}
+
+AI_OFFLINE_MESSAGE = "💤 هوش مصنوعی فعلا در دسترس نیست."
+
+
+def kb_ai_reply():
+    """زیر هر پیام دستیار، همیشه دکمه‌ی خروج و چت جدید/تاریخچه باشد."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🆕 چت جدید", callback_data="ai_menu"),
+         InlineKeyboardButton("🚪 خروج از چت", callback_data="ai_exit")],
+    ])
+
+
+def _merge_pending_buttons(ctx: ContextTypes.DEFAULT_TYPE):
+    """اگه ابزار open_panel چیزی برای نشون‌دادن آماده کرده، به کیبورد پاسخ اضافه‌ش کن."""
+    rows = kb_ai_reply().inline_keyboard
+    pending = ctx.user_data.pop("_ai_pending_buttons", None)
+    rows = list(rows)
+    if pending:
+        for label, cb in pending:
+            rows.insert(0, [InlineKeyboardButton(label, callback_data=cb)])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _is_ai_online() -> bool:
+    return (await db.get_setting("ai_online", "1")) == "1"
+
+
+async def _can_use_ai(uid: int, role: str) -> bool:
+    """پیشوا همیشه اجازه دارد؛ برای ادمین‌ها هم پرمیشن جدا و هم وضعیت امنیتی چک می‌شود."""
+    if uid == PISHVA_ID:
+        return True
+    status = await db.get_setting("system_status", "normal")
+    if status in ("danger", "aps"):
+        return False
+    admin = await db.get_admin(uid)
+    if not admin:
+        return False
+    try:
+        perms = json.loads(admin["permissions"])
+    except Exception:
+        perms = {}
+    # پیش‌فرض True تا ادمین‌های ثبت‌شده‌ی قبلی (بدون این کلید در permissions) بلاک نشوند
+    return perms.get("ai_access", True)
 
 
 def _system_prompt(role: str) -> str:
@@ -152,18 +195,27 @@ async def ai_assistant_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """وقتی کاربر دکمه‌ی «🤖 دستیار هوشمند» رو توی منو می‌زنه."""
     query = update.callback_query
     await query.answer()
+    uid = query.from_user.id
+    role = await get_user_role(uid)
+
+    if not await _is_ai_online():
+        await query.edit_message_text(AI_OFFLINE_MESSAGE)
+        return
+    if role and not await _can_use_ai(uid, role):
+        await query.edit_message_text("⛔ دسترسی شما به دستیار هوشمند مسدود است.")
+        return
+
     ctx.user_data["ai_mode"] = True
     ctx.user_data["ai_history"] = []
+    ctx.user_data["ai_session_id"] = await db.ai_create_session(uid, role or "")
+    text = (
+        "🤖 دستیار هوشمند فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
+        "گزارش بدم یا فقط باهات حرف بزنم."
+    )
     try:
-        await query.edit_message_text(
-            "🤖 دستیار هوشمند فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
-            "گزارش بدم یا فقط باهات حرف بزنم.\nبرای خروج بنویس «خروج از دستیار»."
-        )
+        await query.edit_message_text(text, reply_markup=kb_ai_reply())
     except BadRequest:
-        await query.message.reply_text(
-            "🤖 دستیار هوشمند فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
-            "گزارش بدم یا فقط باهات حرف بزنم.\nبرای خروج بنویس «خروج از دستیار»."
-        )
+        await query.message.reply_text(text, reply_markup=kb_ai_reply())
 
 
 async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -178,11 +230,19 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # فعال/غیرفعال‌کردن حالت دستیار
     if text in ACTIVATE_WORDS:
+        if not await _is_ai_online():
+            await update.message.reply_text(AI_OFFLINE_MESSAGE)
+            return
+        if not await _can_use_ai(uid, role):
+            await update.message.reply_text("⛔ دسترسی شما به دستیار هوشمند مسدود است.")
+            return
         ctx.user_data["ai_mode"] = True
         ctx.user_data["ai_history"] = []
+        ctx.user_data["ai_session_id"] = await db.ai_create_session(uid, role)
         await update.message.reply_text(
             "🤖 دستیار هوشمند فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
-            "گزارش بدم یا فقط باهات حرف بزنم.\nبرای خروج بنویس «خروج از دستیار»."
+            "گزارش بدم یا فقط باهات حرف بزنم.",
+            reply_markup=kb_ai_reply()
         )
         return
 
@@ -192,12 +252,30 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if text in DEACTIVATE_WORDS:
         ctx.user_data["ai_mode"] = False
         ctx.user_data.pop("ai_history", None)
+        ctx.user_data.pop("ai_session_id", None)
         await update.message.reply_text("👋 از حالت دستیار خارج شدی.")
+        return
+
+    # چک دوباره در طول مکالمه — اگه پیشوا در همین حین خاموشش کرده یا دسترسی رو گرفته
+    if not await _is_ai_online():
+        ctx.user_data["ai_mode"] = False
+        await update.message.reply_text(AI_OFFLINE_MESSAGE)
+        return
+    if not await _can_use_ai(uid, role):
+        ctx.user_data["ai_mode"] = False
+        await update.message.reply_text("⛔ دسترسی شما به دستیار هوشمند مسدود شد.")
         return
 
     if not GEMINI_API_KEY:
         await update.message.reply_text("⚠️ کلید Gemini تنظیم نشده (GEMINI_API_KEY خالیه).")
         return
+
+    session_id = ctx.user_data.get("ai_session_id")
+    if not session_id:
+        session_id = await db.ai_create_session(uid, role)
+        ctx.user_data["ai_session_id"] = session_id
+
+    await db.ai_add_message(session_id, "user", text)
 
     history = ctx.user_data.setdefault("ai_history", [])
     history.append({"role": "user", "parts": [{"text": text}]})
@@ -224,6 +302,7 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 fname = fn_call["name"]
                 fargs = fn_call.get("args", {})
                 result_text = await ai_tools.dispatch(fname, fargs, uid, role, ctx)
+                await db.ai_add_message(session_id, "tool", f"🔧 {fname}({fargs}) → {result_text}")
 
                 # نکته‌ی مهم: باید همون «parts»ی که خود مدل برگردونده رو عیناً پس بفرستیم،
                 # نه اینکه فقط functionCall رو دستی بازسازی کنیم. مدل‌های نسل ۳ جمینای یه
@@ -240,10 +319,15 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_text = "".join(p.get("text", "") for p in parts).strip() or "باشه."
             history.append({"role": "model", "parts": [{"text": reply_text}]})
             ctx.user_data["ai_history"] = history[-(MAX_HISTORY_TURNS * 2):]
-            await update.message.reply_text(reply_text)
+            await db.ai_add_message(session_id, "ai", reply_text)
+            sess = await db.ai_get_session(session_id)
+            if sess and not sess["title"]:
+                await db.ai_set_session_title(session_id, text)
+            await update.message.reply_text(reply_text, reply_markup=_merge_pending_buttons(ctx))
             return
 
-        await update.message.reply_text("⚠️ این درخواست خیلی پیچیده شد؛ لطفاً واضح‌تر یا مرحله‌به‌مرحله بگو.")
+        await update.message.reply_text("⚠️ این درخواست خیلی پیچیده شد؛ لطفاً واضح‌تر یا مرحله‌به‌مرحله بگو.",
+                                         reply_markup=_merge_pending_buttons(ctx))
 
     except httpx.HTTPStatusError as e:
         body = e.response.text[:500]
@@ -251,10 +335,10 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         msg = "⚠️ ارتباط با هوش مصنوعی موقتاً مشکل داشت، چند لحظه دیگه امتحان کن."
         if role == ROLE_PISHVA:
             msg += f"\n\n🔧 جزئیات فنی (فقط برای پیشوا):\nکد: {e.response.status_code}\n{body}"
-        await update.message.reply_text(msg)
+        await update.message.reply_text(msg, reply_markup=kb_ai_reply())
     except Exception as e:
         logger.exception("AI assistant failed")
         msg = "⚠️ یه خطای غیرمنتظره پیش اومد."
         if role == ROLE_PISHVA:
             msg += f"\n\n🔧 جزئیات فنی: {type(e).__name__}: {e}"
-        await update.message.reply_text(msg)
+        await update.message.reply_text(msg, reply_markup=kb_ai_reply())

@@ -65,6 +65,38 @@ TOOL_PERMISSIONS = {
     # ── امنیت — پیشوا و مدیر امنیتی ──
     "block_user":         [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
     "unblock_user":       [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
+
+    # ── باز کردن پنل‌ها (دکمه‌ی شیشه‌ای زیر پیام) — دسترسی داخل خود دیسپچر هم چک می‌شود ──
+    "open_panel":          ALL_ROLES,
+
+    # ── ابزارهای سطح‌بالای مدیریتی — فقط پیشوا ──
+    "get_admin_profile":   [ROLE_PISHVA],
+    "set_system_status":   [ROLE_PISHVA],
+    "toggle_ai_online":    [ROLE_PISHVA],
+    "toggle_admin_ai_access": [ROLE_PISHVA],
+    "toggle_bot_setting":  [ROLE_PISHVA],
+}
+
+# ────────────────────────────────────────────────────────────────
+# پنل‌هایی که دستیار می‌تونه با دکمه‌ی شیشه‌ای بازشون کنه.
+# کلید = چیزی که مدل به‌عنوان panel می‌فرسته؛ مقدار = (برچسب دکمه، callback_data، نقش‌های مجاز)
+# نکته: خود دکمه هم وقتی لمس بشه از نو توسط هندلر اصلی‌اش چک دسترسی می‌شه (خط دفاعی دوم).
+# ────────────────────────────────────────────────────────────────
+PANEL_MAP = {
+    "own_main":       ("🏠 پنل شخصی من", "back_main", ALL_ROLES),
+    "pishva_main":    ("👑 پنل پیشوا", "menu_pishva", [ROLE_PISHVA]),
+    "settings":       ("⚙️ تنظیمات ربات", "pishva_settings", [ROLE_PISHVA]),
+    "logs":           ("🔍 پیگیری اقدامات", "pishva_logs", [ROLE_PISHVA]),
+    "requests":       ("📥 درخواست‌های دسترسی", "pishva_requests", [ROLE_PISHVA]),
+    "backup":         ("💾 بکاپ", "pishva_backup", [ROLE_PISHVA]),
+    "workhours":      ("🕐 ساعت کاری", "pishva_workhours", [ROLE_PISHVA]),
+    "security_panel": ("🛡️ پنل امنیتی APS", "security_panel", [ROLE_PISHVA]),
+    "admins_list":    ("👥 مدیریت مدیران", "menu_admins", [ROLE_PISHVA]),
+    "ai_admin_logs":  ("🗂️ سوابق AI ادمین‌ها", "ai_admlog_menu", [ROLE_PISHVA]),
+    "matches":        ("♟️ مدیریت مسابقات", "menu_matches", ALL_ROLES),
+    "players":        ("👤 مدیریت بازیکنان", "menu_players", ALL_ROLES),
+    "dashboard":      ("📊 داشبورد", "dashboard_pishva", [ROLE_PISHVA]),
+    "admin_profile":  (None, "admin_view_{tid}", [ROLE_PISHVA]),  # نیاز به identifier داره
 }
 
 # ────────────────────────────────────────────────────────────────
@@ -243,6 +275,84 @@ TOOL_DECLARATIONS = [
             "type": "object",
             "properties": {"identifier": {"type": "string", "description": "آیدی عددی تلگرام یا یوزرنیم"}},
             "required": ["identifier"],
+        },
+    },
+    {
+        "name": "open_panel",
+        "description": (
+            "باز کردن یک پنل/بخش از ربات با یک دکمه‌ی شیشه‌ای زیر پیام، دقیقاً همون چیزی که از منو باز می‌شه. "
+            "برای درخواست‌هایی مثل «پنل پیشوا رو باز کن»، «برو پنل تنظیمات»، «پنل فلان ادمین رو نشون بده» از این استفاده کن. "
+            "برای «admin_profile» حتماً identifier (یوزرنیم یا نام ادمین) رو هم بده."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "panel": {
+                    "type": "string",
+                    "description": (
+                        "یکی از: own_main, pishva_main, settings, logs, requests, backup, workhours, "
+                        "security_panel, admins_list, ai_admin_logs, matches, players, dashboard, admin_profile"
+                    ),
+                },
+                "identifier": {"type": "string", "description": "فقط برای admin_profile: یوزرنیم یا نام مدیر"},
+            },
+            "required": ["panel"],
+        },
+    },
+    {
+        "name": "get_admin_profile",
+        "description": "گزارش متنی کامل از یک مدیر: اخطارها، وضعیت، آخرین فعالیت، تعداد اقدامات ثبت‌شده.",
+        "parameters": {
+            "type": "object",
+            "properties": {"identifier": {"type": "string", "description": "یوزرنیم یا نام مدیر"}},
+            "required": ["identifier"],
+        },
+    },
+    {
+        "name": "set_system_status",
+        "description": "تغییر وضعیت امنیتی کل سیستم (normal=نرمال, bad=بد, danger=خطرناک, aps=APS). در حالت danger/aps ربات برای همه‌ی مدیران (به‌جز پیشوا) قفل می‌شود.",
+        "parameters": {
+            "type": "object",
+            "properties": {"status": {"type": "string", "description": "normal | bad | danger | aps"}},
+            "required": ["status"],
+        },
+    },
+    {
+        "name": "toggle_ai_online",
+        "description": "روشن/خاموش‌کردن کلی دستیار هوشمند برای همه (وقتی خاموشه، پیام «هوش مصنوعی فعلا در دسترس نیست» دیده می‌شه).",
+        "parameters": {
+            "type": "object",
+            "properties": {"online": {"type": "boolean", "description": "true=روشن, false=خاموش"}},
+            "required": ["online"],
+        },
+    },
+    {
+        "name": "toggle_admin_ai_access",
+        "description": "اجازه یا عدم اجازه‌ی استفاده از دستیار هوشمند برای یک مدیر خاص.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "identifier": {"type": "string", "description": "یوزرنیم یا نام مدیر"},
+                "allow": {"type": "boolean"},
+            },
+            "required": ["identifier", "allow"],
+        },
+    },
+    {
+        "name": "toggle_bot_setting",
+        "description": (
+            "روشن/خاموش‌کردن یکی از سوییچ‌های عمومی ربات. کلیدهای معتبر: notifications_enabled, "
+            "communications_enabled, help_enabled, match_registration_enabled, admin_login_enabled, "
+            "bot_active_for_admins, team_mode_enabled, team_registration_enabled, managers_can_create_teams, "
+            "admin_dashboard_enabled, ai_online"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string"},
+                "value": {"type": "boolean"},
+            },
+            "required": ["key", "value"],
         },
     },
 ]
@@ -436,6 +546,100 @@ async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx)
                 return "برای رفع مسدودیت، آیدی عددی تلگرام لازم است."
             await db.unblock_user(tid)
             return f"✅ کاربر {tid} از حالت مسدود خارج شد."
+
+        # ── باز کردن پنل (دکمه‌ی شیشه‌ای) ──
+        elif name == "open_panel":
+            panel = (args.get("panel") or "").strip()
+            info = PANEL_MAP.get(panel)
+            if not info:
+                return f"❌ پنل «{panel}» شناخته‌شده نیست."
+            label, cb_template, allowed = info
+            if caller_role not in allowed:
+                return f"⛔ پنل «{panel}» خارج از دسترسی نقش شماست."
+            if panel == "admin_profile":
+                ident = args.get("identifier")
+                if not ident:
+                    return "برای باز کردن پروفایل یک مدیر، نام یا یوزرنیمش رو بگو."
+                a = await _find_admin_by_identifier(ident)
+                if not a:
+                    return f"مدیری با مشخصات «{ident}» پیدا نشد."
+                label = f"👤 پروفایل {a['full_name']}"
+                cb = cb_template.format(tid=a["telegram_id"])
+            else:
+                cb = cb_template
+            pending = ctx.user_data.setdefault("_ai_pending_buttons", [])
+            pending.append((label, cb))
+            return f"✅ دکمه‌ی «{label}» رو براتون آماده کردم، پایین پیام بزنید روش."
+
+        # ── پروفایل کامل یک ادمین (متنی) ──
+        elif name == "get_admin_profile":
+            a = await _find_admin_by_identifier(args["identifier"])
+            if not a:
+                return f"مدیری با مشخصات «{args['identifier']}» پیدا نشد."
+            logs = await db.get_action_logs("all", a["telegram_id"])
+            role_map = {ROLE_TOURNAMENT_MANAGER: "🏆 مدیر مسابقات", ROLE_SECURITY_MANAGER: "🛡️ مدیر امنیتی"}
+            try:
+                import json as _json
+                perms = _json.loads(a["permissions"])
+                ai_ok = "✅" if perms.get("ai_access", True) else "⛔"
+            except Exception:
+                ai_ok = "؟"
+            return (
+                f"👤 {a['full_name']} ({role_map.get(a['role'], a['role'])})\n"
+                f"🪪 یوزرنیم: {('@' + a['username']) if a['username'] else '—'}\n"
+                f"🆔 آیدی: {a['telegram_id']}\n"
+                f"وضعیت: {'✅ فعال' if a['is_active'] else '🔴 غیرفعال'} | اخطار: {a['warnings']}\n"
+                f"دسترسی به هوش مصنوعی: {ai_ok}\n"
+                f"تعداد اقدامات ثبت‌شده: {len(logs)}\n"
+                f"آخرین فعالیت: {str(a['last_active'] or '')[:16]}"
+            )
+
+        # ── تغییر وضعیت امنیتی سیستم ──
+        elif name == "set_system_status":
+            status = (args.get("status") or "").strip().lower()
+            if status not in ("normal", "bad", "danger", "aps"):
+                return "وضعیت باید یکی از این‌ها باشد: normal، bad، danger، aps"
+            await db.set_setting("system_status", status)
+            await db.log_action(caller_id, "set_status", f"تغییر وضعیت به: {status} (توسط دستیار هوشمند)")
+            if status in ("danger", "aps"):
+                await broadcast_to_admins(
+                    ctx.bot,
+                    f"🔴 وضعیت سیستم به «{status}» تغییر کرد. دسترسی شما موقتاً محدود شده؛ منتظر دستور پیشوا باشید."
+                )
+            return f"✅ وضعیت سیستم به «{status}» تغییر کرد."
+
+        # ── روشن/خاموش‌کردن کلی هوش مصنوعی ──
+        elif name == "toggle_ai_online":
+            online = bool(args.get("online", True))
+            await db.set_setting("ai_online", "1" if online else "0")
+            await db.log_action(caller_id, "toggle_ai_online", str(online))
+            return f"✅ دستیار هوشمند {'روشن' if online else 'خاموش'} شد."
+
+        # ── اجازه‌ی هوش مصنوعی به یک مدیر خاص ──
+        elif name == "toggle_admin_ai_access":
+            a = await _find_admin_by_identifier(args["identifier"])
+            if not a:
+                return f"مدیری با مشخصات «{args['identifier']}» پیدا نشد."
+            allow = bool(args.get("allow", True))
+            await db.set_admin_permission(a["telegram_id"], "ai_access", allow)
+            await db.log_action(caller_id, "toggle_perm", f"ai_access: {allow}", a["telegram_id"])
+            return f"✅ دسترسی هوش مصنوعی برای {a['full_name']} {'فعال' if allow else 'غیرفعال'} شد."
+
+        # ── سوییچ‌های عمومی ربات ──
+        elif name == "toggle_bot_setting":
+            valid_keys = {
+                "notifications_enabled", "communications_enabled", "help_enabled",
+                "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
+                "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
+                "admin_dashboard_enabled", "ai_online",
+            }
+            key = args.get("key")
+            if key not in valid_keys:
+                return f"❌ کلید «{key}» معتبر نیست."
+            value = bool(args.get("value", True))
+            await db.set_setting(key, "1" if value else "0")
+            await db.log_action(caller_id, "toggle_setting", f"{key} -> {value} (دستیار هوشمند)")
+            return f"✅ «{key}» {'فعال' if value else 'غیرفعال'} شد."
 
         return f"❌ تابع «{name}» تعریف نشده."
 

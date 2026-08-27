@@ -27,7 +27,8 @@ def kb_pishva_main():
         [InlineKeyboardButton("📊 داشبورد پیشوا", callback_data="dashboard_pishva"),
         InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
         [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],
-        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
+        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open"),
+        InlineKeyboardButton("🗂️ سوابق AI ادمین‌ها", callback_data="ai_admlog_menu")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
@@ -279,7 +280,8 @@ def kb_pishva_panel():
         InlineKeyboardButton("📢 افزودن به کانال", url=f"https://t.me/{BOT_USERNAME}?startchannel&admin=post_messages")],
         [InlineKeyboardButton("🆔 تنظیم کانال اعلانات", callback_data="pishva_channel"),
         InlineKeyboardButton("📡 پخش خودکار", callback_data="pishva_broadcast")],
-        [InlineKeyboardButton("🛡️ پنل امنیتی APS", callback_data="security_panel")],
+        [InlineKeyboardButton("🛡️ پنل امنیتی APS", callback_data="security_panel"),
+        InlineKeyboardButton("🗂️ سوابق AI ادمین‌ها", callback_data="ai_admlog_menu")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")],
     ])
 
@@ -306,6 +308,7 @@ def kb_pishva_settings_simple(settings):
         InlineKeyboardButton(f"📝 ثبت‌نام با تیم {tog('team_registration_enabled')}", callback_data="setting_team_reg")],
         [InlineKeyboardButton(f"👤 مدیران سازنده تیم {tog('managers_can_create_teams')}", callback_data="setting_mgr_team")],
         [InlineKeyboardButton(f"📊 داشبورد ادمین‌ها {tog('admin_dashboard_enabled')}", callback_data="setting_admin_dashboard")],
+        [InlineKeyboardButton(f"🤖 هوش مصنوعی {tog('ai_online')}", callback_data="setting_ai_online")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
 
@@ -421,6 +424,7 @@ def kb_admin_permissions(tid, perms):
         InlineKeyboardButton(f"🌟 ارشد {tog('senior_admin')}", callback_data=f"perm_{tid}_senior_admin")],
         [InlineKeyboardButton(f"✏️ ویرایش مسابقه {tog('edit_delete_match')}", callback_data=f"perm_{tid}_edit_delete_match"),
         InlineKeyboardButton(f"📡 مخابرات {tog('communications')}", callback_data=f"perm_{tid}_communications")],
+        [InlineKeyboardButton(f"🤖 دسترسی هوش مصنوعی {tog('ai_access')}", callback_data=f"perm_{tid}_ai_access")],
         [InlineKeyboardButton("✅ ذخیره و بازگشت", callback_data=f"admin_view_{tid}")],
     ])
 

@@ -200,6 +200,22 @@ async def init_db():
             blocked_by INTEGER,
             blocked_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            role TEXT,
+            title TEXT DEFAULT '',
+            started_at TEXT,
+            last_message_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS ai_chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            sender TEXT,
+            text TEXT,
+            sent_at TEXT,
+            FOREIGN KEY(session_id) REFERENCES ai_chat_sessions(id)
+        );
         """)
 
         # ─── Lightweight migrations (add columns if missing) ──────────
@@ -236,6 +252,7 @@ async def init_db():
             "managers_can_create_teams": "0",
             "announcement_group_id": "",
             "bot_update_mode": "0",
+            "ai_online": "1",
         }
         for k, v in defaults.items():
             await db.execute(
@@ -292,7 +309,7 @@ async def create_admin(telegram_id, username, full_name, role):
         "view_players": True, "issue_warning": True, "request_ban": True,
         "direct_ban": False, "assign_task": False, "report": True,
         "bot_active": True, "settings_access": False, "senior_admin": False,
-        "edit_delete_match": True, "communications": True,
+        "edit_delete_match": True, "communications": True, "ai_access": True,
     })
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -1267,3 +1284,85 @@ async def insert_match_raw(white_id, black_id, result, draw_reason, match_date,
         )
         await db.commit()
         return cur.lastrowid
+
+
+# ─── AI Assistant — Chat Sessions & Messages ───────────────────
+async def ai_create_session(user_id: int, role: str) -> int:
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "INSERT INTO ai_chat_sessions(user_id,role,title,started_at,last_message_at) VALUES (?,?,?,?,?)",
+            (user_id, role, "", now, now)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def ai_add_message(session_id: int, sender: str, text: str):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO ai_chat_messages(session_id,sender,text,sent_at) VALUES (?,?,?,?)",
+            (session_id, sender, text, now)
+        )
+        await db.execute("UPDATE ai_chat_sessions SET last_message_at=? WHERE id=?", (now, session_id))
+        await db.commit()
+
+
+async def ai_set_session_title(session_id: int, title: str):
+    title = (title or "").strip()[:60]
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE ai_chat_sessions SET title=? WHERE id=?", (title, session_id))
+        await db.commit()
+
+
+async def ai_get_session(session_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM ai_chat_sessions WHERE id=?", (session_id,)) as cur:
+            return await cur.fetchone()
+
+
+async def ai_get_sessions_for_user(user_id: int, limit: int = 20):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM ai_chat_sessions WHERE user_id=? ORDER BY last_message_at DESC LIMIT ?",
+            (user_id, limit)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def ai_get_sessions_filtered(user_id: int = None, period: str = "all", limit: int = 50):
+    """برای پنل پیشوا: سوابق چت یک ادمین خاص در یک بازه‌ی زمانی."""
+    from datetime import timedelta
+    now = datetime.now()
+    conditions = []
+    if user_id is not None:
+        conditions.append(f"user_id = {int(user_id)}")
+    if period == "today":
+        d = now.strftime("%Y-%m-%d")
+        conditions.append(f"started_at LIKE '{d}%'")
+    elif period == "week":
+        d = (now - timedelta(days=7)).isoformat()
+        conditions.append(f"started_at >= '{d}'")
+    elif period == "month":
+        d = (now - timedelta(days=30)).isoformat()
+        conditions.append(f"started_at >= '{d}'")
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"SELECT * FROM ai_chat_sessions {where} ORDER BY started_at DESC LIMIT {int(limit)}"
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def ai_get_messages(session_id: int, limit: int = 200):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM ai_chat_messages WHERE session_id=? ORDER BY sent_at ASC LIMIT ?",
+            (session_id, limit)
+        ) as cur:
+            return await cur.fetchall()
