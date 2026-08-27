@@ -231,8 +231,54 @@ async def _noop_callback(update: Update, ctx) -> None:
     await update.callback_query.answer()
 
 
+async def global_error_handler(update, context) -> None:
+    """هر خطای مدیریت‌نشده‌ای که توی هر هندلری رخ بده، اینجا گیر می‌افته.
+    به‌جای اینکه فقط توی لاگ Railway گم بشه، هم به پیشوا اطلاع می‌ده هم به کاربر."""
+    import traceback
+
+    tb_string = "".join(
+        traceback.format_exception(None, context.error, context.error.__traceback__)
+    )
+    logger.error(f"Unhandled exception: {context.error}\n{tb_string}")
+
+    # اطلاع به کاربر: فقط اگه از یه پیام/دکمه‌ی واقعی اومده باشه
+    try:
+        if isinstance(update, Update):
+            if update.callback_query:
+                await update.callback_query.answer(
+                    "⚠️ خطایی رخ داد. به پیشوا اطلاع داده شد.", show_alert=True
+                )
+            elif update.effective_message:
+                await update.effective_message.reply_text(
+                    "⚠️ متاسفانه یک خطا رخ داد. این مشکل به‌طور خودکار به پیشوا گزارش شد."
+                )
+    except Exception:
+        pass
+
+    # اطلاع به پیشوا: خلاصه‌ی خطا + آخرین خط تریسبک (برای اینکه پیام خیلی طولانی نشه)
+    try:
+        error_summary = str(context.error)[:300]
+        last_tb_lines = "\n".join(tb_string.strip().splitlines()[-6:])
+        user_info = ""
+        if isinstance(update, Update) and update.effective_user:
+            u = update.effective_user
+            user_info = f"👤 کاربر: {u.full_name} (`{u.id}`)\n"
+        text = (
+            "🚨 *خطای مدیریت‌نشده در ربات*\n\n"
+            f"{user_info}"
+            f"❗️ خطا: `{error_summary}`\n\n"
+            f"```\n{last_tb_lines}\n```"
+        )
+        await context.bot.send_message(chat_id=PISHVA_ID, text=text, parse_mode="Markdown")
+    except Exception as notify_err:
+        logger.error(f"Could not notify PISHVA about error: {notify_err}")
+
+
 def build_application():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+
+    # 🚨 هندلر سراسری خطا — باید همیشه ثبت بشه تا خطاها گم نشن
+    app.add_error_handler(global_error_handler)
 
     # 🛡️ دروازه‌ی امنیتی APS — باید همیشه قبل از همه‌چیز اجرا شود
     app.add_handler(MessageHandler(filters.ALL, block_gate), group=-1)
