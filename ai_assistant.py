@@ -29,17 +29,24 @@ import ai_tools
 logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
-# اگه مدل اصلی موقتاً شلوغ بود (خطای 503) یا از رده خارج شد (404)، این‌ها رو به‌ترتیب امتحان می‌کنیم
-FALLBACK_MODELS = ["gemini-flash-latest", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
+# نکته‌ی مهم: «gemini-flash-latest» یه alias هست که گوگل با هر مدل جدید عوضش می‌کنه؛
+# این چند وقت اخیر رفته روی Gemini 3.7 Flash (یه مدل سنگین، برای کدنویسی/ایجنت پیچیده)
+# که هم کندتره هم فرمت تنظیمات «تفکر»ش با ۲.۵ فرق داره (پایین‌تر توضیح داده شده).
+# gemini-2.5-flash-lite برای یه دستیار چت با فراخوانی تابع، سریع‌ترین و پایدارترین گزینه‌ست.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# اگه مدل اصلی موقتاً شلوغ بود (خطای 503) یا از رده خارج شد (404)، این‌ها رو به‌ترتیب امتحان می‌کنیم.
+# عمداً از سبک به سنگین چیده شده تا کندترین مدل‌ها آخرین انتخاب باشن.
+FALLBACK_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash"]
 if GEMINI_MODEL in FALLBACK_MODELS:
     FALLBACK_MODELS.remove(GEMINI_MODEL)
 MODEL_CHAIN = [GEMINI_MODEL] + FALLBACK_MODELS
 
 RETRIES_PER_MODEL = 2
 RETRY_DELAY_SECONDS = 1
+REQUEST_TIMEOUT_SECONDS = 20   # جمینای معمولاً خیلی زودتر از ۳۰ ثانیه جواب می‌ده؛ تایم‌اوت کوتاه‌تر یعنی فال‌بک سریع‌تر
+MAX_OUTPUT_TOKENS = 1024       # جواب‌ها قراره کوتاه و موبایل‌پسند باشن؛ سقف‌گذاری یعنی سرعت بیشتر و هزینه‌ی کمتر
 
-MAX_HISTORY_TURNS = 8          # چند رفت‌وبرگشت آخر رو نگه داریم (برای هزینه/سرعت)
+MAX_HISTORY_TURNS = 6          # چند رفت‌وبرگشت آخر رو نگه داریم (کمتر = توکن کمتر = سریع‌تر)
 MAX_TOOL_HOPS = 3              # جلوگیری از حلقه‌ی بی‌نهایت اگر مدل پشت‌سرهم تابع صدا بزنه
 
 ROLE_LABELS = {
@@ -80,22 +87,36 @@ def _tools_for_role(role: str):
     return [{"function_declarations": decls}]
 
 
+def _thinking_config_for(model: str) -> dict:
+    """
+    نسل ۳ جمینای (gemini-3.x) به‌جای «thinkingBudget» از «thinkingLevel» استفاده می‌کنه.
+    فرستادن thinkingBudget برای یه مدل نسل ۳ دقیقاً همون خطای
+    400 INVALID_ARGUMENT رو می‌ده که داشتی می‌گرفتی — چون فیلدش برای اون مدل معتبر نیست.
+    مدل‌های نسل ۳ فلش/فلش‌لایت هم اصلاً امکان «خاموش کامل» تفکر رو ندارن؛
+    پایین‌ترین و سریع‌ترین سطح مجاز، 'low' هست.
+    """
+    if model.startswith("gemini-3"):
+        return {"thinkingLevel": "low"}
+    return {"thinkingBudget": 0}
+
+
 async def _call_gemini(contents: list, tools):
-    payload = {
-        "contents": contents,
-        "generationConfig": {
-            "thinkingConfig": {"thinkingBudget": 0}  # خاموش‌کردن «تفکر» برای سرعت بیشتر
-        },
-    }
-    if tools:
-        payload["tools"] = tools
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
 
     last_error = None
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
         for i, model in enumerate(MODEL_CHAIN):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
             is_last_model = (i == len(MODEL_CHAIN) - 1)
+            payload = {
+                "contents": contents,
+                "generationConfig": {
+                    "thinkingConfig": _thinking_config_for(model),
+                    "maxOutputTokens": MAX_OUTPUT_TOKENS,
+                },
+            }
+            if tools:
+                payload["tools"] = tools
             for attempt in range(RETRIES_PER_MODEL):
                 try:
                     resp = await client.post(url, headers=headers, json=payload)
@@ -109,9 +130,10 @@ async def _call_gemini(contents: list, tools):
                         logger.warning(f"Gemini {model} attempt {attempt+1} failed ({code}), retrying...")
                         await asyncio.sleep(RETRY_DELAY_SECONDS)
                         continue
-                    elif code == 404 and not is_last_model:
-                        # این مدل دیگه در دسترس نیست — برو سراغ مدل بعدی، تلاش دوباره روی همین بی‌فایده‌ست
-                        logger.warning(f"Gemini model {model} not found (404), trying next model...")
+                    elif code in (404, 400) and not is_last_model:
+                        # مدل موجود نیست (404) یا این مدل خاص یه ایراد تنظیماتی داره (400) —
+                        # برو سراغ مدل بعدی؛ تلاش دوباره روی همین مدل بی‌فایده‌ست
+                        logger.warning(f"Gemini model {model} failed ({code}), trying next model...")
                         break
                     else:
                         raise  # خطای دیگه (کلید نامعتبر و ...) یا آخرین مدل هم بود — دیگه فایده‌ای نداره
