@@ -11,6 +11,7 @@ ai_assistant.py — دستیار هوشمند متصل به Gemini API
   - برای گفت‌وگوی عادی (تحلیل، درددل، گزارش با کلمات خودش) مدل مستقیم
     متن برمی‌گردونه، بدون صدازدن تابعی.
 """
+import asyncio
 import os
 import json
 import logging
@@ -29,7 +30,14 @@ logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+# اگه مدل اصلی موقتاً شلوغ بود (خطای 503)، این‌ها رو به‌ترتیب امتحان می‌کنیم
+FALLBACK_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"]
+if GEMINI_MODEL in FALLBACK_MODELS:
+    FALLBACK_MODELS.remove(GEMINI_MODEL)
+MODEL_CHAIN = [GEMINI_MODEL] + FALLBACK_MODELS
+
+RETRIES_PER_MODEL = 2
+RETRY_DELAY_SECONDS = 2
 
 MAX_HISTORY_TURNS = 8          # چند رفت‌وبرگشت آخر رو نگه داریم (برای هزینه/سرعت)
 MAX_TOOL_HOPS = 3              # جلوگیری از حلقه‌ی بی‌نهایت اگر مدل پشت‌سرهم تابع صدا بزنه
@@ -77,10 +85,26 @@ async def _call_gemini(contents: list, tools):
     if tools:
         payload["tools"] = tools
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
+
+    last_error = None
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(GEMINI_URL, headers=headers, json=payload)
-        resp.raise_for_status()
-        return resp.json()
+        for model in MODEL_CHAIN:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            for attempt in range(RETRIES_PER_MODEL):
+                try:
+                    resp = await client.post(url, headers=headers, json=payload)
+                    resp.raise_for_status()
+                    return resp.json()
+                except httpx.HTTPStatusError as e:
+                    last_error = e
+                    # فقط برای «شلوغی موقت سرور» (503) یا «محدودیت نرخ» (429) دوباره امتحان کن
+                    if e.response.status_code in (503, 429):
+                        logger.warning(f"Gemini {model} attempt {attempt+1} failed ({e.response.status_code}), retrying...")
+                        await asyncio.sleep(RETRY_DELAY_SECONDS)
+                        continue
+                    raise  # خطاهای دیگه (مثل کلید نامعتبر) فوراً بالا بره، تلاش دوباره فایده نداره
+            # این مدل بعد از چند تلاش هم جواب نداد؛ برو سراغ مدل بعدی در MODEL_CHAIN
+    raise last_error
 
 
 def _extract_parts(data: dict):
