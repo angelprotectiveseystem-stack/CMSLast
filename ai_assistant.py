@@ -225,7 +225,11 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 fargs = fn_call.get("args", {})
                 result_text = await ai_tools.dispatch(fname, fargs, uid, role, ctx)
 
-                contents.append({"role": "model", "parts": [{"functionCall": fn_call}]})
+                # نکته‌ی مهم: باید همون «parts»ی که خود مدل برگردونده رو عیناً پس بفرستیم،
+                # نه اینکه فقط functionCall رو دستی بازسازی کنیم. مدل‌های نسل ۳ جمینای یه
+                # فیلد «thoughtSignature» کنار functionCall برمی‌گردونن که برگردوندنش الزامیه؛
+                # اگه حذفش کنیم (مثل قبل) دور بعدی با 400 INVALID_ARGUMENT رد می‌شه.
+                contents.append({"role": "model", "parts": parts})
                 contents.append({
                     "role": "user",
                     "parts": [{"functionResponse": {"name": fname, "response": {"result": result_text}}}],
