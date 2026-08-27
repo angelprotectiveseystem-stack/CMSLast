@@ -6,6 +6,7 @@ from telegram.ext import (
 )
 
 import database as db
+from ai_assistant import ai_assistant_message
 from config import BOT_TOKEN, PISHVA_ID
 from config import (
     ST_ROLE_SELECT, ST_PISHVA_PASSWORD, ST_ADMIN_USERNAME, ST_ADMIN_FULLNAME,
@@ -885,6 +886,14 @@ def build_application():
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_keyword_command),
         group=-2
+    )
+
+    # ══════════════════════════════════════════
+    # دستیار هوشمند (Gemini) — بعد از همه‌ی هندلرهای دیگر بررسی می‌شود
+    # ══════════════════════════════════════════
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, ai_assistant_message),
+        group=1
     )
 
     return app
