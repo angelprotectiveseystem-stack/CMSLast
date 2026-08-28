@@ -19,7 +19,7 @@ import asyncio
 import os
 import sys
 
-import turso_db as aiosqlite
+from libsql_client import create_client
 
 TABLES = [
     "ai_chat_messages",
@@ -48,26 +48,30 @@ TABLES = [
 
 
 async def reset_all():
-    if not os.getenv("TURSO_URL") or not os.getenv("TURSO_AUTH_TOKEN"):
+    url = os.getenv("TURSO_URL")
+    token = os.getenv("TURSO_AUTH_TOKEN")
+    if not url or not token:
         print("❌ TURSO_URL و TURSO_AUTH_TOKEN ست نشدن.")
         sys.exit(1)
+    if url.startswith("libsql://"):
+        url = "https://" + url[len("libsql://"):]
 
-    async with aiosqlite.connect("") as db:
-        for table in TABLES:
-            try:
-                await db.execute(f"DELETE FROM {table}")
-                print(f"✅ خالی شد: {table}")
-            except Exception as e:
-                print(f"⚠️ رد شد ({table}): {e}")
+    client = create_client(url=url, auth_token=token)
 
+    for table in TABLES:
         try:
-            await db.execute("DELETE FROM sqlite_sequence")
-            print("✅ شمارنده‌های autoincrement ریست شدن.")
-        except Exception:
-            pass
+            await client.execute(f"DELETE FROM {table}")
+            print(f"✅ خالی شد: {table}")
+        except Exception as e:
+            print(f"⚠️ رد شد ({table}): {e}")
 
-        await db.commit()
+    try:
+        await client.execute("DELETE FROM sqlite_sequence")
+        print("✅ شمارنده‌های autoincrement ریست شدن.")
+    except Exception:
+        pass
 
+    await client.close()
     print("\n🎉 دیتابیس کاملاً خالی شد. جدول‌ها و اتصال دست‌نخورده موندن.")
 
 
