@@ -318,6 +318,69 @@ async def global_error_handler(update, context) -> None:
         logger.error(f"Could not notify PISHVA about error: {notify_err}")
 
 
+# ─── دروازه‌ی عمومی دکمه‌های «بازگشت» ──────────────────────────
+# خیلی از صفحه‌های زیرمجموعه (وضعیت سیستم/امنیت، بکاپ، تعمیر، هویت،
+# آپدیت، مدیران، وظایف، فیدبک، مخابرات، تیم‌ها، کلاس‌ها، تاریخچه‌ی
+# مسابقات و ...) دکمه‌ی «🔙 بازگشت» خودشون رو با kb.kb_back("...")
+# می‌سازن، ولی برای خیلی از این مقصدها هیچ‌وقت هندلر جداگانه‌ای ثبت
+# نشده بود؛ در نتیجه با زدنشون هیچ اتفاقی نمی‌افتاد.
+# این هندلر عمومی، تمام "back_..."هایی که هندلر اختصاصی ندارن رو
+# می‌گیره و به همون صفحه‌ی مقصد (که نسخه‌ی بدون "back_" آن از قبل
+# ثبت شده) هدایت می‌کنه. چون هندلرهای اختصاصی (back_main, back_matches,
+# back_players, back_player_list, back_teams_menu, back_tournament)
+# زودتر ثبت می‌شن، این هندلر فقط برای بقیه‌ی موارد اجرا می‌شه.
+_BACK_TARGET_HANDLERS = {}
+
+
+def _register_back_targets():
+    """نگاشت مقصد → تابع صفحه‌ی مقصد. فقط یک‌بار پر می‌شود."""
+    if _BACK_TARGET_HANDLERS:
+        return
+    _BACK_TARGET_HANDLERS.update({
+        "pishva_panel": menu_pishva,
+        "pishva_status": pishva_status,
+        "pishva_backup": pishva_backup,
+        "pishva_repair": pishva_repair,
+        "pishva_identity": pishva_identity,
+        "pishva_update": pishva_update,
+        "menu_admins": menu_admins,
+        "menu_tasks": menu_tasks,
+        "menu_feedback": menu_feedback,
+        "tasks": menu_tasks,
+        "task_track": task_track,
+        "comms": menu_comms,
+        "comms_pishva": menu_comms,
+        "comms_admin": menu_comms,
+        "class_list": class_list,
+        "teams_list": teams_list,
+        "match_history": match_history,
+    })
+
+
+async def universal_back_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    _register_back_targets()
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    target = query.data[len("back_"):]
+
+    handler = _BACK_TARGET_HANDLERS.get(target)
+    if handler is None:
+        if target.startswith("class_select_"):
+            handler = class_select
+        elif target.startswith("team_view_"):
+            handler = team_view
+        elif target.startswith("team_members_"):
+            handler = team_members_view
+
+    if handler is None:
+        # مقصد ناشناخته → به‌جای هیچ‌کاری، به‌عنوان آخرین راه‌حل به منوی اصلی برگرد
+        # تا دکمه هیچ‌وقت کاملاً «مرده» به نظر نرسه.
+        handler = back_main
+
+    await handler(update, ctx)
+
+
 def build_application():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
@@ -932,6 +995,11 @@ def build_application():
         MessageHandler(filters.TEXT & ~filters.COMMAND, ai_assistant_message),
         group=1
     )
+
+    # 🔙 دروازه‌ی عمومی «بازگشت» — عمداً آخرین ثبت‌شونده در group=0 است
+    # تا فقط برای back_... هایی اجرا بشه که هندلر اختصاصی‌شون بالاتر
+    # پیدا نشده (اولویت با هندلرهای اختصاصی‌ست).
+    app.add_handler(CallbackQueryHandler(universal_back_router, pattern="^back_"))
 
     return app
 
