@@ -49,8 +49,21 @@ class _ResultRow:
             return self._values[self._columns.index(key)]
         return self._values[key]
 
+    def get(self, key, default=None):
+        """سازگاری با کدی که ردیف رو مثل دیکشنری صدا می‌زنه (admin.get(...) و مشابه).
+        sqlite3.Row/aiosqlite.Row هم این متد رو ندارن، ولی چون کد پروژه جاهای زیادی
+        فرض کرده ردیف‌ها دیکشنری‌ان، این‌جا اضافه‌ش می‌کنیم تا دیگه با
+        AttributeError کرش نکنه."""
+        try:
+            return self[key]
+        except (ValueError, IndexError):
+            return default
+
     def keys(self):
         return self._columns
+
+    def __contains__(self, key):
+        return key in self._columns
 
     def __iter__(self):
         return iter(self._values)
