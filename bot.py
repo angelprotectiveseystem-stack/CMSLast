@@ -2,7 +2,7 @@ import logging
 from telegram import Update, BotCommand, BotCommandScopeChat
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ConversationHandler, filters
+    MessageHandler, ConversationHandler, filters, ContextTypes
 )
 
 import database as db
