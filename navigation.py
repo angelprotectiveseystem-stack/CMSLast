@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 import database as db
 import keyboards as kb
-from helpers import (now_shamsi, box, separator, pishva_display,
+from helpers import (safe_edit_message_text, now_shamsi, box, separator, pishva_display,
                      check_status_gate, get_user_role, power_bar, progress_bar,
                      warning_bar_player, check_perm)
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
@@ -34,7 +34,7 @@ async def back_main(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         name = admin["display_name"] or admin["full_name"] if admin else "ادمین"
         text = f"📋 منوی اصلی — {name}\n\n🛰️ `{now_shamsi()}`"
 
-    await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
 
 
 async def menu_tournament(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -42,7 +42,7 @@ async def menu_tournament(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if await check_status_gate(query):
         return
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🏅 مدیریت تورنمنت')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=kb.kb_tournament_menu(),
         parse_mode="Markdown"
@@ -57,7 +57,7 @@ async def menu_players(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     role = await get_user_role(query.from_user.id)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('👤 مدیریت بازیکنان')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=kb.kb_players_menu(role),
         parse_mode="Markdown"
@@ -71,7 +71,7 @@ async def menu_matches(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if await check_perm(query, "match_management"):
         return
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('♟️ مدیریت مسابقات')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=kb.kb_matches_menu(),
         parse_mode="Markdown"
@@ -82,14 +82,14 @@ async def menu_pishva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     uid = query.from_user.id
     if uid != PISHVA_ID:
-        await query.answer("⛔ این بخش فقط برای پیشوا است.", show_alert=True)
+        await query.answer("⛔ این بخش فقط برای مدیر ارشد است.", show_alert=True)
         return
     await query.answer()
     pname = await pishva_display()
     status = await db.get_setting("system_status", "normal")
     status_map = {"normal": "🟢 نرمال", "bad": "🟡 بد", "danger": "🔴 خطرناک", "aps": "🪽 APS"}
-    await query.edit_message_text(
-        f"{box(f'👑 پنل پیشوا — {pname}')}\n\n"
+    await safe_edit_message_text(query, 
+        f"{box(f'👑 پنل مدیر ارشد — {pname}')}\n\n"
         f"🚦 وضعیت فعلی: {status_map.get(status, status)}\n"
         f"⏱️ `{now_shamsi()}`\n\n"
         f"📌 بخش موردنظر را انتخاب کنید:",
@@ -114,7 +114,7 @@ async def menu_comms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         markup = kb.kb_comms_pishva()
     else:
         markup = kb.kb_comms_admin()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📡 مخابرات')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=markup,
         parse_mode="Markdown"
@@ -135,18 +135,18 @@ async def menu_admins(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     uid = query.from_user.id
     if uid != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا می‌تواند مدیران را مدیریت کند.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد می‌تواند مدیران را مدیریت کند.", show_alert=True)
         return
     await query.answer()
     admins = await db.get_all_admins()
     if not admins:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('👥 مدیریت مدیران')}\n\n❗ هیچ مدیری ثبت نشده است.",
             reply_markup=kb.kb_back("main"),
             parse_mode="Markdown"
         )
         return
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('👥 مدیریت مدیران')}\n\nیک مدیر انتخاب کنید:",
         reply_markup=kb.kb_admin_list(admins),
         parse_mode="Markdown"
@@ -163,7 +163,7 @@ async def menu_tasks(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         markup = kb.kb_tasks_pishva()
     else:
         markup = kb.kb_tasks_admin()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📋 مدیریت وظایف')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=markup,
         parse_mode="Markdown"
@@ -180,7 +180,7 @@ async def menu_feedback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         markup = kb.kb_feedback_menu()
         title = "💡 انتقادات و پیشنهادات"
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box(title)}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=markup,
         parse_mode="Markdown"
@@ -191,7 +191,7 @@ async def menu_feedback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def back_tournament(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🏅 مدیریت تورنمنت')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=kb.kb_tournament_menu(),
         parse_mode="Markdown"
@@ -202,7 +202,7 @@ async def back_players(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     role = await get_user_role(query.from_user.id)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('👤 مدیریت بازیکنان')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=kb.kb_players_menu(role),
         parse_mode="Markdown"
@@ -212,7 +212,7 @@ async def back_players(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def back_matches(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('♟️ مدیریت مسابقات')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=kb.kb_matches_menu(),
         parse_mode="Markdown"
@@ -222,7 +222,7 @@ async def back_matches(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def back_class_manage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🏫 مدیریت کلاس‌ها')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=kb.kb_class_manage(),
         parse_mode="Markdown"
@@ -233,7 +233,7 @@ async def back_player_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     players = await db.get_all_players()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('👤 لیست بازیکنان')}\n\n👥 تعداد کل: `{len(players)}`\n\nیک بازیکن انتخاب کنید:",
         reply_markup=kb.kb_player_list(players),
         parse_mode="Markdown"
@@ -243,7 +243,7 @@ async def back_player_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def back_teams_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🏆 بخش تیم‌ها')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=kb.kb_teams_menu(),
         parse_mode="Markdown"

@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 import database as db
 import keyboards as kb
-from helpers import (box, separator, warning_bar_player, power_bar,
+from helpers import (safe_edit_message_text, box, separator, warning_bar_player, power_bar,
                      now_shamsi, notify_pishva, log_line, check_status_gate,
                      progress_bar, get_rank_label, check_perm)
 from config import (PISHVA_ID, ST_CLASS_NAME, ST_PLAYER_CLASS_SELECT,
@@ -14,7 +14,7 @@ from config import (PISHVA_ID, ST_CLASS_NAME, ST_PLAYER_CLASS_SELECT,
 async def class_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('✅ ثبت کلاس جدید')}\n\n📝 نام کلاس را وارد کنید (مثلاً ۹۰۱):",
         parse_mode="Markdown"
     )
@@ -38,10 +38,10 @@ async def class_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     classes = await db.get_all_classes()
     if not classes:
-        await query.edit_message_text(f"{box('🏫 کلاس‌ها')}\n\n❗ هیچ کلاسی ثبت نشده.",
+        await safe_edit_message_text(query, f"{box('🏫 کلاس‌ها')}\n\n❗ هیچ کلاسی ثبت نشده.",
                                        reply_markup=kb.kb_class_manage(), parse_mode="Markdown")
         return
-    await query.edit_message_text(f"{box('🏫 لیست کلاس‌ها')}\n\n📌 یک کلاس انتخاب کنید:",
+    await safe_edit_message_text(query, f"{box('🏫 لیست کلاس‌ها')}\n\n📌 یک کلاس انتخاب کنید:",
                                    reply_markup=kb.kb_class_list(classes), parse_mode="Markdown")
 
 async def class_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -51,7 +51,7 @@ async def class_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     c = await db.get_class(cid)
     players = await db.get_players_by_class(cid)
     active = sum(1 for p in players if p["status"] == "active")
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🏫 کلاس ' + c['name'])}\n\n👥 تعداد بازیکنان: `{len(players)}`\n✅ فعال: `{active}`",
         reply_markup=kb.kb_class_actions(cid), parse_mode="Markdown")
 
@@ -62,14 +62,14 @@ async def class_players(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     c = await db.get_class(cid)
     players = await db.get_players_by_class(cid)
     if not players:
-        await query.edit_message_text(f"👥 کلاس *{c['name']}*\n\n❗ بازیکنی ثبت نشده.",
+        await safe_edit_message_text(query, f"👥 کلاس *{c['name']}*\n\n❗ بازیکنی ثبت نشده.",
                                        reply_markup=kb.kb_back("class_list"), parse_mode="Markdown")
         return
     lines = []
     for p in players:
         icon = "🟢" if p["status"] == "active" else "⛔" if p["status"] == "eliminated" else "🔴"
         lines.append(f"{icon} {p['full_name']} — W:{p['wins']} D:{p['draws']} L:{p['losses']}")
-    await query.edit_message_text(f"👥 بازیکنان کلاس *{c['name']}*:\n\n" + "\n".join(lines),
+    await safe_edit_message_text(query, f"👥 بازیکنان کلاس *{c['name']}*:\n\n" + "\n".join(lines),
                                    reply_markup=kb.kb_back("class_list"), parse_mode="Markdown")
 
 async def class_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -78,7 +78,7 @@ async def class_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cid = int(query.data.split("_")[-1])
     ctx.user_data["editing_class"] = cid
     c = await db.get_class(cid)
-    await query.edit_message_text(f"✏️ نام جدید برای کلاس *{c['name']}*:", parse_mode="Markdown")
+    await safe_edit_message_text(query, f"✏️ نام جدید برای کلاس *{c['name']}*:", parse_mode="Markdown")
     return ST_CLASS_NAME
 
 async def class_perf(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -91,7 +91,7 @@ async def class_perf(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     total_d = sum(p["draws"] for p in players)
     total_l = sum(p["losses"] for p in players)
     bar = power_bar(total_w, total_l, total_d)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📈 عملکرد کلاس ' + c['name'])}\n\n"
         f"✅ برد: `{total_w}` | 🤝 مساوی: `{total_d}` | ❌ باخت: `{total_l}`\n\n"
         f"⚡ سطح قدرت:\n`{bar}`",
@@ -103,7 +103,7 @@ async def player_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     classes = await db.get_all_classes()
     if not classes:
-        await query.edit_message_text("❗ ابتدا باید حداقل یک کلاس ثبت کنید.",
+        await safe_edit_message_text(query, "❗ ابتدا باید حداقل یک کلاس ثبت کنید.",
                                        reply_markup=kb.kb_class_manage(), parse_mode="Markdown")
         return ConversationHandler.END
     rows = []
@@ -111,7 +111,7 @@ async def player_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"pclass_{c['id']}") for c in classes[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_players")])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('➕ ثبت‌نام بازیکن')}\n\n📌 مرحله ۱/۲: کلاس بازیکن را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
     return ST_PLAYER_CLASS_SELECT
@@ -122,7 +122,7 @@ async def player_class_selected(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cid = int(query.data.split("_")[-1])
     ctx.user_data["player_class"] = cid
     c = await db.get_class(cid)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('➕ ثبت‌نام بازیکن')}\n\n🏫 کلاس: *{c['name']}*\n\n📌 مرحله ۲/۲: نام و نام‌خانوادگی:",
         parse_mode="Markdown")
     return ST_PLAYER_NAME
@@ -165,13 +165,13 @@ async def player_join_team(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await db.add_team_member(tid, pid)
     p = await db.get_player(pid)
     t = await db.get_team(tid)
-    await query.edit_message_text(f"✅ *{p['full_name']}* به تیم *{t['name']}* اضافه شد.",
+    await safe_edit_message_text(query, f"✅ *{p['full_name']}* به تیم *{t['name']}* اضافه شد.",
                                    reply_markup=kb.kb_players_menu("pishva"), parse_mode="Markdown")
 
 async def player_no_team(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("✅ بازیکن بدون تیم ثبت شد.", reply_markup=kb.kb_players_menu("pishva"))
+    await safe_edit_message_text(query, "✅ بازیکن بدون تیم ثبت شد.", reply_markup=kb.kb_players_menu("pishva"))
 
 # ─── Player List ──────────────────────────────────────────────
 async def player_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -179,10 +179,10 @@ async def player_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     players = await db.get_all_players()
     if not players:
-        await query.edit_message_text(f"{box('👤 لیست بازیکنان')}\n\n❗ هیچ بازیکنی ثبت نشده.",
+        await safe_edit_message_text(query, f"{box('👤 لیست بازیکنان')}\n\n❗ هیچ بازیکنی ثبت نشده.",
                                        reply_markup=kb.kb_back("players"), parse_mode="Markdown")
         return
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('👤 لیست بازیکنان')}\n\n👥 تعداد کل: `{len(players)}`\n\n📌 یک بازیکن انتخاب کنید:",
         reply_markup=kb.kb_player_list(players), parse_mode="Markdown")
 
@@ -191,7 +191,7 @@ async def player_list_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     page = int(query.data.split("_")[-1])
     players = await db.get_all_players()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('👤 لیست بازیکنان')}\n\n👥 تعداد کل: `{len(players)}`",
         reply_markup=kb.kb_player_list(players, page), parse_mode="Markdown")
 
@@ -260,7 +260,7 @@ async def player_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{warn_bar}\n"
         f"{'📂 یادداشت: _' + p['notes'] + '_' if p['notes'] else ''}"
     )
-    await query.edit_message_text(text, reply_markup=kb.kb_player_actions(pid, role), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_player_actions(pid, role), parse_mode="Markdown")
 
 # ─── Player Actions ───────────────────────────────────────────
 async def player_warn_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -273,7 +273,7 @@ async def player_warn_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     pid = int(query.data.split("_")[-1])
     ctx.user_data["warning_player"] = pid
     p = await db.get_player(pid)
-    await query.edit_message_text(f"⚠️ دلیل اخطار برای *{p['full_name']}*:", parse_mode="Markdown")
+    await safe_edit_message_text(query, f"⚠️ دلیل اخطار برای *{p['full_name']}*:", parse_mode="Markdown")
     return ST_WARNING_REASON
 
 async def player_warn_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -309,7 +309,7 @@ async def player_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer(f"⚠️ این بازیکن {icon} است! برای تأیید دوباره بزنید.", show_alert=True)
     await db.update_player(pid, status="kicked")
     await db.log_action(query.from_user.id, "kick_player", f"اخراج: {p['full_name']}", pid)
-    await query.edit_message_text(f"🚫 *{p['full_name']}* اخراج شد.",
+    await safe_edit_message_text(query, f"🚫 *{p['full_name']}* اخراج شد.",
                                    reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
 
 async def player_suspend(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -323,7 +323,7 @@ async def player_suspend(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     p = await db.get_player(pid)
     await db.update_player(pid, status="suspended")
     await db.log_action(query.from_user.id, "suspend_player", f"تعلیق: {p['full_name']}", pid)
-    await query.edit_message_text(f"⏸️ *{p['full_name']}* تعلیق شد.",
+    await safe_edit_message_text(query, f"⏸️ *{p['full_name']}* تعلیق شد.",
                                    reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
 
 async def player_revive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -337,7 +337,7 @@ async def player_revive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     p = await db.get_player(pid)
     await db.update_player(pid, status="active", warnings=0)
     await db.log_action(query.from_user.id, "revive_player", f"احیا: {p['full_name']}", pid)
-    await query.edit_message_text(f"🔄 *{p['full_name']}* احیا شد و به لیست فعال بازگشت.",
+    await safe_edit_message_text(query, f"🔄 *{p['full_name']}* احیا شد و به لیست فعال بازگشت.",
                                    reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
 
 async def player_note_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -346,7 +346,7 @@ async def player_note_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     pid = int(query.data.split("_")[-1])
     ctx.user_data["note_player"] = pid
     p = await db.get_player(pid)
-    await query.edit_message_text(f"📝 یادداشت برای *{p['full_name']}*:", parse_mode="Markdown")
+    await safe_edit_message_text(query, f"📝 یادداشت برای *{p['full_name']}*:", parse_mode="Markdown")
     return ST_NOTE_TEXT
 
 async def player_note_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -365,13 +365,13 @@ async def player_elite_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     new_val = 0 if p["is_elite"] else 1
     await db.update_player(pid, is_elite=new_val)
     label = "🌟 به برترین‌ها اضافه شد" if new_val else "از برترین‌ها حذف شد"
-    await query.edit_message_text(f"✅ {p['full_name']} — {label}",
+    await safe_edit_message_text(query, f"✅ {p['full_name']} — {label}",
                                    reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
 
 async def player_special_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا می‌تواند نیروی ویژه تعیین کند.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد می‌تواند نیروی ویژه تعیین کند.", show_alert=True)
         return
     await query.answer()
     pid = int(query.data.split("_")[-1])
@@ -379,7 +379,7 @@ async def player_special_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     new_val = 0 if p["is_special"] else 1
     await db.update_player(pid, is_special=new_val)
     label = "⚡ نیروی ویژه شد" if new_val else "از نیروهای ویژه حذف شد"
-    await query.edit_message_text(f"✅ {p['full_name']} — {label}",
+    await safe_edit_message_text(query, f"✅ {p['full_name']} — {label}",
                                    reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
 
 async def player_editname_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -388,7 +388,7 @@ async def player_editname_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     pid = int(query.data.split("_")[-1])
     ctx.user_data["edit_player"] = pid
     p = await db.get_player(pid)
-    await query.edit_message_text(f"✏️ نام جدید برای *{p['full_name']}*:", parse_mode="Markdown")
+    await safe_edit_message_text(query, f"✏️ نام جدید برای *{p['full_name']}*:", parse_mode="Markdown")
     return ST_EDIT_PLAYER_NAME
 
 async def player_editname_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -410,7 +410,7 @@ async def player_editclass_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"setclass_{pid}_{c['id']}") for c in classes[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"player_view_{pid}")])
-    await query.edit_message_text("🏫 کلاس جدید را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
+    await safe_edit_message_text(query, "🏫 کلاس جدید را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def player_setclass(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -421,13 +421,13 @@ async def player_setclass(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await db.update_player(pid, class_id=cid)
     c = await db.get_class(cid)
     p = await db.get_player(pid)
-    await query.edit_message_text(f"✅ کلاس *{p['full_name']}* به *{c['name']}* تغییر یافت.",
+    await safe_edit_message_text(query, f"✅ کلاس *{p['full_name']}* به *{c['name']}* تغییر یافت.",
                                    reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
 
 async def player_search_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(f"{box('🔍 جستجو بازیکن')}\n\nنام، نام‌خانوادگی یا کلاس را وارد کنید:",
+    await safe_edit_message_text(query, f"{box('🔍 جستجو بازیکن')}\n\nنام، نام‌خانوادگی یا کلاس را وارد کنید:",
                                    parse_mode="Markdown")
     return ST_SEARCH_PLAYER
 
@@ -446,10 +446,10 @@ async def player_continuing(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     players = await db.get_continuing_players()
     if not players:
-        await query.edit_message_text(f"{box('✅ بازیکنان ادامه‌دهنده')}\n\n❗ هیچ بازیکن ادامه‌دهنده‌ای وجود ندارد.",
+        await safe_edit_message_text(query, f"{box('✅ بازیکنان ادامه‌دهنده')}\n\n❗ هیچ بازیکن ادامه‌دهنده‌ای وجود ندارد.",
                                        reply_markup=kb.kb_back("players"), parse_mode="Markdown")
         return
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('✅ بازیکنان ادامه‌دهنده')}\n\n👥 تعداد: `{len(players)}`",
         reply_markup=kb.kb_player_list(players), parse_mode="Markdown")
 
@@ -464,7 +464,7 @@ async def player_eliminated(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton(f"⛔ شکست‌خورده‌ها ({len(eliminated)})", callback_data="player_list_elim")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_players")],
     ]
-    await query.edit_message_text(f"{box('❌ بازیکنان حذف‌شده')}\n\n📌 نوع را انتخاب کنید:",
+    await safe_edit_message_text(query, f"{box('❌ بازیکنان حذف‌شده')}\n\n📌 نوع را انتخاب کنید:",
                                    reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
 
 async def player_list_kicked(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -473,9 +473,9 @@ async def player_list_kicked(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     players = await db.get_all_players()
     kicked = [p for p in players if p["status"] == "kicked"]
     if not kicked:
-        await query.edit_message_text("❗ هیچ بازیکن اخراجی وجود ندارد.", reply_markup=kb.kb_back("player_eliminated"))
+        await safe_edit_message_text(query, "❗ هیچ بازیکن اخراجی وجود ندارد.", reply_markup=kb.kb_back("player_eliminated"))
         return
-    await query.edit_message_text(f"❌ اخراجی‌ها ({len(kicked)}):", reply_markup=kb.kb_player_list(kicked))
+    await safe_edit_message_text(query, f"❌ اخراجی‌ها ({len(kicked)}):", reply_markup=kb.kb_player_list(kicked))
 
 async def player_list_elim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -483,9 +483,9 @@ async def player_list_elim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     players = await db.get_all_players()
     elim = [p for p in players if p["status"] == "eliminated"]
     if not elim:
-        await query.edit_message_text("❗ هیچ بازیکن شکست‌خورده‌ای وجود ندارد.", reply_markup=kb.kb_back("player_eliminated"))
+        await safe_edit_message_text(query, "❗ هیچ بازیکن شکست‌خورده‌ای وجود ندارد.", reply_markup=kb.kb_back("player_eliminated"))
         return
-    await query.edit_message_text(f"⛔ شکست‌خورده‌ها ({len(elim)}):", reply_markup=kb.kb_player_list(elim))
+    await safe_edit_message_text(query, f"⛔ شکست‌خورده‌ها ({len(elim)}):", reply_markup=kb.kb_player_list(elim))
 
 async def player_elite_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -493,9 +493,9 @@ async def player_elite_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     players = await db.get_all_players()
     elite = [p for p in players if p["is_elite"]]
     if not elite:
-        await query.edit_message_text("🌟 هیچ بازیکن برتری تعیین نشده.", reply_markup=kb.kb_back("players"))
+        await safe_edit_message_text(query, "🌟 هیچ بازیکن برتری تعیین نشده.", reply_markup=kb.kb_back("players"))
         return
-    await query.edit_message_text(f"🌟 بازیکنان برتر ({len(elite)}):", reply_markup=kb.kb_player_list(elite))
+    await safe_edit_message_text(query, f"🌟 بازیکنان برتر ({len(elite)}):", reply_markup=kb.kb_player_list(elite))
 
 async def player_special_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -503,6 +503,6 @@ async def player_special_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     players = await db.get_all_players()
     special = [p for p in players if p["is_special"]]
     if not special:
-        await query.edit_message_text("⚡ هیچ نیروی ویژه‌ای تعیین نشده.", reply_markup=kb.kb_back("players"))
+        await safe_edit_message_text(query, "⚡ هیچ نیروی ویژه‌ای تعیین نشده.", reply_markup=kb.kb_back("players"))
         return
-    await query.edit_message_text(f"⚡ نیروهای ویژه ({len(special)}):", reply_markup=kb.kb_player_list(special))
+    await safe_edit_message_text(query, f"⚡ نیروهای ویژه ({len(special)}):", reply_markup=kb.kb_player_list(special))

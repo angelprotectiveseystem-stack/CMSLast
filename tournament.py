@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 import database as db
 import keyboards as kb
-from helpers import (now_shamsi, box, separator, progress_bar,
+from helpers import (safe_edit_message_text, now_shamsi, box, separator, progress_bar,
                      broadcast_to_admins, notify_pishva, check_status_gate)
 from config import (PISHVA_ID, ST_TOURNAMENT_NAME, ST_TOURNAMENT_EDIT)
 
@@ -10,7 +10,7 @@ from config import (PISHVA_ID, ST_TOURNAMENT_NAME, ST_TOURNAMENT_EDIT)
 async def tourn_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🏅 مدیریت تورنمنت')}\n\n📌 بخش موردنظر را انتخاب کنید:",
         reply_markup=kb.kb_tournament_menu(),
         parse_mode="Markdown"
@@ -20,7 +20,7 @@ async def tourn_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def tourn_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('➕ افزودن تورنمنت')}\n\n📝 نام تورنمنت را وارد کنید:",
         parse_mode="Markdown"
     )
@@ -50,13 +50,13 @@ async def tourn_manage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tournaments = await db.get_all_tournaments()
     active = [t for t in tournaments if t["status"] != "deleted"]
     if not active:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('⚙️ مدیریت تورنمنت')}\n\n❗ هیچ تورنمنتی وجود ندارد.",
             reply_markup=kb.kb_back("tournament"),
             parse_mode="Markdown"
         )
         return
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('⚙️ مدیریت تورنمنت')}\n\n📌 یک تورنمنت انتخاب کنید:",
         reply_markup=kb.kb_tournament_list(active),
         parse_mode="Markdown"
@@ -86,7 +86,7 @@ async def tourn_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"⏱️ ساخته‌شده: `{str(t['created_at'] or '')[:10]}`"
     )
     is_pishva = query.from_user.id == PISHVA_ID
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         text,
         reply_markup=kb.kb_tournament_actions(tid, is_pishva),
         parse_mode="Markdown"
@@ -99,7 +99,7 @@ async def tourn_edit_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tid = int(query.data.split("_")[-1])
     ctx.user_data["editing_tournament"] = tid
     t = await db.get_tournament(tid)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"✏️ نام جدید برای تورنمنت *{t['name']}* را وارد کنید:",
         parse_mode="Markdown"
     )
@@ -123,16 +123,16 @@ async def tourn_edit_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def tourn_end(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ پایان دادن به تورنمنت فقط توسط پیشوا مجاز است.", show_alert=True)
+        await query.answer("⛔ پایان دادن به تورنمنت فقط توسط مدیر ارشد مجاز است.", show_alert=True)
         return
     await query.answer()
     tid = int(query.data.split("_")[-1])
     t = await db.get_tournament(tid)
     await db.update_tournament(tid, status="ended", is_default=0)
     await db.log_action(query.from_user.id, "end_tournament", f"پایان تورنمنت: {t['name']}", tid)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"🔴 تورنمنت *{t['name']}* پایان یافت.\n"
-        f"داده‌ها حفظ شده‌اند. فعال‌سازی مجدد فقط توسط پیشوا.",
+        f"داده‌ها حفظ شده‌اند. فعال‌سازی مجدد فقط توسط مدیر ارشد.",
         reply_markup=kb.kb_tournament_menu(),
         parse_mode="Markdown"
     )
@@ -141,16 +141,16 @@ async def tourn_end(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def tourn_pause(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ تعویق تورنمنت فقط توسط پیشوا مجاز است.", show_alert=True)
+        await query.answer("⛔ تعویق تورنمنت فقط توسط مدیر ارشد مجاز است.", show_alert=True)
         return
     await query.answer()
     tid = int(query.data.split("_")[-1])
     t = await db.get_tournament(tid)
     await db.update_tournament(tid, status="paused")
     await db.log_action(query.from_user.id, "pause_tournament", f"تعویق تورنمنت: {t['name']}", tid)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"⏸️ تورنمنت *{t['name']}* به تعویق افتاد.\n"
-        f"از سرگیری فقط توسط پیشوا ممکن است.",
+        f"از سرگیری فقط توسط مدیر ارشد ممکن است.",
         reply_markup=kb.kb_tournament_menu(),
         parse_mode="Markdown"
     )
@@ -160,14 +160,14 @@ async def tourn_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     uid = query.from_user.id
     if uid != PISHVA_ID:
-        await query.answer("⛔ حذف تورنمنت فقط توسط پیشوا ممکن است.", show_alert=True)
+        await query.answer("⛔ حذف تورنمنت فقط توسط مدیر ارشد ممکن است.", show_alert=True)
         return
     await query.answer()
     tid = int(query.data.split("_")[-1])
     t = await db.get_tournament(tid)
     await db.update_tournament(tid, status="deleted", is_default=0)
     await db.log_action(uid, "delete_tournament", f"حذف تورنمنت: {t['name']}", tid)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"🗑️ تورنمنت *{t['name']}* حذف شد.",
         reply_markup=kb.kb_tournament_menu(),
         parse_mode="Markdown"
@@ -184,7 +184,7 @@ async def tourn_setdefault(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await db.log_action(uid, "set_default_tournament", f"تورنمنت پیش‌فرض: {t['name']}", tid)
 
     # Notify others
-    pname = await db.get_setting("pishva_display_name", "پیشوا")
+    pname = await db.get_setting("pishva_display_name", "مدیر ارشد")
     ts = now_shamsi()
     notif_text = (
         f"📌 *تورنمنت پیش‌فرض تغییر کرد*\n\n"
@@ -195,7 +195,7 @@ async def tourn_setdefault(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if uid != PISHVA_ID:
         await notify_pishva(ctx.bot, notif_text)
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"✅ تورنمنت *{t['name']}* به‌عنوان پیش‌فرض تنظیم شد.",
         reply_markup=kb.kb_tournament_menu(),
         parse_mode="Markdown"
@@ -232,7 +232,7 @@ async def tourn_default(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         rows.append(row)
     from telegram import InlineKeyboardMarkup, InlineKeyboardButton
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_tournament")])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📌 تورنمنت پیش‌فرض')}\n\n" + "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(rows),
         parse_mode="Markdown"
@@ -244,7 +244,7 @@ async def tourn_details(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     t = await db.get_default_tournament()
     if not t:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('📊 جزئیات تورنمنت')}\n\n❗ هیچ تورنمنت فعالی وجود ندارد.",
             reply_markup=kb.kb_back("tournament"),
             parse_mode="Markdown"
@@ -273,7 +273,7 @@ async def tourn_details(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{separator('🌟 بازیکنان برتر')}\n"
         f"{top_lines}"
     )
-    await query.edit_message_text(text, reply_markup=kb.kb_back("tournament"), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_back("tournament"), parse_mode="Markdown")
 
 
 async def tourn_deleted(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -282,14 +282,14 @@ async def tourn_deleted(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tournaments = await db.get_all_tournaments()
     deleted = [t for t in tournaments if t["status"] == "deleted"]
     if not deleted:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('🗂️ تورنمنت‌های حذف‌شده')}\n\n❗ هیچ تورنمنت حذف‌شده‌ای وجود ندارد.",
             reply_markup=kb.kb_back("tournament"),
             parse_mode="Markdown"
         )
         return
     lines = "\n".join([f"🗑️ {t['name']} — {str(t['created_at'] or '')[:10]}" for t in deleted])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🗂️ تورنمنت‌های حذف‌شده')}\n\n{lines}",
         reply_markup=kb.kb_back("tournament"),
         parse_mode="Markdown"

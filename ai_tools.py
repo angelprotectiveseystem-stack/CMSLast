@@ -4,7 +4,7 @@ ai_tools.py — تعریف «ابزارهای» دستیار هوشمند + ما
 این فایل دو کار می‌کنه:
 ۱) TOOL_DECLARATIONS: لیست تابع‌هایی که به Gemini معرفی می‌شن (اسم،
    توضیح فارسی، پارامترهای لازم) تا مدل بفهمه چه امکاناتی داره.
-۲) TOOL_PERMISSIONS: این‌که هر نقش (پیشوا / مدیر مسابقات / مدیر امنیتی)
+۲) TOOL_PERMISSIONS: این‌که هر نقش (مدیر ارشد / مدیر مسابقات / مدیر امنیتی)
    اجازه‌ی اجرای کدوم تابع‌ها رو داره.
 
 نکته‌ی امنیتی مهم: حتی اگه یه کاربر با ترفند مدل رو گول بزنه که یه
@@ -49,11 +49,11 @@ ACTION_TOOL_NAMES = frozenset({
 # ماتریس دسترسی — کلید = اسم تابع، مقدار = لیست نقش‌های مجاز
 # ────────────────────────────────────────────────────────────────
 TOOL_PERMISSIONS = {
-    # ── ساعت کاری — فقط پیشوا ──
+    # ── ساعت کاری — فقط مدیر ارشد ──
     "start_workhours":   [ROLE_PISHVA],
     "end_workhours":     [ROLE_PISHVA],
 
-    # ── بازیکن‌ها — پیشوا و مدیر مسابقات ──
+    # ── بازیکن‌ها — مدیر ارشد و مدیر مسابقات ──
     "register_player":   [ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER],
     "search_player":      ALL_ROLES,
     "warn_player":        [ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER],
@@ -70,28 +70,28 @@ TOOL_PERMISSIONS = {
     "quick_stats":        ALL_ROLES,
     "system_status":      ALL_ROLES,
 
-    # ── ارتباطات — فقط پیشوا ──
+    # ── ارتباطات — فقط مدیر ارشد ──
     "send_announcement":  [ROLE_PISHVA],
     "send_news":          [ROLE_PISHVA],
 
-    # ── مدیریت ادمین‌ها — فقط پیشوا ──
+    # ── مدیریت ادمین‌ها — فقط مدیر ارشد ──
     "list_admins":        [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
     "warn_admin":         [ROLE_PISHVA],
     "clear_admin_warnings": [ROLE_PISHVA],
     "set_admin_role":     [ROLE_PISHVA],
 
-    # ── امنیت — پیشوا و مدیر امنیتی ──
+    # ── امنیت — مدیر ارشد و مدیر امنیتی ──
     "block_user":         [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
     "unblock_user":       [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
 
     # ── باز کردن پنل‌ها (دکمه‌ی شیشه‌ای زیر پیام) — دسترسی داخل خود دیسپچر هم چک می‌شود ──
     "open_panel":          ALL_ROLES,
 
-    # ── اصلاح مسابقات ثبت‌شده — فقط پیشوا ──
+    # ── اصلاح مسابقات ثبت‌شده — فقط مدیر ارشد ──
     "edit_match_result":   [ROLE_PISHVA],
     "delete_match":        [ROLE_PISHVA],
 
-    # ── ابزارهای سطح‌بالای مدیریتی — فقط پیشوا ──
+    # ── ابزارهای سطح‌بالای مدیریتی — فقط مدیر ارشد ──
     "get_admin_profile":   [ROLE_PISHVA],
     "set_system_status":   [ROLE_PISHVA],
     "toggle_ai_online":    [ROLE_PISHVA],
@@ -106,7 +106,7 @@ TOOL_PERMISSIONS = {
 # ────────────────────────────────────────────────────────────────
 PANEL_MAP = {
     "own_main":       ("🏠 پنل شخصی من", "back_main", ALL_ROLES),
-    "pishva_main":    ("👑 پنل پیشوا", "menu_pishva", [ROLE_PISHVA]),
+    "pishva_main":    ("👑 پنل مدیر ارشد", "menu_pishva", [ROLE_PISHVA]),
     "settings":       ("⚙️ تنظیمات ربات", "pishva_settings", [ROLE_PISHVA]),
     "logs":           ("🔍 پیگیری اقدامات", "pishva_logs", [ROLE_PISHVA]),
     "requests":       ("📥 درخواست‌های دسترسی", "pishva_requests", [ROLE_PISHVA]),
@@ -351,7 +351,7 @@ TOOL_DECLARATIONS = [
         "name": "open_panel",
         "description": (
             "باز کردن یک پنل/بخش از ربات با یک دکمه‌ی شیشه‌ای زیر پیام، دقیقاً همون چیزی که از منو باز می‌شه. "
-            "برای درخواست‌هایی مثل «پنل پیشوا رو باز کن»، «برو پنل تنظیمات»، «پنل فلان ادمین رو نشون بده» از این استفاده کن. "
+            "برای درخواست‌هایی مثل «پنل مدیر ارشد رو باز کن»، «برو پنل تنظیمات»، «پنل فلان ادمین رو نشون بده» از این استفاده کن. "
             "برای «admin_profile» حتماً identifier (یوزرنیم یا نام ادمین) رو هم بده."
         ),
         "parameters": {
@@ -380,7 +380,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "set_system_status",
-        "description": "تغییر وضعیت امنیتی کل سیستم (normal=نرمال, bad=بد, danger=خطرناک, aps=APS). در حالت danger/aps ربات برای همه‌ی مدیران (به‌جز پیشوا) قفل می‌شود.",
+        "description": "تغییر وضعیت امنیتی کل سیستم (normal=نرمال, bad=بد, danger=خطرناک, aps=APS). در حالت danger/aps ربات برای همه‌ی مدیران (به‌جز مدیر ارشد) قفل می‌شود.",
         "parameters": {
             "type": "object",
             "properties": {"status": {"type": "string", "description": "normal | bad | danger | aps"}},
@@ -718,7 +718,7 @@ async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx)
             if status in ("danger", "aps"):
                 await broadcast_to_admins(
                     ctx.bot,
-                    f"🔴 وضعیت سیستم به «{status}» تغییر کرد. دسترسی شما موقتاً محدود شده؛ منتظر دستور پیشوا باشید."
+                    f"🔴 وضعیت سیستم به «{status}» تغییر کرد. دسترسی شما موقتاً محدود شده؛ منتظر دستور مدیر ارشد باشید."
                 )
             return f"✅ وضعیت سیستم به «{status}» تغییر کرد."
 

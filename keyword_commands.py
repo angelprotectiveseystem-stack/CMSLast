@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import database as db
 import keyboards as kb
-from helpers import box, separator, now_shamsi
+from helpers import safe_edit_message_text, box, separator, now_shamsi
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER, BOT_USERNAME
 from panel_timeout import schedule_panel_timeout, reset_panel_timeout, cancel_panel_timeout
 
@@ -39,7 +39,7 @@ SIMPLE_KEYWORDS = {
     "انتقاد": "feedback",
     "شروع": "restart",
     # ─── کلمات جدید ───
-    "پیشوا": "pishva_panel",       # فقط برای پیشوا پنلش رو باز می‌کنه
+    "مدیر ارشد": "pishva_panel",       # فقط برای مدیر ارشد پنلش رو باز می‌کنه
     "اطلاعات": "reply_info",       # ریپلای روی یه پیام → جزئیات کاربر
     "درباره": "reply_info",        # مترادف اطلاعات
     "کیه": "reply_info",           # مترادف اطلاعات
@@ -66,8 +66,8 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     FIX 1: اگه owner_id ثبت نشده (None)، در گروه دکمه‌ها رو بلاک می‌کنه
             (قبلاً با None بود pass می‌شد — یعنی هر کسی می‌تونست بزنه).
-    FIX 2: اگه پیشوا روی پنل «مدیریت مدیران» بزنه، اخطار امنیتی می‌گیره.
-            (پیشوا نباید توی گروه به پنل مدیران دست بزنه.)
+    FIX 2: اگه مدیر ارشد روی پنل «مدیریت مدیران» بزنه، اخطار امنیتی می‌گیره.
+            (مدیر ارشد نباید توی گروه به پنل مدیران دست بزنه.)
     """
     from telegram.ext import ApplicationHandlerStop
     query = update.callback_query
@@ -85,7 +85,7 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     requester_id = query.from_user.id
     callback_data = query.data or ""
 
-    # ── FIX 2: پیشوا روی پنل مدیران در گروه → اخطار امنیتی ──────────
+    # ── FIX 2: مدیر ارشد روی پنل مدیران در گروه → اخطار امنیتی ──────────
     ADMIN_MGMT_PATTERNS = (
         "menu_admins", "admin_view_", "admin_perms_",
         "admin_warn_", "admin_kick_", "perm_toggle_",
@@ -99,7 +99,7 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 show_alert=True
             )
             raise ApplicationHandlerStop()
-        # پیشوا روی بقیه‌ی پنل‌ها آزاده — اگه صاحب پنل باشه
+        # مدیر ارشد روی بقیه‌ی پنل‌ها آزاده — اگه صاحب پنل باشه
         msg_key = f"panel_owner_{msg.message_id}"
         owner_id = ctx.chat_data.get(msg_key) if ctx.chat_data is not None else None
         if owner_id is not None and requester_id != owner_id:
@@ -200,7 +200,7 @@ def _action_label(action: str) -> str:
         "tasks": "وظایف",
         "classes": "کلاس‌ها",
         "lottery": "قرعه‌کشی",
-        "pishva_panel": "پنل پیشوا",
+        "pishva_panel": "پنل مدیر ارشد",
         "security": "امنیت",
         "backup": "بکاپ",
         "requests": "درخواست‌ها",
@@ -226,7 +226,7 @@ async def _panel_content(action: str, uid: int, is_pishva: bool, admin):
     if action == "pishva_panel":
         if not is_pishva:
             return None, None, "⛔ شما مجوز باز کردن این پنل را ندارید."
-        return box("👑 پنل پیشوا"), kb.kb_pishva_main(), None
+        return box("👑 پنل مدیر ارشد"), kb.kb_pishva_main(), None
 
     if action == "dashboard":
         from dashboard import build_dashboard_pishva_text, build_dashboard_admin_text
@@ -311,10 +311,10 @@ async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     text, markup, err = await _panel_content(action, uid, is_pishva, admin)
     if text is None:
-        await query.edit_message_text(err or "❗ این پنل در گروه پشتیبانی نمی‌شود. لطفاً در پیوی باز کنید.")
+        await safe_edit_message_text(query, err or "❗ این پنل در گروه پشتیبانی نمی‌شود. لطفاً در پیوی باز کنید.")
         return
 
-    sent = await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    sent = await safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
 
     # ثبت مالکیت پنل
     if sent and ctx.chat_data is not None:
@@ -345,17 +345,17 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         return
 
     if action and action in PISHVA_ONLY_ACTIONS and not is_pishva:
-        await update.message.reply_text("⛔ این دستور فقط برای پیشواست.")
+        await update.message.reply_text("⛔ این دستور فقط برای مدیر ارشد است.")
         raise ApplicationHandlerStop()
 
-    # ─── پنل پیشوا (کلمه «پیشوا») ───
+    # ─── پنل مدیر ارشد (کلمه «مدیر ارشد») ───
     if action == "pishva_panel":
         chat = update.effective_chat
         if chat and chat.type in ("group", "supergroup"):
             await ask_panel_location(update, ctx, "pishva_panel")
         else:
             sent = await update.message.reply_text(
-                box("👑 پنل پیشوا"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
+                box("👑 پنل مدیر ارشد"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
             )
             await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
@@ -616,7 +616,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     if action == "logs":
         logs = await db.get_action_logs("today")
         admins_map = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
-        pname = await db.get_setting("pishva_display_name", "پیشوا")
+        pname = await db.get_setting("pishva_display_name", "مدیر ارشد")
         if not logs:
             await update.message.reply_text("❗ هیچ اقدامی امروز ثبت نشده.")
             return
@@ -739,10 +739,10 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
                 await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
-    # ─── تنظیم/حذف مدیر (فقط پیشوا، با ریپلای) ───
+    # ─── تنظیم/حذف مدیر (فقط مدیر ارشد، با ریپلای) ───
     if text in ADMIN_KEYWORDS:
         if not is_pishva:
-            await update.message.reply_text("⛔ این دستور فقط برای پیشواست.")
+            await update.message.reply_text("⛔ این دستور فقط برای مدیر ارشد است.")
             return
         target_id, target_name, target_username = _extract_reply_target(update)
         if not target_id:
@@ -751,7 +751,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             )
             return
         if target_id == PISHVA_ID:
-            await update.message.reply_text("❗ نمی‌توانید پیشوا را به‌عنوان مدیر تنظیم/حذف کنید.")
+            await update.message.reply_text("❗ نمی‌توانید مدیر ارشد را به‌عنوان مدیر تنظیم/حذف کنید.")
             return
 
         if text == "تنظیم مدیر":
@@ -782,10 +782,10 @@ async def _build_user_info(target_id: int, target_name: str, target_username: st
     lines.append(f"🆔 آیدی: `{target_id}`")
     lines.append("")
 
-    # پیشواست؟
+    # مدیر ارشد است؟
     if target_id == PISHVA_ID:
-        pname = await db.get_setting("pishva_display_name", "پیشوا")
-        lines.append(f"👑 *نقش: پیشوا ({pname})*")
+        pname = await db.get_setting("pishva_display_name", "مدیر ارشد")
+        lines.append(f"👑 *نقش: مدیر ارشد ({pname})*")
         lines.append("🔓 دسترسی: همه چیز")
         return lines
 
@@ -855,7 +855,7 @@ async def _build_user_info(target_id: int, target_name: str, target_username: st
         if warns:
             lines.append(f"\n⚠️ اخطارهای مدیریتی: `{warns}`")
     else:
-        # نه پیشوا، نه ادمین
+        # نه مدیر ارشد، نه ادمین
         lines.append("👤 نقش: کاربر عادی")
         lines.append("❌ در سیستم ثبت نشده")
 

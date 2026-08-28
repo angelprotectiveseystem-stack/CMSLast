@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from telegram.error import BadRequest
 import database as db
 import keyboards as kb
-from helpers import (box, separator, now_shamsi, broadcast_to_admins,
+from helpers import (safe_edit_message_text, box, separator, now_shamsi, broadcast_to_admins,
     notify_pishva, pishva_display, log_line, safe_reply_text, escape_md_legacy)
 from config import (PISHVA_ID, STATUS_NORMAL, STATUS_BAD, STATUS_DANGER, STATUS_APS,
     ST_TOURNAMENT_NAME, ST_PISHVA_NAME_CHANGE, ST_ADMIN_NAME_CHANGE,
@@ -17,13 +17,13 @@ import io
 async def pishva_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     current = await db.get_setting("system_status", STATUS_NORMAL)
     status_labels = {STATUS_NORMAL: "🟢 نرمال", STATUS_BAD: "🟡 بد",
         STATUS_DANGER: "🔴 خطرناک", STATUS_APS: "🪽 APS"}
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🚦 مدیریت وضعیت سیستم')}\n\n"
         f"⚡ وضعیت فعلی: *{status_labels.get(current, current)}*\n\n"
         f"📌 وضعیت جدید را انتخاب کنید:",
@@ -69,7 +69,7 @@ async def set_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"⏱️ `{ts}`"
         )
         await broadcast_to_admins(ctx.bot, notif)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"✅ وضعیت به *{status_labels.get(new_status, new_status)}* تغییر یافت.",
         reply_markup=kb.kb_back("pishva_status"),
         parse_mode="Markdown"
@@ -89,7 +89,7 @@ async def pishva_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     settings = {}
     for k in keys:
         settings[k] = await db.get_setting(k, "1")
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",
         reply_markup=kb.kb_pishva_settings_simple(settings),
         parse_mode="Markdown"
@@ -125,7 +125,7 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
         "admin_dashboard_enabled", "ai_online"]
     settings = {k: await db.get_setting(k, "1") for k in keys}
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",
         reply_markup=kb.kb_pishva_settings_simple(settings),
         parse_mode="Markdown"
@@ -138,7 +138,7 @@ async def pishva_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🔍 پیگیری اقدامات')}\n\n📌 بازه زمانی را انتخاب کنید:",
         reply_markup=kb.kb_logs_filter(),
         parse_mode="Markdown"
@@ -152,7 +152,7 @@ async def show_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
     pname = await pishva_display()
     if not logs:
-        await query.edit_message_text("❗ هیچ اقدامی در این بازه ثبت نشده.", reply_markup=kb.kb_logs_filter())
+        await safe_edit_message_text(query, "❗ هیچ اقدامی در این بازه ثبت نشده.", reply_markup=kb.kb_logs_filter())
         return
     lines = []
     for log in logs[:20]:
@@ -161,9 +161,9 @@ async def show_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         lines.append(log_line(t, name, log["action_type"] + ": " + (log["description"] or "")))
     text = f"{box('🔍 لاگ اقدامات')}\n\n" + "\n".join(lines)
     try:
-        await query.edit_message_text(text, reply_markup=kb.kb_logs_filter(), parse_mode="Markdown")
+        await safe_edit_message_text(query, text, reply_markup=kb.kb_logs_filter(), parse_mode="Markdown")
     except BadRequest:
-        await query.edit_message_text(text, reply_markup=kb.kb_logs_filter())
+        await safe_edit_message_text(query, text, reply_markup=kb.kb_logs_filter())
 
 # ─── Access Requests ─────────────────────────────────────────
 async def pishva_requests(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -174,7 +174,7 @@ async def pishva_requests(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     reqs = await db.get_pending_requests()
     if not reqs:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('📥 درخواست‌های دسترسی')}\n\n✅ هیچ درخواست جدیدی وجود ندارد.",
             reply_markup=kb.kb_back("pishva_panel"),
             parse_mode="Markdown"
@@ -194,7 +194,7 @@ async def pishva_requests(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await safe_reply_text(query.message, text, reply_markup=kb.kb_access_request(req["id"]))
         except Exception:
             pass
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"📥 {len(reqs)} درخواست نمایش داده شد.",
         reply_markup=kb.kb_back("pishva_panel"),
         parse_mode="Markdown"
@@ -207,7 +207,7 @@ async def pishva_backup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('💾 سیستم پشتیبان‌گیری')}\n\n📌 بازه زمانی را انتخاب کنید:",
         reply_markup=kb.kb_backup_main(),
         parse_mode="Markdown"
@@ -218,7 +218,7 @@ async def backup_period_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     period = query.data.split("_")[-1]
     ctx.user_data["backup_period"] = period
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"📊 فرمت فایل را انتخاب کنید:",
         reply_markup=kb.kb_backup_format()
     )
@@ -228,17 +228,17 @@ async def backup_format_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     fmt = query.data.split("_")[-1]
     period = ctx.user_data.get("backup_period", "all")
-    await query.edit_message_text("⏳ در حال تهیه بکاپ، لطفاً صبر کنید...")
+    await safe_edit_message_text(query, "⏳ در حال تهیه بکاپ، لطفاً صبر کنید...")
     try:
         from backup_utils import send_backup
         await send_backup(ctx.bot, PISHVA_ID, period, fmt)
         await db.log_action(PISHVA_ID, "backup", f"تهیه بکاپ {fmt} — {period}")
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"✅ بکاپ با موفقیت تهیه و ارسال شد.\n📁 فرمت: {fmt} | بازه: {period}",
             reply_markup=kb.kb_back("pishva_panel")
         )
     except Exception as e:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"❌ خطا در تهیه بکاپ:\n`{str(e)}`",
             reply_markup=kb.kb_back("pishva_panel"),
             parse_mode="Markdown"
@@ -252,7 +252,7 @@ async def pishva_restore_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     await query.answer()
     ctx.user_data.pop("restore_data", None)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📥 بازگردانی بکاپ')}\n\n"
         f"📎 فایل بکاپ (Excel یا Word) را که قبلاً از همین ربات دریافت کرده‌اید ارسال کنید.\n"
         f"می‌توانید قبل از ارسال، داده‌های داخل فایل را ویرایش کنید — ربات محتوا را می‌خواند و "
@@ -314,20 +314,20 @@ async def restore_confirm_apply(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = ctx.user_data.get("restore_data")
     if not data:
-        await query.edit_message_text("❗ داده‌ای برای بازگردانی یافت نشد. دوباره فایل را ارسال کنید.")
+        await safe_edit_message_text(query, "❗ داده‌ای برای بازگردانی یافت نشد. دوباره فایل را ارسال کنید.")
         return ST_RESTORE_FILE
-    await query.edit_message_text("⏳ در حال بازگردانی اطلاعات...")
+    await safe_edit_message_text(query, "⏳ در حال بازگردانی اطلاعات...")
     from restore_utils import apply_restore, build_summary_text
     try:
         counts = await apply_restore(data, PISHVA_ID)
         await db.log_action(PISHVA_ID, "restore", "بازگردانی بکاپ از فایل آپلودی")
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('✅ بازگردانی انجام شد')}\n\n{build_summary_text(counts)}",
             reply_markup=kb.kb_back("pishva_panel"),
             parse_mode="Markdown"
         )
     except Exception as e:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"❌ خطا در بازگردانی:\n`{str(e)}`",
             reply_markup=kb.kb_back("pishva_panel"),
             parse_mode="Markdown"
@@ -339,7 +339,7 @@ async def restore_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     ctx.user_data.pop("restore_data", None)
-    await query.edit_message_text("❌ بازگردانی لغو شد.", reply_markup=kb.kb_back("pishva_backup"))
+    await safe_edit_message_text(query, "❌ بازگردانی لغو شد.", reply_markup=kb.kb_back("pishva_backup"))
     return ConversationHandler.END
 
 # ─── Working Hours ────────────────────────────────────────────
@@ -357,7 +357,7 @@ async def pishva_repair(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     repair_status = await db.get_setting("repair_mode", "0")
     status = "🔧 فعال" if repair_status == "1" else "✅ غیرفعال"
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🔧 حالت تعمیر')}\n\nوضعیت فعلی: {status}",
         reply_markup=kb.kb_repair_menu(),
         parse_mode="Markdown"
@@ -379,7 +379,7 @@ async def repair_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     await broadcast_to_admins(ctx.bot, notif)
     await db.log_action(PISHVA_ID, "repair_on", "فعال‌سازی حالت تعمیر")
-    await query.edit_message_text("🔧 حالت تعمیر فعال شد.", reply_markup=kb.kb_back("pishva_repair"))
+    await safe_edit_message_text(query, "🔧 حالت تعمیر فعال شد.", reply_markup=kb.kb_back("pishva_repair"))
 
 async def repair_off(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -390,12 +390,12 @@ async def repair_off(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     notif = f"✅ تعمیر پایان یافت. ربات آماده استفاده است.\n⏱️ `{ts}`"
     await broadcast_to_admins(ctx.bot, notif)
     await db.log_action(PISHVA_ID, "repair_off", "غیرفعال‌سازی حالت تعمیر")
-    await query.edit_message_text("✅ حالت تعمیر غیرفعال شد.", reply_markup=kb.kb_back("pishva_repair"))
+    await safe_edit_message_text(query, "✅ حالت تعمیر غیرفعال شد.", reply_markup=kb.kb_back("pishva_repair"))
 
 async def repair_reason_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("📝 دلیل تعمیر را وارد کنید:")
+    await safe_edit_message_text(query, "📝 دلیل تعمیر را وارد کنید:")
     return ST_REPAIR_REASON
 
 async def repair_reason_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -408,7 +408,7 @@ async def repair_reason_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def _render_dbstatus(query):
     current = await db.get_setting("db_manual_status", "1")
     label = "🟢 فعال" if current == "1" else "⚠️ غیرفعال"
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🗄️ وضعیت دیتابیس')}\n\nوضعیت فعلی: {label}\n\n"
         f"این وضعیت کاملاً دستی است و مستقل از اتصال واقعی به دیتابیس.",
         reply_markup=kb.kb_dbstatus_menu(current),
@@ -445,8 +445,8 @@ async def pishva_identity(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     pname = await pishva_display()
-    await query.edit_message_text(
-        f"{box('🪪 تغییر هویت')}\n\nنام نمایشی فعلی پیشوا: *{pname}*",
+    await safe_edit_message_text(query, 
+        f"{box('🪪 تغییر هویت')}\n\nنام نمایشی فعلی مدیر ارشد: *{pname}*",
         reply_markup=kb.kb_identity(),
         parse_mode="Markdown"
     )
@@ -454,15 +454,15 @@ async def pishva_identity(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def identity_pishva_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("📝 نام نمایشی جدید برای پیشوا را وارد کنید:")
+    await safe_edit_message_text(query, "📝 نام نمایشی جدید برای مدیر ارشد را وارد کنید:")
     return ST_PISHVA_NAME_CHANGE
 
 async def identity_pishva_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     new_name = update.message.text.strip()
     await db.set_setting("pishva_display_name", new_name)
-    await db.log_action(PISHVA_ID, "identity_change", f"نام پیشوا به: {new_name}")
+    await db.log_action(PISHVA_ID, "identity_change", f"نام مدیر ارشد به: {new_name}")
     await update.message.reply_text(
-        f"✅ نام نمایشی پیشوا به *{new_name}* تغییر یافت.\n"
+        f"✅ نام نمایشی مدیر ارشد به *{new_name}* تغییر یافت.\n"
         f"این تغییر در سراسر ربات اعمال شد.",
         reply_markup=kb.kb_back("pishva_identity"),
         parse_mode="Markdown"
@@ -474,7 +474,7 @@ async def identity_admin_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     admins = await db.get_all_admins()
     if not admins:
-        await query.edit_message_text("❗ هیچ مدیری ثبت نشده.", reply_markup=kb.kb_back("pishva_identity"))
+        await safe_edit_message_text(query, "❗ هیچ مدیری ثبت نشده.", reply_markup=kb.kb_back("pishva_identity"))
         return
     rows = []
     for i in range(0, len(admins), 2):
@@ -484,7 +484,7 @@ async def identity_admin_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ) for a in admins[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_identity")])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "👥 مدیری که می‌خواهید نامش را تغییر دهید انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(rows)
     )
@@ -495,7 +495,7 @@ async def identity_admin_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tid = int(query.data.split("_")[-1])
     ctx.user_data["identity_admin_tid"] = tid
     admin = await db.get_admin(tid)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"✏️ نام نمایشی جدید برای *{admin['full_name']}* را وارد کنید:",
         parse_mode="Markdown"
     )
@@ -520,7 +520,7 @@ async def pishva_newyear(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('⚠️ هشدار جدی')}\n\n"
         f"این عملیات تمام اطلاعات سال تحصیلی جاری\n"
         f"(بازیکنان، تیم‌ها، مسابقات، رتبه‌بندی‌ها، اخطارها و آمار)\n"
@@ -533,7 +533,7 @@ async def pishva_newyear(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def newyear_yes(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🔐 رمز امنیتی را وارد کنید:")
+    await safe_edit_message_text(query, "🔐 رمز امنیتی را وارد کنید:")
     return ST_NEW_YEAR_PASSWORD
 
 async def newyear_password(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -573,7 +573,7 @@ async def pishva_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🔄 آپدیت ربات')}\n\n📌 عملیات را انتخاب کنید:",
         reply_markup=kb.kb_update_menu(),
         parse_mode="Markdown"
@@ -585,18 +585,18 @@ async def update_sleep(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     update_mode = await db.get_setting("bot_update_mode", "0")
     if update_mode == "1":
         await db.set_setting("bot_update_mode", "0")
-        await query.edit_message_text("✅ ربات از حالت آپدیت خارج شد.", reply_markup=kb.kb_back("pishva_update"))
+        await safe_edit_message_text(query, "✅ ربات از حالت آپدیت خارج شد.", reply_markup=kb.kb_back("pishva_update"))
     else:
         await db.set_setting("bot_update_mode", "1")
         ts = now_shamsi()
         notif = f"🔄 ربات در حال آپدیت است. لطفاً منتظر بمانید.\n⏱️ `{ts}`"
         await broadcast_to_admins(ctx.bot, notif)
-        await query.edit_message_text("💤 ربات برای ادمین‌ها خاموش شد.", reply_markup=kb.kb_back("pishva_update"))
+        await safe_edit_message_text(query, "💤 ربات برای ادمین‌ها خاموش شد.", reply_markup=kb.kb_back("pishva_update"))
 
 async def update_announce_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🚀 نام/شماره نسخه جدید را وارد کنید:")
+    await safe_edit_message_text(query, "🚀 نام/شماره نسخه جدید را وارد کنید:")
     return ST_UPDATE_VERSION
 
 async def update_version_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -633,7 +633,7 @@ async def pishva_group(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     current = await db.get_setting("announcement_group_id", "")
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📡 گروه اعلانات')}\n\n"
         f"گروه فعلی: `{current or 'تنظیم نشده'}`\n\n"
         f"آیدی یا لینک گروه را وارد کنید\n_(مثلاً @mygroupname یا -100123456789)_:",
@@ -660,7 +660,7 @@ async def pishva_channel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     current = await db.get_setting("announcement_channel_id", "")
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📢 کانال اعلانات')}\n\n"
         f"کانال فعلی: `{current or 'تنظیم نشده'}`\n\n"
         f"آیدی عددی کانال را وارد کنید\n_(مثلاً -1001234567890)_:",
@@ -698,7 +698,7 @@ async def pishva_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         g_on = (await db.get_setting(group_key, "1")) == "1"
         c_on = (await db.get_setting(channel_key, "1")) == "1"
         items.append((key, label, group_key, g_on, channel_key, c_on))
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📡 پخش خودکار به گروه/کانال')}\n\n"
         f"برای هر مورد، ارسال به گروه و کانال جداگانه کنترل می‌شود:",
         reply_markup=kb.kb_broadcast_menu(items),
@@ -743,8 +743,8 @@ async def pishva_vault(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         [f"💾 {b['label'] or b['period']} | {b['format']} | {str(b['created_at'])[:10]}" for b in backups[:10]]
     ) or "_هیچ بکاپی وجود ندارد_"
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")])
-    await query.edit_message_text(
-        f"{box('🏦 خزانه پیشوا')}\n\n"
+    await safe_edit_message_text(query, 
+        f"{box('🏦 خزانه مدیر ارشد')}\n\n"
         f"📂 *پرونده بازیکنان:* `{len(players)}` بازیکن\n\n"
         f"{separator('🗄️ بکاپ‌ها')}\n"
         f"{backup_lines}",
@@ -772,10 +772,10 @@ async def pishva_auto_backup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"⏰ فاصله زمانی: هر {interval} ساعت\n"
         f"📁 فرمت: {fmt_label}\n"
         f"📅 بازه: {period_fa}\n\n"
-        f"💡 بکاپ خودکار فایل را مستقیم برای پیشوا ارسال می‌کند."
+        f"💡 بکاپ خودکار فایل را مستقیم برای مدیر ارشد ارسال می‌کند."
     )
     from keyboards import kb_auto_backup_settings
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         text,
         reply_markup=kb_auto_backup_settings(enabled, interval, fmt_label, period_fa),
         parse_mode="Markdown"
@@ -809,7 +809,7 @@ async def auto_backup_interval_menu(update: Update, ctx: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     from keyboards import kb_auto_backup_interval
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "⏰ فاصله زمانی بکاپ خودکار را انتخاب کنید:",
         reply_markup=kb_auto_backup_interval()
     )

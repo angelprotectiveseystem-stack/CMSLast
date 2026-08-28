@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 import database as db
 import keyboards as kb
-from helpers import box, now_shamsi, today_shamsi, today_gregorian
+from helpers import safe_edit_message_text, box, now_shamsi, today_shamsi, today_gregorian
 from config import (PISHVA_ID, ST_TEAM_NAME, ST_TEAM_SLOGAN, ST_TEAM_MEMBERS,
                     ST_TEAM_DATE, ST_TEAM_REQUESTER)
 
@@ -19,11 +19,11 @@ async def teams_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     mgr_can_create = await db.get_setting("managers_can_create_teams", "0")
     if uid != PISHVA_ID and mgr_can_create != "1":
-        await query.answer("⛔ فقط پیشوا می‌تواند تیم بسازد.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد می‌تواند تیم بسازد.", show_alert=True)
         return ConversationHandler.END
 
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('➕ افزودن تیم')}\n\n📝 مرحله ۱: نام تیم را وارد کنید:",
         parse_mode="Markdown"
     )
@@ -71,7 +71,7 @@ async def _ask_members(query_or_update, ctx):
         f"_(روی هر بازیکن بزنید تا انتخاب/لغو شود)_"
     )
     if hasattr(query_or_update, "edit_message_text"):
-        await query_or_update.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await safe_edit_message_text(query_or_update, text, reply_markup=markup, parse_mode="Markdown")
     else:
         await query_or_update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
     return ST_TEAM_MEMBERS
@@ -131,7 +131,7 @@ async def team_skip_members(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     ctx.user_data["new_team"]["selected_members"] = []
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"📅 مرحله ۴: تاریخ ثبت‌نام تیم را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton(f"📅 تاریخ امروز ({today_shamsi()})", callback_data="team_date_today")]
@@ -143,7 +143,7 @@ async def team_skip_members(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def team_confirm_members(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"📅 مرحله ۴: تاریخ ثبت‌نام تیم را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton(f"📅 تاریخ امروز ({today_shamsi()})", callback_data="team_date_today")]
@@ -156,7 +156,7 @@ async def team_date_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     ctx.user_data["new_team"]["date"] = today_gregorian()
-    await query.edit_message_text("🙋 مرحله ۵: این تیم توسط چه دانش‌آموزی درخواست ساخت شده؟ (فقط نام):")
+    await safe_edit_message_text(query, "🙋 مرحله ۵: این تیم توسط چه دانش‌آموزی درخواست ساخت شده؟ (فقط نام):")
     return ST_TEAM_REQUESTER
 
 
@@ -204,7 +204,7 @@ async def teams_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     uid = query.from_user.id
     if uid != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     keys = ["team_mode_enabled", "team_registration_enabled", "managers_can_create_teams"]
@@ -213,7 +213,7 @@ async def teams_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     def tog(k):
         return "✅" if settings.get(k) == "1" else "❌"
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('⚙️ تنظیمات تیم')}\n\n📌 گزینه‌ای را تغییر دهید:",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton(f"🏆 وضعیت تیمی {tog('team_mode_enabled')}", callback_data="setting_team_mode"),

@@ -2,7 +2,7 @@
 ai_assistant.py — دستیار هوشمند متصل به Gemini API
 
 معماری:
-  - هر پیام پیشوا/مدیر (وقتی حالت «دستیار» فعاله) با تاریخچه‌ی کوتاه
+  - هر پیام مدیر ارشد/مدیر (وقتی حالت «دستیار» فعاله) با تاریخچه‌ی کوتاه
     مکالمه برای Gemini فرستاده می‌شه.
   - به مدل فقط لیست ابزارهایی معرفی می‌شه که نقش همون کاربر اجازه‌ش رو
     داره (ai_tools.TOOL_PERMISSIONS).
@@ -22,7 +22,7 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
 import database as db
-from helpers import get_user_role, pishva_display, admin_display
+from helpers import safe_edit_message_text, get_user_role, pishva_display, admin_display
 from config import PISHVA_ID, ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
 import ai_tools
 
@@ -53,7 +53,7 @@ MAX_HISTORY_TURNS = 6          # چند رفت‌وبرگشت آخر رو نگه
 MAX_TOOL_HOPS = 3              # جلوگیری از حلقه‌ی بی‌نهایت اگر مدل پشت‌سرهم تابع صدا بزنه
 
 ROLE_LABELS = {
-    ROLE_PISHVA: "پیشوا (بالاترین سطح دسترسی)",
+    ROLE_PISHVA: "مدیر ارشد (بالاترین سطح دسترسی)",
     ROLE_TOURNAMENT_MANAGER: "مدیر مسابقات",
     ROLE_SECURITY_MANAGER: "مدیر امنیتی",
 }
@@ -106,7 +106,7 @@ async def _is_ai_online() -> bool:
 
 
 async def _can_use_ai(uid: int, role: str) -> bool:
-    """پیشوا همیشه اجازه دارد؛ برای ادمین‌ها هم پرمیشن جدا و هم وضعیت امنیتی چک می‌شود."""
+    """مدیر ارشد همیشه اجازه دارد؛ برای ادمین‌ها هم پرمیشن جدا و هم وضعیت امنیتی چک می‌شود."""
     if uid == PISHVA_ID:
         return True
     status = await db.get_setting("system_status", "normal")
@@ -235,10 +235,10 @@ async def ai_assistant_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     role = await get_user_role(uid)
 
     if not await _is_ai_online():
-        await query.edit_message_text(AI_OFFLINE_MESSAGE)
+        await safe_edit_message_text(query, AI_OFFLINE_MESSAGE)
         return
     if role and not await _can_use_ai(uid, role):
-        await query.edit_message_text("⛔ دسترسی شما به دستیار هوشمند مسدود است.")
+        await safe_edit_message_text(query, "⛔ دسترسی شما به دستیار هوشمند مسدود است.")
         return
 
     ctx.user_data["ai_mode"] = True
@@ -249,7 +249,7 @@ async def ai_assistant_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "گزارش بدم یا فقط باهات حرف بزنم."
     )
     try:
-        await query.edit_message_text(text, reply_markup=kb_ai_reply())
+        await safe_edit_message_text(query, text, reply_markup=kb_ai_reply())
     except BadRequest:
         await query.message.reply_text(text, reply_markup=kb_ai_reply())
 
@@ -262,7 +262,7 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     role = await get_user_role(uid)
     if not role:
-        return  # نه پیشواست نه مدیر فعال — کاری نداریم
+        return  # نه مدیر ارشد است نه مدیر فعال — کاری نداریم
 
     # فعال/غیرفعال‌کردن حالت دستیار
     if text in ACTIVATE_WORDS:
@@ -292,7 +292,7 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("👋 از حالت دستیار خارج شدی.")
         return
 
-    # چک دوباره در طول مکالمه — اگه پیشوا در همین حین خاموشش کرده یا دسترسی رو گرفته
+    # چک دوباره در طول مکالمه — اگه مدیر ارشد در همین حین خاموشش کرده یا دسترسی رو گرفته
     if not await _is_ai_online():
         ctx.user_data["ai_mode"] = False
         await update.message.reply_text(AI_OFFLINE_MESSAGE)
@@ -389,7 +389,7 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Gemini API error {e.response.status_code}: {body}")
         msg = "⚠️ ارتباط با هوش مصنوعی موقتاً مشکل داشت، چند لحظه دیگه امتحان کن."
         if role == ROLE_PISHVA:
-            msg += f"\n\n🔧 جزئیات فنی (فقط برای پیشوا):\nکد: {e.response.status_code}\n{body}"
+            msg += f"\n\n🔧 جزئیات فنی (فقط برای مدیر ارشد):\nکد: {e.response.status_code}\n{body}"
         await update.message.reply_text(msg, reply_markup=kb_ai_reply())
     except Exception as e:
         logger.exception("AI assistant failed")

@@ -117,15 +117,58 @@ async def safe_reply_text(message, text: str, reply_markup=None, parse_mode="Mar
             return await message.reply_text(text, reply_markup=reply_markup)
         raise
 
+def _is_not_modified_error(exc: Exception) -> bool:
+    return "message is not modified" in str(exc).lower()
+
+
+def _is_unrecoverable_edit_error(exc: Exception) -> bool:
+    """خطاهایی که یعنی «دیگه اصلاً نمی‌شه این پیام رو ویرایش کرد»:
+    پیام حذف شده، خیلی قدیمیه، یا خودِ کوئری منقضی شده. توی این حالت‌ها
+    تنها راه اینه که یه پیام تازه بفرستیم، نه اینکه بترکونیم و کاربر
+    مجبور بشه /start بزنه."""
+    msg = str(exc).lower()
+    return (
+        "message to edit not found" in msg
+        or "message can't be edited" in msg
+        or "query is too old" in msg
+        or "message to be edited not found" in msg
+    )
+
+
 async def safe_edit_message_text(query, text: str, reply_markup=None, parse_mode="Markdown"):
-    """جایگزین امن query.edit_message_text."""
+    """جایگزین امن query.edit_message_text.
+
+    سه تا حالت خطا رو پوشش می‌ده (که هر سه‌تاشون قبلاً باعث می‌شدن دکمه‌های
+    برگشت/منو کرش کنن و کاربر مجبور بشه /start بزنه):
+    ۱) خطای پارس Markdown → بدون parse_mode دوباره امتحان می‌کنه.
+    ۲) «Message is not modified» (مثلاً دوبار پشت‌سرهم زدن دکمه‌ی برگشت) →
+       بی‌خطره، فقط نادیده می‌گیریم، نیازی به هیچ اقدامی نیست.
+    ۳) پیام دیگه قابل ویرایش نیست (حذف‌شده/خیلی قدیمی/کوئری منقضی) →
+       به‌جای کرش‌کردن، همون محتوا رو به‌عنوان پیام تازه می‌فرستیم تا
+       کاربر حداقل یه منوی کار-کن جلوش داشته باشه.
+    """
     try:
         return await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
     except BadRequest as e:
+        if _is_not_modified_error(e):
+            return None
         if parse_mode and _is_entity_parse_error(e):
             logger.warning(f"Markdown parse failed on edit, resending as plain text: {e}")
-            return await query.edit_message_text(text, reply_markup=reply_markup)
-        raise
+            try:
+                return await query.edit_message_text(text, reply_markup=reply_markup)
+            except BadRequest as e2:
+                if _is_not_modified_error(e2):
+                    return None
+                if not _is_unrecoverable_edit_error(e2):
+                    raise
+        elif not _is_unrecoverable_edit_error(e):
+            raise
+        # پیام قابل ویرایش نبود — به‌جاش یه پیام جدید می‌فرستیم تا کاربر گیر نکنه
+        logger.warning(f"Could not edit message, sending fresh one instead: {e}")
+        try:
+            return await query.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+        except BadRequest:
+            return await query.message.reply_text(text, reply_markup=reply_markup)
 
 # ─── Notification sender ─────────────────────────────────────
 async def send_notification(bot, user_id: int, text: str, reply_markup=None):
@@ -188,20 +231,20 @@ async def check_status_gate(query, action_name: str = "") -> bool:
 
     # Bot inactive for admins
     if bot_active != "1":
-        await query.answer("💤 ربات توسط پیشوا خاموش شده است.", show_alert=True)
+        await query.answer("💤 ربات توسط مدیر ارشد خاموش شده است.", show_alert=True)
         return True
 
     # Working hours check — if working hours system is on and not active, block
     if working_hours == "0":
         wh_system = await db.get_setting("working_hours_system_enabled", "0")
         if wh_system == "1":
-            await query.answer("🕐 ساعت کاری پایان یافته است. منتظر دستور پیشوا باشید.", show_alert=True)
+            await query.answer("🕐 ساعت کاری پایان یافته است. منتظر دستور مدیر ارشد باشید.", show_alert=True)
             return True
 
     if status == "aps":
         await query.answer(
             "🪽 وضعیت APS در حال اجرا است؛ دسترسی به این بخش محدود شده.\n"
-            "لطفاً تا برقراری امنیت شکیبا باشید یا با پیشوا در ارتباط باشید.",
+            "لطفاً تا برقراری امنیت شکیبا باشید یا با مدیر ارشد در ارتباط باشید.",
             show_alert=True
         )
         return True
@@ -235,7 +278,7 @@ async def get_user_role(user_id: int) -> str:
     return ""
 
 async def pishva_display() -> str:
-    return await db.get_setting("pishva_display_name", "پیشوا")
+    return await db.get_setting("pishva_display_name", "مدیر ارشد")
 
 async def admin_display(admin) -> str:
     if admin and admin["display_name"]:
@@ -291,7 +334,7 @@ def get_rank_label(wins: int, total: int) -> str:
 # ─── Permission Gate ─────────────────────────────────────────
 async def check_perm(query, perm: str, default: bool = True) -> bool:
     """
-    اگر کاربر پیشوا باشه: همیشه False (یعنی pass).
+    اگر کاربر مدیر ارشد باشه: همیشه False (یعنی pass).
     اگر ادمین فعال باشه: permission رو از دیتابیس چک میکنه.
     اگر اصلاً ادمین نباشه: بلاک می‌کنه (True برمیگردونه).
     مقدار True برمیگردونه یعنی «بلاک شو».

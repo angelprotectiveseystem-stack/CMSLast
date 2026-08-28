@@ -1,10 +1,10 @@
 """
-dashboard.py — داشبورد تفصیلی برای پیشوا و ادمین‌ها
+dashboard.py — داشبورد تفصیلی برای مدیر ارشد و ادمین‌ها
 """
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import database as db
-from helpers import box, separator, now_shamsi, progress_bar, power_bar, warning_bar_admin
+from helpers import safe_edit_message_text, box, separator, now_shamsi, progress_bar, power_bar, warning_bar_admin
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER
 
 
@@ -117,7 +117,7 @@ async def build_dashboard_pishva_text() -> str:
         team_mode_txt = "🟢 فعال" if team_mode == "1" else "🔴 غیرفعال"
 
         lines = [
-            box("📊 داشبورد پیشوا"),
+            box("📊 داشبورد مدیر ارشد"),
             "⏱️ `" + now_shamsi() + "`",
             "",
             separator("🚦 سیستم"),
@@ -249,7 +249,7 @@ async def dashboard_pishva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer("🔄 در حال بارگذاری...")
     text = await build_dashboard_pishva_text()
     from keyboards import kb_dashboard_pishva
-    await query.edit_message_text(text, reply_markup=kb_dashboard_pishva(), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb_dashboard_pishva(), parse_mode="Markdown")
 
 
 async def dashboard_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -269,7 +269,7 @@ async def dashboard_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if dashboard_enabled != "1":
         await query.answer(
-            "📊 داشبورد ادمین‌ها توسط پیشوا غیرفعال شده است.",
+            "📊 داشبورد ادمین‌ها توسط مدیر ارشد غیرفعال شده است.",
             show_alert=True
         )
         return
@@ -277,4 +277,4 @@ async def dashboard_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer("🔄 در حال بارگذاری...")
     text = await build_dashboard_admin_text(uid)
     from keyboards import kb_dashboard_admin
-    await query.edit_message_text(text, reply_markup=kb_dashboard_admin(), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb_dashboard_admin(), parse_mode="Markdown")

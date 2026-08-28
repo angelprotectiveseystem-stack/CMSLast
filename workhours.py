@@ -1,19 +1,19 @@
 """
 workhours.py — مدیریت ساعت کاری
 
-شامل رفتار قبلی (آغاز/پایان دستی توسط پیشوا، هم با دکمه هم با
+شامل رفتار قبلی (آغاز/پایان دستی توسط مدیر ارشد، هم با دکمه هم با
 /open و /close) به‌علاوهٔ دو قابلیت جدید:
 
 ۱) ⏱ پایان خودکار ساعت کاری:
-   وقتی روشن باشه، هر بار پیشوا «آغاز ساعت کاری» رو بزنه، ازش یک عدد
+   وقتی روشن باشه، هر بار مدیر ارشد «آغاز ساعت کاری» رو بزنه، ازش یک عدد
    دقیقه (بین ۱ تا ۵۰۰۰) خواسته می‌شه. ساعت کاری دقیقاً بعد از همون
-   مدت، بدون نیاز به دخالت پیشوا، خودش بسته می‌شه — برای وقتی که پیشوا
+   مدت، بدون نیاز به دخالت مدیر ارشد، خودش بسته می‌شه — برای وقتی که مدیر ارشد
    یادش می‌ره خودش ببندتش.
 
 ۲) ⏰ یادآور عدم پایان:
    فقط وقتی پایان خودکار خاموشه معنی داره. اگه روشن باشه، بعد از گذشت
-   یک مدت دقیقه‌ای (قابل تنظیم توسط پیشوا) از آغاز ساعت کاری، اگه هنوز
-   بسته نشده باشه، یک پیام یادآوری برای پیشوا فرستاده می‌شه.
+   یک مدت دقیقه‌ای (قابل تنظیم توسط مدیر ارشد) از آغاز ساعت کاری، اگه هنوز
+   بسته نشده باشه، یک پیام یادآوری برای مدیر ارشد فرستاده می‌شه.
 
 هر دو با precise_scheduler زمان‌بندی می‌شن، یعنی روی یک لحظهٔ مطلق
 (نه شمارش معکوس نسبی) قفل می‌شن و بعد از ری‌استارت رایلوی هم دقیقاً
@@ -27,7 +27,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 import database as db
 import keyboards as kb
-from helpers import box, now_shamsi, broadcast_to_admins, notify_pishva, TEHRAN_TZ
+from helpers import safe_edit_message_text, box, now_shamsi, broadcast_to_admins, notify_pishva, TEHRAN_TZ
 from config import PISHVA_ID, ST_WORKHOURS_AUTOEND_MINUTES, ST_WORKHOURS_REMINDER_MINUTES
 import precise_scheduler as sched
 
@@ -75,7 +75,7 @@ async def _do_start(bot, job_queue, autoend_minutes: int = None):
         f"{box('🟢 آغاز ساعت کاری')}\n\n"
         f"درود بر شما،\n"
         f"⏱️ ساعت کاری از `{ts}`\n"
-        f"   توسط پیشوا آغاز شد.{extra}\n\n"
+        f"   توسط مدیر ارشد آغاز شد.{extra}\n\n"
         f"✅ دسترسی شما به ربات فعال است.\n"
         f"سیستم آماده دریافت فرمان. 🛰️"
     )
@@ -96,7 +96,7 @@ async def _do_end(bot, job_queue, reason: str = "manual"):
             f"{box('🔴 پایان خودکار ساعت کاری')}\n\n"
             f"خسته نباشید! 🌙\n"
             f"⏱️ ساعت کاری به‌طور خودکار در `{ts}`\n"
-            f"   به پایان رسید (پیشوا آن را دستی نبست).\n\n"
+            f"   به پایان رسید (مدیر ارشد آن را دستی نبست).\n\n"
             f"🔒 دسترسی شما موقتاً قطع شد.\n"
             f"ممنون از زحمات شما! 🏆"
         )
@@ -120,7 +120,7 @@ async def workhours_autoend_job(context: ContextTypes.DEFAULT_TYPE):
     await sched.clear_target(JOB_AUTOEND)
     active = (await db.get_setting("working_hours_active", "0")) == "1"
     if not active:
-        return  # پیشوا خودش زودتر بسته بود
+        return  # مدیر ارشد خودش زودتر بسته بود
     await _do_end(context.bot, context.job_queue, reason="auto")
 
 
@@ -172,7 +172,7 @@ async def pishva_workhours(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     reminder_on = (await db.get_setting("workhours_reminder_enabled", "0")) == "1"
     reminder_minutes = int(await db.get_setting("workhours_reminder_minutes", "60"))
     status_extra = await _render_status_extra()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🕐 ساعت کاری')}\n\n📌 عملیات را انتخاب کنید:{status_extra}",
         reply_markup=kb.kb_workhours(autoend_on, reminder_on, reminder_minutes),
         parse_mode="Markdown"
@@ -199,7 +199,7 @@ async def workhour_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if is_command:
             await update.message.reply_text(text, parse_mode="Markdown")
         else:
-            await update.callback_query.edit_message_text(text, parse_mode="Markdown")
+            await update.callback_safe_edit_message_text(query, text, parse_mode="Markdown")
         return ST_WORKHOURS_AUTOEND_MINUTES
 
     ts, extra = await _do_start(ctx.bot, ctx.job_queue)
@@ -207,7 +207,7 @@ async def workhour_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if is_command:
         await update.message.reply_text(reply_text, parse_mode="Markdown")
     else:
-        await update.callback_query.edit_message_text(reply_text, reply_markup=kb.kb_back("pishva_panel"), parse_mode="Markdown")
+        await update.callback_safe_edit_message_text(query, reply_text, reply_markup=kb.kb_back("pishva_panel"), parse_mode="Markdown")
     return ConversationHandler.END
 
 
@@ -247,7 +247,7 @@ async def workhour_end(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if is_command:
         await update.message.reply_text(reply_text, parse_mode="Markdown")
     else:
-        await update.callback_query.edit_message_text(reply_text, reply_markup=kb.kb_back("pishva_panel"), parse_mode="Markdown")
+        await update.callback_safe_edit_message_text(query, reply_text, reply_markup=kb.kb_back("pishva_panel"), parse_mode="Markdown")
 
 
 # ─── Auto-end toggle ─────────────────────────────────────────
@@ -282,7 +282,7 @@ async def workhours_reminder_minutes_start(update: Update, ctx: ContextTypes.DEF
         await query.answer("⛔", show_alert=True)
         return ConversationHandler.END
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"⏰ عدد دقیقهٔ یادآور را بفرستید (بین {MIN_MINUTES} تا {MAX_MINUTES}):"
     )
     return ST_WORKHOURS_REMINDER_MINUTES

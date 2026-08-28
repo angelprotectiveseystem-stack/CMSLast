@@ -246,7 +246,7 @@ async def init_db():
             "repair_mode": "0",
             "repair_reason": "",
             "default_tournament_id": "",
-            "pishva_display_name": "پیشوا",
+            "pishva_display_name": "مدیر ارشد",
             "team_mode_enabled": "0",
             "team_registration_enabled": "1",
             "managers_can_create_teams": "0",
@@ -676,7 +676,7 @@ async def record_match_result(mid: int, result: str, reason: str, updated_by: in
        دوبار تپ کردن ادمین)، هیچ نوشتنی انجام نمی‌ده و False برمی‌گردونه.
     2) اگه وسط کار (بین قدم‌ها) خطا بخوریم، دقیقاً می‌فهمیم کدوم قدم شکست
        خورده (تو لاگ ثبت می‌شه) و exception دوباره raise می‌شه تا لایه‌ی
-       بالاتر (matches.py) بتونه به پیشوا هشدار بده که این مسابقه ممکنه
+       بالاتر (matches.py) بتونه به مدیر ارشد هشدار بده که این مسابقه ممکنه
        دیتای ناقص داشته باشه و نیاز به بررسی دستی داره.
 
     توجه: چون هر دستور به Turso جداگانه commit می‌شه، این یه rollback
@@ -1411,7 +1411,7 @@ async def ai_get_sessions_for_user(user_id: int, limit: int = 20):
 
 
 async def ai_get_sessions_filtered(user_id: int = None, period: str = "all", limit: int = 50):
-    """برای پنل پیشوا: سوابق چت یک ادمین خاص در یک بازه‌ی زمانی."""
+    """برای پنل مدیر ارشد: سوابق چت یک ادمین خاص در یک بازه‌ی زمانی."""
     from datetime import timedelta
     now = datetime.now()
     conditions = []

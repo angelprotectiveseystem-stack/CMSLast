@@ -1,6 +1,6 @@
 """
 ai_history.py — منوی چت دستیار هوشمند (خروج/چت جدید/تاریخچه) + بازبینی
-سوابق چت مدیران با هوش مصنوعی توسط پیشوا.
+سوابق چت مدیران با هوش مصنوعی توسط مدیر ارشد.
 
 این فایل عمداً از ai_assistant.py جدا نگه داشته شده تا اون فایل روی
 خود گفت‌وگو با Gemini تمرکز داشته باشه و این یکی روی مدیریت/نمایش تاریخچه.
@@ -12,7 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import database as db
-from helpers import box, get_user_role
+from helpers import safe_edit_message_text, box, get_user_role
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER
 
 logger = logging.getLogger(__name__)
@@ -156,17 +156,17 @@ async def ai_hist_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ────────────────────────────────────────────────────────────────
-# سمت پیشوا: مشاهده‌ی سوابق چت مدیران با هوش مصنوعی
+# سمت مدیر ارشد: مشاهده‌ی سوابق چت مدیران با هوش مصنوعی
 # ────────────────────────────────────────────────────────────────
 async def ai_admlog_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     admins = await db.get_all_admins()
     if not admins:
-        await query.edit_message_text(f"{box('🗂️ سوابق AI ادمین‌ها')}\n\n❗ هیچ مدیری ثبت نشده.",
+        await safe_edit_message_text(query, f"{box('🗂️ سوابق AI ادمین‌ها')}\n\n❗ هیچ مدیری ثبت نشده.",
                                        reply_markup=InlineKeyboardMarkup(
                                            [[InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")]]))
         return
@@ -176,7 +176,7 @@ async def ai_admlog_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         name = a["display_name"] or a["full_name"]
         rows.append([InlineKeyboardButton(f"{role_icon} {name}", callback_data=f"ai_admlog_pick_{a['telegram_id']}")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🗂️ سوابق AI ادمین‌ها')}\n\n📌 یک مدیر را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(rows),
         parse_mode="Markdown"
@@ -186,7 +186,7 @@ async def ai_admlog_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def ai_admlog_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     tid = int(query.data.split("_")[-1])
@@ -199,7 +199,7 @@ async def ai_admlog_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton(PERIOD_LABELS["all"], callback_data=f"ai_admlog_range_{tid}_all")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="ai_admlog_menu")],
     ]
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🗂️ سوابق AI — ' + name)}\n\n📌 بازه‌ی زمانی را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(rows),
         parse_mode="Markdown"
@@ -209,7 +209,7 @@ async def ai_admlog_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def ai_admlog_range(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     parts = query.data.split("_")
@@ -220,13 +220,13 @@ async def ai_admlog_range(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     sessions = await db.ai_get_sessions_filtered(user_id=tid, period=period, limit=40)
     if not sessions:
         rows = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"ai_admlog_pick_{tid}")]]
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('🗂️ سوابق AI — ' + name)}\n\n❗ چتی در این بازه پیدا نشد.",
             reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
         return
     rows = [[InlineKeyboardButton(_session_label(s), callback_data=f"ai_admlog_view_{s['id']}")] for s in sessions]
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"ai_admlog_pick_{tid}")])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🗂️ سوابق AI — ' + name)}\n\n👥 تعداد چت: `{len(sessions)}`\n\nروی هرکدام بزن تا کامل ببینی:",
         reply_markup=InlineKeyboardMarkup(rows),
         parse_mode="Markdown"
@@ -236,13 +236,13 @@ async def ai_admlog_range(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def ai_admlog_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     sid = int(query.data.split("_")[-1])
     sess = await db.ai_get_session(sid)
     if not sess:
-        await query.edit_message_text("❗ این چت دیگر وجود ندارد.")
+        await safe_edit_message_text(query, "❗ این چت دیگر وجود ندارد.")
         return
     admin = await db.get_admin(sess["user_id"])
     name = (admin["display_name"] or admin["full_name"]) if admin else str(sess["user_id"])
@@ -261,4 +261,4 @@ async def ai_admlog_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text = text[:3800] + "\n\n… (متن کامل طولانی‌تر بود و کوتاه شد)"
 
     rows = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"ai_admlog_pick_{sess['user_id']}")]]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")

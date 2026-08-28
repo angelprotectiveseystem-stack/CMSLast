@@ -258,9 +258,9 @@ async def _noop_callback(update: Update, ctx) -> None:
 
 async def global_error_handler(update, context) -> None:
     """هر خطای مدیریت‌نشده‌ای که توی هر هندلری رخ بده، اینجا گیر می‌افته.
-    به‌جای اینکه فقط توی لاگ Railway گم بشه، هم به پیشوا اطلاع می‌ده هم به کاربر.
+    به‌جای اینکه فقط توی لاگ Railway گم بشه، هم به مدیر ارشد اطلاع می‌ده هم به کاربر.
 
-    نکته‌ی مهم: خود این هندلر نباید هیچ‌وقت بترکه. قبلاً گزارش به پیشوا با
+    نکته‌ی مهم: خود این هندلر نباید هیچ‌وقت بترکه. قبلاً گزارش به مدیر ارشد با
     parse_mode="Markdown" و بدون escape کردن نام کاربر/متن خطا فرستاده می‌شد؛
     اگه اسم کاربر یا متن خطا یه '_' یا '`' یا '*' فرد داشت، همین ارسالِ گزارشِ
     خطا خودش با «Can't parse entities» رد می‌شد. الان escape می‌کنیم و اگه
@@ -278,16 +278,16 @@ async def global_error_handler(update, context) -> None:
         if isinstance(update, Update):
             if update.callback_query:
                 await update.callback_query.answer(
-                    "⚠️ خطایی رخ داد. به پیشوا اطلاع داده شد.", show_alert=True
+                    "⚠️ خطایی رخ داد. به مدیر ارشد اطلاع داده شد.", show_alert=True
                 )
             elif update.effective_message:
                 await update.effective_message.reply_text(
-                    "⚠️ متاسفانه یک خطا رخ داد. این مشکل به‌طور خودکار به پیشوا گزارش شد."
+                    "⚠️ متاسفانه یک خطا رخ داد. این مشکل به‌طور خودکار به مدیر ارشد گزارش شد."
                 )
     except Exception:
         pass
 
-    # اطلاع به پیشوا: خلاصه‌ی خطا + آخرین فریمِ مربوط به کد خودمون (نه کتابخانه‌ی
+    # اطلاع به مدیر ارشد: خلاصه‌ی خطا + آخرین فریمِ مربوط به کد خودمون (نه کتابخانه‌ی
     # تلگرام) تا واقعاً معلوم باشه خطا توی کدوم فایل/تابع رخ داده، نه فقط اینکه
     # کتابخانه‌ی تلگرام کجا BadRequest رو raise کرده.
     try:
@@ -660,7 +660,7 @@ def build_application():
     )
 
     # ساعت کاری: /open و دکمهٔ wh_start ممکنه (اگه پایان خودکار روشن باشه)
-    # یه عدد دقیقه از پیشوا بخوان، پس باید Conversation باشن نه هندلر ساده.
+    # یه عدد دقیقه از مدیر ارشد بخوان، پس باید Conversation باشن نه هندلر ساده.
     workhours_conv = ConversationHandler(
         entry_points=[
             CommandHandler("open", workhour_start),

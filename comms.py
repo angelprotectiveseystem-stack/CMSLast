@@ -16,7 +16,7 @@ async def comms_msg_admin_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     admins = await db.get_active_admins()
     if not admins:
-        await query.edit_message_text("❗ هیچ مدیر فعالی وجود ندارد.", reply_markup=kb.kb_back("comms_pishva"))
+        await safe_edit_message_text(query, "❗ هیچ مدیر فعالی وجود ندارد.", reply_markup=kb.kb_back("comms_pishva"))
         return
     rows = []
     for i in range(0, len(admins), 2):
@@ -26,7 +26,7 @@ async def comms_msg_admin_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ) for a in admins[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_comms")])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "💬 به کدام مدیر پیام می‌فرستید؟",
         reply_markup=InlineKeyboardMarkup(rows)
     )
@@ -38,7 +38,7 @@ async def comms_msg_target(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tid = int(query.data.split("_")[-1])
     ctx.user_data["msg_target"] = tid
     admin = await db.get_admin(tid)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"✍️ پیام به *{admin['display_name'] or admin['full_name']}*:",
         parse_mode="Markdown"
     )
@@ -55,7 +55,7 @@ async def comms_msg_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         notif = (
             f"{box('📨 پیام جدید')}\n\n"
             f"📬 شما یک پیام جدید دارید.\n"
-            f"👤 از: {pname if uid == PISHVA_ID else 'پیشوا'}\n"
+            f"👤 از: {pname if uid == PISHVA_ID else 'مدیر ارشد'}\n"
             f"⏱️ `{ts}`\n\n"
             f"💬 متن: _{text}_"
         )
@@ -78,7 +78,7 @@ async def comms_msg_pishva_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     ctx.user_data["msg_target"] = PISHVA_ID
     pname = await pishva_display()
-    await query.edit_message_text(f"✍️ پیام به *{pname}*:", parse_mode="Markdown")
+    await safe_edit_message_text(query, f"✍️ پیام به *{pname}*:", parse_mode="Markdown")
     return ST_SEND_MSG_TEXT
 
 # ─── Send msg to other admin ──────────────────────────────────
@@ -89,7 +89,7 @@ async def comms_msg_other_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     admins = await db.get_active_admins()
     others = [a for a in admins if a["telegram_id"] != uid]
     if not others:
-        await query.edit_message_text("❗ هیچ مدیر دیگری فعال نیست.", reply_markup=kb.kb_back("comms_admin"))
+        await safe_edit_message_text(query, "❗ هیچ مدیر دیگری فعال نیست.", reply_markup=kb.kb_back("comms_admin"))
         return
     rows = []
     for i in range(0, len(others), 2):
@@ -99,7 +99,7 @@ async def comms_msg_other_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ) for a in others[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_comms")])
-    await query.edit_message_text("💬 به کدام مدیر پیام می‌فرستید؟", reply_markup=InlineKeyboardMarkup(rows))
+    await safe_edit_message_text(query, "💬 به کدام مدیر پیام می‌فرستید؟", reply_markup=InlineKeyboardMarkup(rows))
     return ST_SEND_MSG_SELECT_ADMIN
 
 async def comms_inbox(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -108,7 +108,7 @@ async def comms_inbox(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = query.from_user.id
     msgs = await db.get_messages_for(uid)
     if not msgs:
-        await query.edit_message_text("📭 هیچ پیامی دریافت نکرده‌اید.", reply_markup=kb.kb_back("comms"))
+        await safe_edit_message_text(query, "📭 هیچ پیامی دریافت نکرده‌اید.", reply_markup=kb.kb_back("comms"))
         return
     pname = await pishva_display()
     admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
@@ -117,7 +117,7 @@ async def comms_inbox(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         sender_name = pname if m["sender_id"] == PISHVA_ID else admins.get(m["sender_id"], "ربات")
         read_icon = "✅" if m["is_read"] else "🔵"
         lines.append(f"{read_icon} از {sender_name}: _{str(m['text'])[:80]}_")
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📨 پیام‌های دریافتی')}\n\n" + "\n\n".join(lines),
         reply_markup=kb.kb_back("comms"),
         parse_mode="Markdown"
@@ -137,7 +137,7 @@ async def comms_all_msgs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         sn = pname if m["sender_id"] == PISHVA_ID else admins.get(m["sender_id"], str(m["sender_id"]))
         rn = pname if m["receiver_id"] == PISHVA_ID else admins.get(m["receiver_id"], str(m["receiver_id"]))
         lines.append(f"👤 {sn} → {rn}: _{str(m['text'])[:60]}_")
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('👁️ پیام ادمین‌ها')}\n\n" + "\n\n".join(lines) if lines else "❗ پیامی وجود ندارد.",
         reply_markup=kb.kb_back("comms"),
         parse_mode="Markdown"
@@ -150,7 +150,7 @@ async def comms_announce_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    await query.edit_message_text("📢 متن بیانیه را وارد کنید:")
+    await safe_edit_message_text(query, "📢 متن بیانیه را وارد کنید:")
     return ST_ANNOUNCEMENT_TEXT
 
 async def comms_announce_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -167,13 +167,13 @@ async def comms_announce_no_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     text = ctx.user_data.get("announce_text", "")
     await _send_announcement(ctx.bot, text, "", "")
-    await query.edit_message_text("✅ بیانیه ارسال شد.", reply_markup=kb.kb_back("comms"))
+    await safe_edit_message_text(query, "✅ بیانیه ارسال شد.", reply_markup=kb.kb_back("comms"))
     return ConversationHandler.END
 
 async def comms_announce_with_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("📎 فایل موردنظر را ارسال کنید (عکس، سند، ویدیو یا صوت):")
+    await safe_edit_message_text(query, "📎 فایل موردنظر را ارسال کنید (عکس، سند، ویدیو یا صوت):")
     return ST_ANNOUNCEMENT_FILE
 
 async def comms_announce_file_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -199,7 +199,7 @@ async def comms_announce_file_received(update: Update, ctx: ContextTypes.DEFAULT
 
 async def _send_announcement(bot, text: str, file_id: str, file_type: str):
     ann_id = await db.create_announcement(text, file_id, file_type)
-    pname = await db.get_setting("pishva_display_name", "پیشوا")
+    pname = await db.get_setting("pishva_display_name", "مدیر ارشد")
     ts = now_shamsi()
     full_text = f"📢 *بیانیه رسمی*\n\n{text}\n\n⏱️ `{ts}`\n👑 {pname}"
     notif_on = await db.get_setting("notifications_enabled", "1")
@@ -236,7 +236,7 @@ async def comms_ann_history(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     anns = await db.get_all_announcements()
     if not anns:
-        await query.edit_message_text("📭 هیچ بیانیه‌ای وجود ندارد.", reply_markup=kb.kb_back("comms"))
+        await safe_edit_message_text(query, "📭 هیچ بیانیه‌ای وجود ندارد.", reply_markup=kb.kb_back("comms"))
         return
     rows = []
     for a in anns[:15]:
@@ -247,7 +247,7 @@ async def comms_ann_history(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         ])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_comms")])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📜 تاریخچه بیانیات')}\n\n📌 یک بیانیه انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(rows),
         parse_mode="Markdown"
@@ -266,7 +266,7 @@ async def ann_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if query.from_user.id == PISHVA_ID:
         rows.append([InlineKeyboardButton("🗑️ حذف بیانیه", callback_data=f"ann_delete_{ann_id}")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="comms_ann_history")])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"📢 *بیانیه*\n\n{ann['text']}\n\n⏱️ `{str(ann['sent_at'])[:19]}`\n"
         f"{'📎 دارای پیوست' if ann['file_id'] else ''}",
         reply_markup=InlineKeyboardMarkup(rows),
@@ -281,7 +281,7 @@ async def ann_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     ann_id = int(query.data.split("_")[-1])
     await db.delete_announcement(ann_id)
-    await query.edit_message_text("🗑️ بیانیه حذف شد.", reply_markup=kb.kb_back("comms"))
+    await safe_edit_message_text(query, "🗑️ بیانیه حذف شد.", reply_markup=kb.kb_back("comms"))
 
 # ─── News ─────────────────────────────────────────────────────
 async def comms_news_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -290,7 +290,7 @@ async def comms_news_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    await query.edit_message_text("📰 متن خبر فوری را وارد کنید:")
+    await safe_edit_message_text(query, "📰 متن خبر فوری را وارد کنید:")
     return ST_NEWS_TEXT
 
 async def comms_news_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -308,10 +308,10 @@ async def comms_news_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     news = await db.get_all_news()
     if not news:
-        await query.edit_message_text("📭 هیچ خبری ثبت نشده.", reply_markup=kb.kb_back("comms"))
+        await safe_edit_message_text(query, "📭 هیچ خبری ثبت نشده.", reply_markup=kb.kb_back("comms"))
         return
     lines = [f"📰 `{str(n['sent_at'])[:10]}` — {n['text'][:80]}" for n in news[:20]]
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📰 اخبار')}\n\n" + "\n\n".join(lines),
         reply_markup=kb.kb_back("comms"),
         parse_mode="Markdown"
@@ -341,7 +341,7 @@ async def comms_reports(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     feedbacks = await db.get_all_feedback()
     reports = [f for f in feedbacks if f["fb_type"] == "report"]
     if not reports:
-        await query.edit_message_text("📊 هیچ گزارشی دریافت نشده.", reply_markup=kb.kb_back("comms"))
+        await safe_edit_message_text(query, "📊 هیچ گزارشی دریافت نشده.", reply_markup=kb.kb_back("comms"))
         return
     lines = [f"🚨 {r['content'][:80]}" for r in reports[:15]]
     await safe_edit_message_text(

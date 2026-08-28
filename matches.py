@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 import database as db
 import keyboards as kb
-from helpers import (box, separator, now_shamsi, today_gregorian, today_shamsi,
+from helpers import (safe_edit_message_text, box, separator, now_shamsi, today_gregorian, today_shamsi,
     notify_pishva, check_status_gate, smart_lottery, progress_bar, check_perm)
 from config import (PISHVA_ID, ST_MATCH_WHITE, ST_MATCH_BLACK, ST_MATCH_DATE,
     ST_MATCH_DRAW_REASON, ST_MATCH_CANCEL_REASON, ST_SEARCH_MATCH, ST_ADV_LOTTERY_SCOPE,
@@ -32,7 +32,7 @@ async def match_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     players = await db.get_continuing_players()
     if len(players) < 2:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"❌ *خطا — کد ۰۰۱*\n\nحداقل دو بازیکن ادامه‌دهنده برای شروع مسابقه وجود ندارد.",
             reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
         return ConversationHandler.END
@@ -41,7 +41,7 @@ async def match_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["mw_page"] = 0
     ctx.user_data.pop("match_white", None)
     ctx.user_data.pop("match_black", None)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('➕ ثبت مسابقه جدید')}\n\n⬜ مرحله ۱: بازیکن *سفید* را انتخاب کنید:\n\n"
         f"{_page_hint(players, 0)}",
         reply_markup=kb.kb_player_select(players, "mwhite", "matches", page=0, nav_prefix="mw"),
@@ -54,7 +54,7 @@ async def match_white_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     page = int(query.data.split("_")[-1])
     ctx.user_data["mw_page"] = page
     view = ctx.user_data.get("mw_view", ctx.user_data.get("match_players_pool", []))
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('➕ ثبت مسابقه جدید')}\n\n⬜ مرحله ۱: بازیکن *سفید* را انتخاب کنید:\n\n"
         f"{_page_hint(view, page)}",
         reply_markup=kb.kb_player_select(view, "mwhite", "matches", page=page, nav_prefix="mw"),
@@ -91,7 +91,7 @@ async def match_white_selected(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["match_black_pool"] = pool
     ctx.user_data["mb_view"] = pool
     ctx.user_data["mb_page"] = 0
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('➕ ثبت مسابقه جدید')}\n\n"
         f"⬜ سفید: *{wp['full_name']}*\n\n"
         f"⬛ مرحله ۲: بازیکن *سیاه* را انتخاب کنید:\n\n"
@@ -108,7 +108,7 @@ async def match_black_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     view = ctx.user_data.get("mb_view", ctx.user_data.get("match_black_pool", []))
     wp = await db.get_player(ctx.user_data.get("match_white"))
     wname = wp["full_name"] if wp else ""
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('➕ ثبت مسابقه جدید')}\n\n"
         f"⬜ سفید: *{wname}*\n\n"
         f"⬛ مرحله ۲: بازیکن *سیاه* را انتخاب کنید:\n\n"
@@ -150,7 +150,7 @@ async def match_black_selected(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     bp = await db.get_player(black_id)
     today_g = today_gregorian()
     today_s = today_shamsi()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('➕ ثبت مسابقه جدید')}\n\n"
         f"⬜ سفید: *{wp['full_name']}*\n"
         f"⬛ سیاه: *{bp['full_name']}*\n\n"
@@ -179,7 +179,7 @@ async def _finalize_match(update, ctx, via_query: bool):
     if not white_id or not black_id:
         msg = "❌ خطا. دوباره از ابتدا شروع کنید."
         if via_query:
-            await update.callback_query.edit_message_text(msg)
+            await update.callback_safe_edit_message_text(query, msg)
         else:
             await update.message.reply_text(msg)
         return ConversationHandler.END
@@ -204,7 +204,7 @@ async def _finalize_match(update, ctx, via_query: bool):
         InlineKeyboardButton("✅ بازگشت", callback_data="back_matches")],
     ])
     if via_query:
-        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await update.callback_safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
     else:
         await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
     return ConversationHandler.END
@@ -239,13 +239,13 @@ async def match_result_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     pending = await db.get_pending_matches()
     if not pending:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('🏆 ثبت نتیجه')}\n\n✅ همه مسابقات نتیجه دارند.",
             reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
         return
     ctx.user_data["mr_pending"] = pending
     text, markup = _render_pending_page(pending, 0)
-    await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
 
 async def match_result_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -254,12 +254,12 @@ async def match_result_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     pending = await db.get_pending_matches()  # تازه می‌خونیم تا وضعیت claim به‌روز باشه
     ctx.user_data["mr_pending"] = pending
     if not pending:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('🏆 ثبت نتیجه')}\n\n✅ همه مسابقات نتیجه دارند.",
             reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
         return
     text, markup = _render_pending_page(pending, page)
-    await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
 
 async def match_result_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -267,7 +267,7 @@ async def match_result_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     mid = int(query.data.split("_")[-1])
     m = await db.get_match(mid)
     await db.claim_match(mid, query.from_user.id)  # فقط برای نمایش به بقیه ادمین‌ها
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🏆 ثبت نتیجه')}\n\n"
         f"⬜ سفید: *{m['white_name']}*\n"
         f"⬛ سیاه: *{m['black_name']}*\n\n"
@@ -283,9 +283,9 @@ async def result_white(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         recorded = await db.record_match_result(mid, "white", "", query.from_user.id)
     except Exception:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
-            "داشته باشه — به پیشوا اطلاع داده شد، لطفاً دستی چک کنید.")
+            "داشته باشه — به مدیر ارشد اطلاع داده شد، لطفاً دستی چک کنید.")
         await notify_pishva(query.get_bot(),
             f"🚨 ثبت نتیجه مسابقه {mid} (برد سفید) با خطا مواجه شد. لطفاً دستی بررسی کنید.")
         return
@@ -315,7 +315,7 @@ async def result_white(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     w_sign = "+" if chg_w >= 0 else ""
     b_sign = "+" if chg_b >= 0 else ""
     elo_txt = f"\n📊 Elo: ⬜`{w_sign}{chg_w}` | ⬛`{b_sign}{chg_b}`" if chg_w or chg_b else ""
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"🥇 برد *{m['white_name']}* ثبت شد.{elo_txt}{warn}\n\n"
         f"آیا می‌خواهید *{m['black_name']}* حذف شود؟",
         reply_markup=kb.kb_eliminate_ask(m["black_player_id"], m["black_name"]),
@@ -329,9 +329,9 @@ async def result_black(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         recorded = await db.record_match_result(mid, "black", "", query.from_user.id)
     except Exception:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
-            "داشته باشه — به پیشوا اطلاع داده شد، لطفاً دستی چک کنید.")
+            "داشته باشه — به مدیر ارشد اطلاع داده شد، لطفاً دستی چک کنید.")
         await notify_pishva(query.get_bot(),
             f"🚨 ثبت نتیجه مسابقه {mid} (برد سیاه) با خطا مواجه شد. لطفاً دستی بررسی کنید.")
         return
@@ -361,7 +361,7 @@ async def result_black(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     w_sign = "+" if chg_w >= 0 else ""
     b_sign = "+" if chg_b >= 0 else ""
     elo_txt = f"\n📊 Elo: ⬜`{w_sign}{chg_w}` | ⬛`{b_sign}{chg_b}`" if chg_w or chg_b else ""
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"🥇 برد *{m['black_name']}* ثبت شد.{elo_txt}{warn}\n\n"
         f"آیا می‌خواهید *{m['white_name']}* حذف شود؟",
         reply_markup=kb.kb_eliminate_ask(m["white_player_id"], m["white_name"]),
@@ -371,7 +371,7 @@ async def result_draw(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     mid = int(query.data.split("_")[-1])
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "🤝 علت تساوی را انتخاب کنید:",
         reply_markup=kb.kb_draw_reasons(mid))
 
@@ -384,16 +384,16 @@ async def draw_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     reason_map = {"pat": "پات", "time": "اتمام زمان", "moves": "حرکات بسیار", "repeat": "سه تکرار"}
     if reason_key == "other":
         ctx.user_data["draw_match"] = mid
-        await query.edit_message_text("📝 دلیل تساوی را بنویسید:")
+        await safe_edit_message_text(query, "📝 دلیل تساوی را بنویسید:")
         return ST_MATCH_DRAW_REASON
     reason = reason_map.get(reason_key, reason_key)
     m = await db.get_match(mid)
     try:
         recorded = await db.record_match_result(mid, "draw", reason, query.from_user.id)
     except Exception:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
-            "داشته باشه — به پیشوا اطلاع داده شد، لطفاً دستی چک کنید.")
+            "داشته باشه — به مدیر ارشد اطلاع داده شد، لطفاً دستی چک کنید.")
         await notify_pishva(query.get_bot(),
             f"🚨 ثبت نتیجه مسابقه {mid} (تساوی) با خطا مواجه شد. لطفاً دستی بررسی کنید.")
         return
@@ -418,7 +418,7 @@ async def draw_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     w_sign = "+" if chg_w >= 0 else ""
     b_sign = "+" if chg_b >= 0 else ""
     elo_txt = f"\n📊 Elo: ⬜`{w_sign}{chg_w}` | ⬛`{b_sign}{chg_b}`" if chg_w or chg_b else ""
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"🤝 تساوی ثبت شد.\n📋 علت: *{reason}*{elo_txt}",
         reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
 
@@ -431,7 +431,7 @@ async def draw_reason_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             await update.message.reply_text(
                 "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
-                "داشته باشه — به پیشوا اطلاع داده شد، لطفاً دستی چک کنید.")
+                "داشته باشه — به مدیر ارشد اطلاع داده شد، لطفاً دستی چک کنید.")
             await notify_pishva(ctx.bot,
                 f"🚨 ثبت نتیجه مسابقه {mid} (تساوی) با خطا مواجه شد. لطفاً دستی بررسی کنید.")
             return ConversationHandler.END
@@ -449,7 +449,7 @@ async def result_cancel_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     mid = int(query.data.split("_")[-1])
     ctx.user_data["cancel_match"] = mid
-    await query.edit_message_text("📝 دلیل لغو مسابقه را بنویسید:")
+    await safe_edit_message_text(query, "📝 دلیل لغو مسابقه را بنویسید:")
     return ST_MATCH_CANCEL_REASON
 
 async def match_cancel_reason_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -472,14 +472,14 @@ async def eliminate_yes(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     p = await db.get_player(pid)
     await db.update_player(pid, status="eliminated")
     await db.log_action(query.from_user.id, "eliminate_player", f"حذف: {p['full_name']}", pid)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"⛔ *{p['full_name']}* از لیست ادامه‌دهندگان حذف شد.",
         reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
 
 async def eliminate_no(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "✅ بازیکن در لیست ادامه‌دهندگان باقی ماند.",
         reply_markup=kb.kb_back("matches"))
 
@@ -487,7 +487,7 @@ async def eliminate_no(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def match_history(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🔍 تاریخچه مسابقات')}\n\n📌 فیلتر را انتخاب کنید:",
         reply_markup=kb.kb_match_history_filter(), parse_mode="Markdown")
 
@@ -498,17 +498,17 @@ async def match_hist_filter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     matches = await db.get_matches_by_filter(period)
     label = {"today": "امروز", "week": "این هفته", "month": "این ماه", "all": "کل"}.get(period, period)
     if not matches:
-        await query.edit_message_text(f"❗ مسابقه‌ای در {label} یافت نشد.",
+        await safe_edit_message_text(query, f"❗ مسابقه‌ای در {label} یافت نشد.",
             reply_markup=kb.kb_match_history_filter())
         return
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📋 مسابقات — ' + label)} ({len(matches)} مسابقه)",
         reply_markup=kb.kb_match_list(matches), parse_mode="Markdown")
 
 async def match_hist_search_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🔍 نام بازیکن یا تاریخ را وارد کنید:")
+    await safe_edit_message_text(query, "🔍 نام بازیکن یا تاریخ را وارد کنید:")
     return ST_SEARCH_MATCH
 
 async def match_hist_search_run(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -525,9 +525,9 @@ async def match_full_history(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     matches = await db.get_matches_by_filter("all")
     if not matches:
-        await query.edit_message_text("❗ هیچ مسابقه‌ای ثبت نشده.", reply_markup=kb.kb_back("matches"))
+        await safe_edit_message_text(query, "❗ هیچ مسابقه‌ای ثبت نشده.", reply_markup=kb.kb_back("matches"))
         return
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('📋 تاریخچه کامل')} ({len(matches)} مسابقه)",
         reply_markup=kb.kb_match_list(matches), parse_mode="Markdown")
 
@@ -547,7 +547,7 @@ async def match_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     admin_name = "—"
     if m["created_by"]:
         if m["created_by"] == PISHVA_ID:
-            admin_name = await db.get_setting("pishva_display_name", "پیشوا")
+            admin_name = await db.get_setting("pishva_display_name", "مدیر ارشد")
         else:
             a = await db.get_admin(m["created_by"])
             admin_name = a["display_name"] or a["full_name"] if a else str(m["created_by"])
@@ -563,7 +563,7 @@ async def match_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"⏱️ `{str(m['created_at'] or '')[:16]}`\n"
         f"{'📌 پین‌شده' if m['is_pinned'] else ''}"
     )
-    await query.edit_message_text(text, reply_markup=kb.kb_match_item_actions(mid), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_match_item_actions(mid), parse_mode="Markdown")
 
 async def match_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -579,7 +579,7 @@ async def match_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     mid = int(query.data.split("_")[-1])
     await db.delete_match(mid)
     await db.log_action(uid, "delete_match", f"حذف مسابقه {mid}", mid)
-    await query.edit_message_text("🗑️ مسابقه حذف شد.", reply_markup=kb.kb_back("match_history"))
+    await safe_edit_message_text(query, "🗑️ مسابقه حذف شد.", reply_markup=kb.kb_back("match_history"))
 
 async def match_pin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -591,7 +591,7 @@ async def match_pin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     new_pin = 0 if m["is_pinned"] else 1
     await db.update_match(mid, is_pinned=new_pin)
     label = "📌 پین شد" if new_pin else "پین برداشته شد"
-    await query.edit_message_text(label, reply_markup=kb.kb_back("match_history"))
+    await safe_edit_message_text(query, label, reply_markup=kb.kb_back("match_history"))
 
 async def match_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -618,13 +618,13 @@ async def match_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{separator('🌟 برترین بازیکنان')}\n"
         f"{top_lines}"
     )
-    await query.edit_message_text(text, reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
 
 # ─── Lottery (ساده) ────────────────────────────────────────────
 async def lottery_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🎲 قرعه‌کشی هوشمند')}\n\n📌 محدوده بازیکنان:",
         reply_markup=kb.kb_lottery_scope(), parse_mode="Markdown")
 
@@ -644,7 +644,7 @@ async def lottery_class_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"lclass_{c['id']}") for c in classes[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="lottery_start")])
-    await query.edit_message_text("🏫 کلاس را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
+    await safe_edit_message_text(query, "🏫 کلاس را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
 
 async def lottery_class_chosen(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -658,7 +658,7 @@ async def lottery_class_chosen(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def _run_lottery(query, ctx, players):
     if len(players) < 2:
-        await query.edit_message_text("❌ تعداد بازیکنان کمتر از ۲ نفر است.",
+        await safe_edit_message_text(query, "❌ تعداد بازیکنان کمتر از ۲ نفر است.",
             reply_markup=kb.kb_back("matches"))
         return
     p1, p2, all_played = await smart_lottery(players)
@@ -672,7 +672,7 @@ async def _run_lottery(query, ctx, players):
         f"📅 تاریخ پیشنهادی: `{today_shamsi()}`"
         f"{warn}\n╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼╼"
     )
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         text,
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ تأیید و ثبت", callback_data=f"lottery_confirm_{p1['id']}_{p2['id']}")],
@@ -691,7 +691,7 @@ async def lottery_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["match_black"] = p2_id
     ctx.user_data["match_players_pool"] = []
     today_s = today_shamsi()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"📅 تاریخ مسابقه را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton(f"📅 امروز ({today_s})", callback_data="mdate_today")]
@@ -717,7 +717,7 @@ async def lottery_manual(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["match_players_pool"] = [dict(p) for p in players]
     ctx.user_data["mw_view"] = ctx.user_data["match_players_pool"]
     ctx.user_data["mw_page"] = 0
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('✏️ انتخاب دستی')}\n\n⬜ بازیکن سفید را انتخاب کنید:\n\n"
         f"{_page_hint(players, 0)}",
         reply_markup=kb.kb_player_select(players, "mwhite", "matches", page=0, nav_prefix="mw"),
@@ -730,7 +730,7 @@ async def adv_lottery_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     ctx.user_data.pop("adv_pairs", None)
     ctx.user_data.pop("adv_count", None)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🎯 قرعه‌کشی پیشرفته')}\n\nمحدوده انتخاب بازیکنان چطور باشد؟",
         reply_markup=kb.kb_adv_lottery_scope(), parse_mode="Markdown")
     return ST_ADV_LOTTERY_SCOPE
@@ -743,7 +743,7 @@ async def adv_lottery_scope_chosen(update: Update, ctx: ContextTypes.DEFAULT_TYP
     if scope == "open":
         ctx.user_data["adv_class_a"] = None
         ctx.user_data["adv_class_b"] = None
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('🎯 قرعه‌کشی پیشرفته')}\n\n"
             f"چند نفر می‌خواهید به‌صورت شانسی مقابل هم قرار بگیرند؟\n"
             f"(یک عدد زوج بفرستید — مثلاً ۲۰ نفر یعنی ۱۰ مسابقه)",
@@ -751,7 +751,7 @@ async def adv_lottery_scope_chosen(update: Update, ctx: ContextTypes.DEFAULT_TYP
         return ST_ADV_LOTTERY_COUNT
     classes = await db.get_all_classes()
     if not classes:
-        await query.edit_message_text("❗ هیچ کلاسی ثبت نشده.", reply_markup=kb.kb_back("matches"))
+        await safe_edit_message_text(query, "❗ هیچ کلاسی ثبت نشده.", reply_markup=kb.kb_back("matches"))
         return ConversationHandler.END
     rows = []
     prefix = "adv_class_same_" if scope == "same" else "adv_classA_"
@@ -760,7 +760,7 @@ async def adv_lottery_scope_chosen(update: Update, ctx: ContextTypes.DEFAULT_TYP
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="adv_lottery_start")])
     label = "🏫 کلاس مشترک هر دو طرف را انتخاب کنید:" if scope == "same" else "🏫 کلاس طرف اول (سفید) را انتخاب کنید:"
-    await query.edit_message_text(label, reply_markup=InlineKeyboardMarkup(rows))
+    await safe_edit_message_text(query, label, reply_markup=InlineKeyboardMarkup(rows))
     return ST_ADV_LOTTERY_CLASS_A
 
 async def adv_lottery_classA_chosen(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -771,7 +771,7 @@ async def adv_lottery_classA_chosen(update: Update, ctx: ContextTypes.DEFAULT_TY
     if scope == "same":
         ctx.user_data["adv_class_a"] = cid
         ctx.user_data["adv_class_b"] = cid
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{box('🎯 قرعه‌کشی پیشرفته')}\n\n"
             f"چند نفر می‌خواهید به‌صورت شانسی مقابل هم قرار بگیرند؟\n"
             f"(یک عدد زوج بفرستید — مثلاً ۲۰ نفر یعنی ۱۰ مسابقه)",
@@ -784,7 +784,7 @@ async def adv_lottery_classA_chosen(update: Update, ctx: ContextTypes.DEFAULT_TY
         row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"adv_classB_{c['id']}") for c in classes[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="adv_lottery_start")])
-    await query.edit_message_text("🏫 کلاس طرف دوم (سیاه) را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
+    await safe_edit_message_text(query, "🏫 کلاس طرف دوم (سیاه) را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
     return ST_ADV_LOTTERY_CLASS_B
 
 async def adv_lottery_classB_chosen(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -792,7 +792,7 @@ async def adv_lottery_classB_chosen(update: Update, ctx: ContextTypes.DEFAULT_TY
     await query.answer()
     cid = int(query.data.split("_")[-1])
     ctx.user_data["adv_class_b"] = cid
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"{box('🎯 قرعه‌کشی پیشرفته')}\n\n"
         f"چند نفر می‌خواهید به‌صورت شانسی مقابل هم قرار بگیرند؟\n"
         f"(یک عدد زوج بفرستید — مثلاً ۲۰ نفر یعنی ۱۰ مسابقه)",
@@ -883,7 +883,7 @@ async def adv_lottery_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     pairs = ctx.user_data.get("adv_pairs", [])
     if not pairs:
-        await query.edit_message_text("❌ داده‌ای برای ثبت وجود ندارد.", reply_markup=kb.kb_back("matches"))
+        await safe_edit_message_text(query, "❌ داده‌ای برای ثبت وجود ندارد.", reply_markup=kb.kb_back("matches"))
         return
     default_t = await db.get_default_tournament()
     tid = default_t["id"] if default_t else None
@@ -896,7 +896,7 @@ async def adv_lottery_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await db.log_action(uid, "adv_lottery", f"ثبت گروهی {count} مسابقه با قرعه‌کشی پیشرفته")
     ctx.user_data.pop("adv_pairs", None)
     ctx.user_data.pop("adv_count", None)
-    await query.edit_message_text(f"✅ {count} مسابقه با موفقیت ثبت شد.", reply_markup=kb.kb_back("matches"))
+    await safe_edit_message_text(query, f"✅ {count} مسابقه با موفقیت ثبت شد.", reply_markup=kb.kb_back("matches"))
 
 async def adv_lottery_redo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -906,15 +906,15 @@ async def adv_lottery_redo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     class_b = ctx.user_data.get("adv_class_b")
     count = ctx.user_data.get("adv_count")
     if not count:
-        await query.edit_message_text("❌ اطلاعات قبلی یافت نشد. دوباره از ابتدا شروع کنید.",
+        await safe_edit_message_text(query, "❌ اطلاعات قبلی یافت نشد. دوباره از ابتدا شروع کنید.",
             reply_markup=kb.kb_back("matches"))
         return
     pairs, err = await _generate_adv_pairs(scope, class_a, class_b, count)
     if err:
-        await query.edit_message_text(err, reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
+        await safe_edit_message_text(query, err, reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
         return
     ctx.user_data["adv_pairs"] = [(p1["id"], p2["id"]) for p1, p2 in pairs]
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         _render_adv_preview(pairs), reply_markup=_adv_preview_kb(), parse_mode="Markdown")
 
 async def adv_lottery_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -922,4 +922,4 @@ async def adv_lottery_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     ctx.user_data.pop("adv_pairs", None)
     ctx.user_data.pop("adv_count", None)
-    await query.edit_message_text("❌ قرعه‌کشی پیشرفته لغو شد.", reply_markup=kb.kb_back("matches"))
+    await safe_edit_message_text(query, "❌ قرعه‌کشی پیشرفته لغو شد.", reply_markup=kb.kb_back("matches"))

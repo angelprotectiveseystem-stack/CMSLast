@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 import database as db
 import keyboards as kb
-from helpers import now_shamsi, box, separator, pishva_display, notify_pishva
+from helpers import safe_edit_message_text, now_shamsi, box, separator, pishva_display, notify_pishva
 from config import (PISHVA_ID, PISHVA_PASSWORD, ROLE_PISHVA,
                      ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER,
                      ST_ROLE_SELECT, ST_PISHVA_PASSWORD, ST_ADMIN_USERNAME,
@@ -246,7 +246,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         from keyword_commands import _panel_content, PISHVA_ONLY_ACTIONS
         if action in PISHVA_ONLY_ACTIONS and not is_pishva:
-            await update.message.reply_text("⛔ این دستور فقط برای پیشواست.")
+            await update.message.reply_text("⛔ این دستور فقط برای مدیر ارشد است.")
             return ConversationHandler.END
 
         text, markup, err = await _panel_content(action, uid, is_pishva, admin)
@@ -283,7 +283,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await db.log_action(PISHVA_ID, "login", "ورود پیشوا")
+    await db.log_action(PISHVA_ID, "login", "ورود مدیر ارشد")
     pname = await pishva_display()
     greeting = time_greeting(pname)
     weather = await get_weather_line()
@@ -302,7 +302,7 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ai_txt = "🟢 آنلاین" if ai_on == "1" else "🔴 آفلاین"
 
         text = (
-            f"👑 *پنل پیشوا*\n"
+            f"👑 *پنل مدیر ارشد*\n"
             f"{greeting}\n"
             f"🕰 `{now_shamsi()}`\n"
         )
@@ -321,7 +321,7 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_text(text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
     else:
-        await update.callback_query.edit_message_text(text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
+        await update.callback_safe_edit_message_text(query, text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
     return ConversationHandler.END
 
 
@@ -362,7 +362,7 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
     if update.message:
         await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
     else:
-        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await update.callback_safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
     return ConversationHandler.END
 
 
@@ -374,12 +374,12 @@ async def on_role_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         uid = query.from_user.id
         if uid == PISHVA_ID:
             return await show_pishva_welcome(update, ctx)
-        await query.edit_message_text("🔐 رمز پیشوا را وارد کنید:")
+        await safe_edit_message_text(query, "🔐 رمز مدیر ارشد را وارد کنید:")
         ctx.user_data["pending_role"] = ROLE_PISHVA
         return ST_PISHVA_PASSWORD
     role = ROLE_TOURNAMENT_MANAGER if data == "role_tournament" else ROLE_SECURITY_MANAGER
     ctx.user_data["pending_role"] = role
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "👤 یوزرنیم تلگرام خود را وارد کنید:\n_(باید با @ شروع شود و شامل حروف باشد)_",
         parse_mode="Markdown"
     )
@@ -404,7 +404,7 @@ async def on_admin_username(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def on_admin_fullname(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["reg_fullname"] = update.message.text.strip()
     await update.message.reply_text(
-        "📝 یک پیام برای پیشوا بنویسید (یا /skip):",
+        "📝 یک پیام برای مدیر ارشد بنویسید (یا /skip):",
         parse_mode="Markdown"
     )
     return ST_ACCESS_REQUEST_MSG
@@ -454,7 +454,7 @@ async def on_approve_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     except Exception:
         pass
-    await query.edit_message_text(query.message.text + "\n\n✅ *تأیید شد*", parse_mode="Markdown")
+    await safe_edit_message_text(query, query.message.text + "\n\n✅ *تأیید شد*", parse_mode="Markdown")
     await query.answer("✅ تأیید شد.")
 
 
@@ -476,5 +476,5 @@ async def on_reject_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     except Exception:
         pass
-    await query.edit_message_text(query.message.text + "\n\n❌ *رد شد*", parse_mode="Markdown")
+    await safe_edit_message_text(query, query.message.text + "\n\n❌ *رد شد*", parse_mode="Markdown")
     await query.answer("❌ رد شد.")

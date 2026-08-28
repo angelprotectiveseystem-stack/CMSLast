@@ -4,7 +4,7 @@ from telegram.ext import ApplicationHandlerStop
 
 import database as db
 import keyboards as kb
-from helpers import box
+from helpers import safe_edit_message_text, box
 from config import PISHVA_ID
 
 
@@ -47,7 +47,7 @@ async def block_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def security_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا به این بخش دسترسی دارد.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد به این بخش دسترسی دارد.", show_alert=True)
         return
     await query.answer()
     queued = await db.get_queued_requests()
@@ -58,7 +58,7 @@ async def security_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🚫 بلاک‌شده: `{len(blocked)}` نفر\n\n"
         "📌 یک بخش را انتخاب کنید:"
     )
-    await query.edit_message_text(text, reply_markup=kb.kb_security_panel(), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_security_panel(), parse_mode="Markdown")
 
 
 # ─── صف انتظار ────────────────────────────────────────────────
@@ -67,10 +67,10 @@ async def security_queue_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     queued = await db.get_queued_requests()
     if not queued:
-        await query.edit_message_text(f"{box('⏳ صف انتظار')}\n\n❗ صف انتظار خالی است.",
+        await safe_edit_message_text(query, f"{box('⏳ صف انتظار')}\n\n❗ صف انتظار خالی است.",
                                        reply_markup=kb.kb_security_panel(), parse_mode="Markdown")
         return
-    await query.edit_message_text(f"{box('⏳ صف انتظار')}\n\n👥 تعداد: `{len(queued)}`\n\nروی هرکدام بزنید تا جزئیات کامل را ببینید:",
+    await safe_edit_message_text(query, f"{box('⏳ صف انتظار')}\n\n👥 تعداد: `{len(queued)}`\n\nروی هرکدام بزنید تا جزئیات کامل را ببینید:",
                                    reply_markup=kb.kb_queue_list(queued), parse_mode="Markdown")
 
 
@@ -80,7 +80,7 @@ async def security_queue_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     req_id = int(query.data.split("_")[-1])
     r = await db.get_access_request(req_id)
     if not r:
-        await query.edit_message_text("❗ این درخواست دیگر وجود ندارد.", reply_markup=kb.kb_security_panel())
+        await safe_edit_message_text(query, "❗ این درخواست دیگر وجود ندارد.", reply_markup=kb.kb_security_panel())
         return
     role_map = {"tournament_manager": "🏆 مدیر مسابقات", "security_manager": "🛡️ مدیر امنیتی"}
     role_label = role_map.get(r["role"], r["role"])
@@ -94,14 +94,14 @@ async def security_queue_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"📝 پیام درخواست: {r['message'] or '—'}\n"
         f"⏱️ زمان درخواست: `{r['requested_at']}`"
     )
-    await query.edit_message_text(text, reply_markup=kb.kb_queue_item_actions(req_id), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_queue_item_actions(req_id), parse_mode="Markdown")
 
 
 async def request_to_queue(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """از روی نوتیفیکیشن درخواست دسترسی: شخص را به صف انتظار می‌فرستد."""
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     req_id = int(query.data.split("_")[-1])
@@ -116,13 +116,13 @@ async def request_to_queue(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
     old_text = query.message.text or ""
-    await query.edit_message_text(old_text + "\n\n⏳ *این شخص به صف انتظار منتقل شد.*", parse_mode="Markdown")
+    await safe_edit_message_text(query, old_text + "\n\n⏳ *این شخص به صف انتظار منتقل شد.*", parse_mode="Markdown")
 
 
 async def queue_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     req_id = int(query.data.split("_")[-1])
@@ -149,7 +149,7 @@ async def queue_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def queue_release(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     req_id = int(query.data.split("_")[-1])
@@ -170,7 +170,7 @@ async def queue_release(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def queue_block_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     req_id = int(query.data.split("_")[-1])
@@ -178,7 +178,7 @@ async def queue_block_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not r:
         await query.answer("یافت نشد.", show_alert=True)
         return
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"⚠️ آیا از بلاک دائم *{r['full_name']}* مطمئن هستید؟\nاین شخص برای همیشه دسترسی خود به ربات را از دست می‌دهد.",
         reply_markup=kb.kb_block_confirm(f"req_{req_id}", back_cb=f"queueview_{req_id}"),
         parse_mode="Markdown"
@@ -189,7 +189,7 @@ async def request_block_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """از روی نوتیفیکیشن درخواست دسترسی."""
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     req_id = int(query.data.split("_")[-1])
@@ -197,7 +197,7 @@ async def request_block_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not r:
         await query.answer("یافت نشد.", show_alert=True)
         return
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"⚠️ آیا از بلاک دائم *{r['full_name']}* مطمئن هستید؟\nاین شخص برای همیشه دسترسی خود به ربات را از دست می‌دهد.",
         reply_markup=kb.kb_block_confirm(f"req_{req_id}", back_cb="menu_pishva"),
         parse_mode="Markdown"
@@ -208,7 +208,7 @@ async def request_block_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def block_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     token = query.data.split("_", 1)[-1]  # "req_12" یا یک آیدی عددی خام
@@ -217,7 +217,7 @@ async def block_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         req_id = int(token.split("_")[-1])
         r = await db.get_access_request(req_id)
         if not r:
-            await query.edit_message_text("❗ یافت نشد.", reply_markup=kb.kb_security_panel())
+            await safe_edit_message_text(query, "❗ یافت نشد.", reply_markup=kb.kb_security_panel())
             return
         telegram_id, username, full_name = r["telegram_id"], r["username"], r["full_name"]
         await db.set_request_status(req_id, "blocked")
@@ -227,13 +227,13 @@ async def block_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         username = b["username"] if b else ""
         full_name = b["full_name"] if b else str(telegram_id)
 
-    await db.block_user(telegram_id, username or "", full_name or "", "بلاک توسط پیشوا", PISHVA_ID)
+    await db.block_user(telegram_id, username or "", full_name or "", "بلاک توسط مدیر ارشد", PISHVA_ID)
     await db.log_action(PISHVA_ID, "block_user", f"بلاک: {full_name} ({telegram_id})", telegram_id)
     try:
         await ctx.bot.send_message(chat_id=telegram_id, text=BLOCK_MESSAGE, parse_mode="Markdown")
     except Exception:
         pass
-    await query.edit_message_text(f"🚫 *{full_name or telegram_id}* با موفقیت بلاک شد.",
+    await safe_edit_message_text(query, f"🚫 *{full_name or telegram_id}* با موفقیت بلاک شد.",
                                    reply_markup=kb.kb_security_panel(), parse_mode="Markdown")
 
 
@@ -243,10 +243,10 @@ async def security_blocked_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     blocked = await db.get_all_blocked()
     if not blocked:
-        await query.edit_message_text(f"{box('🚫 لیست بلاک‌شده‌ها')}\n\n❗ فعلاً کسی بلاک نیست.",
+        await safe_edit_message_text(query, f"{box('🚫 لیست بلاک‌شده‌ها')}\n\n❗ فعلاً کسی بلاک نیست.",
                                        reply_markup=kb.kb_security_panel(), parse_mode="Markdown")
         return
-    await query.edit_message_text(f"{box('🚫 لیست بلاک‌شده‌ها')}\n\n👥 تعداد: `{len(blocked)}`",
+    await safe_edit_message_text(query, f"{box('🚫 لیست بلاک‌شده‌ها')}\n\n👥 تعداد: `{len(blocked)}`",
                                    reply_markup=kb.kb_blocked_list(blocked), parse_mode="Markdown")
 
 
@@ -256,7 +256,7 @@ async def security_blocked_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tid = int(query.data.split("_")[-1])
     b = await db.get_blocked_user(tid)
     if not b:
-        await query.edit_message_text("❗ یافت نشد.", reply_markup=kb.kb_security_panel())
+        await safe_edit_message_text(query, "❗ یافت نشد.", reply_markup=kb.kb_security_panel())
         return
     text = (
         f"{box('🚫 جزئیات بلاک')}\n\n"
@@ -266,13 +266,13 @@ async def security_blocked_item(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"📝 دلیل: {b['reason'] or '—'}\n"
         f"⏱️ زمان بلاک: `{b['blocked_at']}`"
     )
-    await query.edit_message_text(text, reply_markup=kb.kb_blocked_item_actions(tid), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_blocked_item_actions(tid), parse_mode="Markdown")
 
 
 async def unblock_action(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ فقط پیشوا.", show_alert=True)
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer()
     tid = int(query.data.split("_")[-1])

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import database as db
 import keyboards as kb
 from config import PISHVA_ID
+from helpers import safe_edit_message_text
 
 REMINDER_TYPES = {
     "match": {
@@ -171,7 +172,7 @@ async def reminder_job(context):
     await run_reminder_checks(context.application)
 
 
-# ─── پنل پیشوا ────────────────────────────────────────────────
+# ─── پنل مدیر ارشد ────────────────────────────────────────────────
 
 async def pishva_reminders(update, ctx):
     query = update.callback_query
@@ -187,7 +188,7 @@ async def pishva_reminders(update, ctx):
         "در این بخش می‌توانید هر یادآور را جداگانه فعال یا غیرفعال کنید "
         "و بازه‌ی زمانی ارسال آن را تنظیم نمایید."
     )
-    await query.edit_message_text(text, reply_markup=kb.kb_reminders_menu(master, items))
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_reminders_menu(master, items))
 
 
 async def reminder_toggle(update, ctx):
@@ -212,7 +213,7 @@ async def reminder_interval_menu(update, ctx):
     conf = REMINDER_TYPES.get(rtype)
     if not conf:
         return
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"⏰ بازه‌ی زمانی «{conf['label']}» را انتخاب کنید:",
         reply_markup=kb.kb_reminder_interval_options(rtype)
     )

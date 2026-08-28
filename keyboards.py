@@ -15,16 +15,16 @@ def kb_back(target="main"):
 def kb_back_row(target="main"):
     return [InlineKeyboardButton("🔙 بازگشت", callback_data=f"back_{target}")]
 
-# ─── پنل پیشوا (منوی اصلی کوتاه) ────────────────────────────
+# ─── پنل مدیر ارشد (منوی اصلی کوتاه) ────────────────────────────
 def kb_pishva_main():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("♟️ مدیریت مسابقات", callback_data="menu_matches"),
         InlineKeyboardButton("👤 مدیریت بازیکنان", callback_data="menu_players")],
-        [InlineKeyboardButton("👑 پنل پیشوا", callback_data="menu_pishva"),
+        [InlineKeyboardButton("👑 پنل مدیر ارشد", callback_data="menu_pishva"),
         InlineKeyboardButton("👥 مدیریت مدیران", callback_data="menu_admins")],
         [InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms"),
         InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks")],
-        [InlineKeyboardButton("📊 داشبورد پیشوا", callback_data="dashboard_pishva"),
+        [InlineKeyboardButton("📊 داشبورد مدیر ارشد", callback_data="dashboard_pishva"),
         InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
         [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],
         [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open"),
@@ -261,7 +261,7 @@ def kb_match_item_actions(mid):
         InlineKeyboardButton("🔙 بازگشت", callback_data="match_history")],
     ])
 
-# ─── پنل پیشوا ────────────────────────────────────────────────
+# ─── پنل مدیر ارشد ────────────────────────────────────────────────
 def kb_pishva_panel():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚦 مدیریت وضعیت", callback_data="pishva_status"),
@@ -271,7 +271,7 @@ def kb_pishva_panel():
         [InlineKeyboardButton("💾 دریافت بکاپ", callback_data="pishva_backup"),
         InlineKeyboardButton("🕐 ساعت کاری", callback_data="pishva_workhours")],
         [InlineKeyboardButton("🔧 حالت تعمیر", callback_data="pishva_repair"),
-        InlineKeyboardButton("🏦 خزانه پیشوا", callback_data="pishva_vault")],
+        InlineKeyboardButton("🏦 خزانه مدیر ارشد", callback_data="pishva_vault")],
         [InlineKeyboardButton("🪪 تغییر هویت", callback_data="pishva_identity"),
         InlineKeyboardButton("🎓 سال تحصیلی جدید", callback_data="pishva_newyear")],
         [InlineKeyboardButton("🔄 آپدیت ربات", callback_data="pishva_update"),
@@ -445,7 +445,7 @@ def kb_comms_pishva():
 
 def kb_comms_admin():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💬 پیام به پیشوا", callback_data="comms_msg_pishva"),
+        [InlineKeyboardButton("💬 پیام به مدیر ارشد", callback_data="comms_msg_pishva"),
         InlineKeyboardButton("💬 پیام به ادمین", callback_data="comms_msg_other")],
         [InlineKeyboardButton("📨 پیام‌های دریافتی", callback_data="comms_inbox"),
         InlineKeyboardButton("📜 بیانیات", callback_data="comms_ann_history")],
@@ -571,7 +571,7 @@ def kb_lottery_scope():
 
 def kb_identity():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🪪 تغییر نام پیشوا", callback_data="identity_pishva"),
+        [InlineKeyboardButton("🪪 تغییر نام مدیر ارشد", callback_data="identity_pishva"),
         InlineKeyboardButton("👥 تغییر نام مدیران", callback_data="identity_admin")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
