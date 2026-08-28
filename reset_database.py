@@ -47,6 +47,37 @@ TABLES = [
 ]
 
 
+async def _count(client, table):
+    try:
+        res = await client.execute(f"SELECT COUNT(*) AS c FROM {table}")
+        return res.rows[0][0]
+    except Exception as e:
+        return f"نامعلوم ({e})"
+
+
+async def _delete_table(client, table):
+    """اول یه DELETE FROM ساده امتحان می‌کنه. اگه به خاطر تعداد زیاد ردیف‌ها
+    (مثلاً جدول players که واقعاً پر از داده‌ست، برخلاف بقیه‌ی جدول‌ها که خالی
+    بودن) کلاینت Turso روی جواب سرور خطا داد، به‌جای تسلیم شدن، پاک‌کردن رو
+    دسته‌دسته (batch) انجام می‌ده تا حتماً کامل خالی بشه."""
+    try:
+        await client.execute(f"DELETE FROM {table}")
+        return True, None
+    except Exception as first_err:
+        # پاک‌کردن دسته‌ای، برای دور زدن باگ احتمالی توی پارس‌کردن جواب‌های حجیم
+        try:
+            for _ in range(500):  # سقف ایمنی؛ هر بار حداکثر ۵۰۰ ردیف
+                await client.execute(f"DELETE FROM {table} WHERE rowid IN (SELECT rowid FROM {table} LIMIT 200)")
+                remaining = await _count(client, table)
+                if remaining == 0:
+                    return True, None
+                if isinstance(remaining, str):  # نتونستیم حتی شمارش کنیم، دیگه ادامه نده
+                    break
+            return False, first_err
+        except Exception as batch_err:
+            return False, batch_err
+
+
 async def reset_all():
     url = os.getenv("TURSO_URL")
     token = os.getenv("TURSO_AUTH_TOKEN")
@@ -58,12 +89,15 @@ async def reset_all():
 
     client = create_client(url=url, auth_token=token)
 
+    failures = []
     for table in TABLES:
-        try:
-            await client.execute(f"DELETE FROM {table}")
-            print(f"✅ خالی شد: {table}")
-        except Exception as e:
-            print(f"⚠️ رد شد ({table}): {e}")
+        ok, err = await _delete_table(client, table)
+        remaining = await _count(client, table)
+        if remaining == 0:
+            print(f"✅ خالی شد: {table} (ردیف باقی‌مانده: 0)")
+        else:
+            print(f"❌ هنوز خالی نیست: {table} (ردیف باقی‌مانده: {remaining}) — خطا: {err}")
+            failures.append(table)
 
     try:
         await client.execute("DELETE FROM sqlite_sequence")
@@ -72,7 +106,11 @@ async def reset_all():
         pass
 
     await client.close()
-    print("\n🎉 دیتابیس کاملاً خالی شد. جدول‌ها و اتصال دست‌نخورده موندن.")
+
+    if failures:
+        print(f"\n⚠️ این جدول‌ها کامل خالی نشدن: {', '.join(failures)}")
+    else:
+        print("\n🎉 دیتابیس کاملاً خالی شد. جدول‌ها و اتصال دست‌نخورده موندن.")
 
 
 if __name__ == "__main__":
