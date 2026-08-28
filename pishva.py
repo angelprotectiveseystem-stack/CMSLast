@@ -4,7 +4,7 @@ from telegram.error import BadRequest
 import database as db
 import keyboards as kb
 from helpers import (box, separator, now_shamsi, broadcast_to_admins,
-    notify_pishva, pishva_display, log_line)
+    notify_pishva, pishva_display, log_line, safe_reply_text, escape_md_legacy)
 from config import (PISHVA_ID, STATUS_NORMAL, STATUS_BAD, STATUS_DANGER, STATUS_APS,
     ST_TOURNAMENT_NAME, ST_PISHVA_NAME_CHANGE, ST_ADMIN_NAME_CHANGE,
     ST_NEW_YEAR_CONFIRM, ST_NEW_YEAR_PASSWORD, ST_REPAIR_REASON,
@@ -184,14 +184,14 @@ async def pishva_requests(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         role_label = "🏆 مدیر مسابقات" if req["role"] == "tournament_manager" else "🛡️ مدیر امنیتی"
         text = (
             f"📥 *درخواست دسترسی*\n\n"
-            f"👤 نام: {req['full_name']}\n"
-            f"🔗 یوزرنیم: {req['username']}\n"
+            f"👤 نام: {escape_md_legacy(req['full_name'])}\n"
+            f"🔗 یوزرنیم: {escape_md_legacy(req['username'])}\n"
             f"💼 نقش: {role_label}\n"
-            f"📝 پیام: {req['message'] or '—'}\n"
+            f"📝 پیام: {escape_md_legacy(req['message']) if req['message'] else '—'}\n"
             f"⏱️ زمان: `{str(req['requested_at'])[:19]}`"
         )
         try:
-            await query.message.reply_text(text, reply_markup=kb.kb_access_request(req["id"]), parse_mode="Markdown")
+            await safe_reply_text(query.message, text, reply_markup=kb.kb_access_request(req["id"]))
         except Exception:
             pass
     await query.edit_message_text(

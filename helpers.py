@@ -1,6 +1,7 @@
 import jdatetime
 import pytz
 from datetime import datetime
+from telegram.error import BadRequest
 from config import BAR_LENGTH, PISHVA_ID
 import database as db
 import logging
@@ -80,13 +81,59 @@ def escape_md_legacy(text: str) -> str:
 def log_line(time_str: str, name: str, action: str) -> str:
     return f"⏱️ `{time_str}` | 👤 {escape_md_legacy(name)} ╼ {escape_md_legacy(action)} 📌"
 
+# ─── Safe Telegram senders ────────────────────────────────────
+# نکته: توی این پروژه در ده‌ها جای مختلف parse_mode="Markdown" با متن‌های
+# دینامیک (نام کاربر، توضیح گزارش، متن فیدبک و ...) استفاده شده بدون اینکه
+# escape بشن. کافیه همچین متنی یه زیرخط/ستاره/بک‌تیک فرد داشته باشه تا
+# تلگرام با خطای "Can't parse entities: can't find end of the entity" کل
+# ارسال پیام رو رد کنه — و چون خیلی از این نقطه‌ها try/except نداشتن،
+# این خطا مستقیم می‌رفت بالا و توسط global_error_handler قاپیده می‌شد
+# (دقیقاً همون خطایی که موقع دیدن گزارش‌ها/لاگ‌ها می‌گرفتی).
+# به‌جای escape کردن دستی همه‌ی اون نقطه‌ها (ریسک بالا، جای خطای زیاد)،
+# این توابع کمکی رو ساختیم: اول با Markdown امتحان می‌کنن، اگه تلگرام به
+# خاطر پارس نشدن Markdown رد کرد، خودکار بدون parse_mode دوباره می‌فرستن —
+# یعنی دیگه هیچ پیامی به خاطر یه کاراکتر خاص گم/بی‌جواب نمی‌مونه.
+def _is_entity_parse_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "can't parse entities" in msg or "can't find end of the entity" in msg
+
+async def safe_send_message(bot, chat_id, text: str, reply_markup=None, parse_mode="Markdown"):
+    """جایگزین امن bot.send_message: اگه پارس Markdown خطا بده، متن خام می‌فرسته."""
+    try:
+        return await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode, reply_markup=reply_markup)
+    except BadRequest as e:
+        if parse_mode and _is_entity_parse_error(e):
+            logger.warning(f"Markdown parse failed for chat {chat_id}, resending as plain text: {e}")
+            return await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+        raise
+
+async def safe_reply_text(message, text: str, reply_markup=None, parse_mode="Markdown"):
+    """جایگزین امن message.reply_text."""
+    try:
+        return await message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+    except BadRequest as e:
+        if parse_mode and _is_entity_parse_error(e):
+            logger.warning(f"Markdown parse failed on reply, resending as plain text: {e}")
+            return await message.reply_text(text, reply_markup=reply_markup)
+        raise
+
+async def safe_edit_message_text(query, text: str, reply_markup=None, parse_mode="Markdown"):
+    """جایگزین امن query.edit_message_text."""
+    try:
+        return await query.edit_message_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+    except BadRequest as e:
+        if parse_mode and _is_entity_parse_error(e):
+            logger.warning(f"Markdown parse failed on edit, resending as plain text: {e}")
+            return await query.edit_message_text(text, reply_markup=reply_markup)
+        raise
+
 # ─── Notification sender ─────────────────────────────────────
 async def send_notification(bot, user_id: int, text: str, reply_markup=None):
     notif_on = await db.get_setting("notifications_enabled", "1")
     if notif_on != "1":
         return
     try:
-        await bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown", reply_markup=reply_markup)
+        await safe_send_message(bot, user_id, text, reply_markup=reply_markup)
     except Exception as e:
         logger.warning(f"Failed to notify {user_id}: {e}")
 
@@ -108,13 +155,13 @@ async def broadcast_to_admins(bot, text: str, exclude_id: int = None, reply_mark
         except Exception:
             pass
         try:
-            await bot.send_message(chat_id=tid, text=text, parse_mode="Markdown", reply_markup=reply_markup)
+            await safe_send_message(bot, tid, text, reply_markup=reply_markup)
         except Exception as e:
             logger.warning(f"Broadcast failed for {tid}: {e}")
 
     if group_id:
         try:
-            await bot.send_message(chat_id=int(group_id), text=text, parse_mode="Markdown")
+            await safe_send_message(bot, int(group_id), text)
         except Exception as e:
             logger.warning(f"Group broadcast failed: {e}")
 

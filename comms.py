@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 import database as db
 import keyboards as kb
 from helpers import (box, separator, now_shamsi, broadcast_to_admins,
-    notify_pishva, pishva_display, send_notification)
+    notify_pishva, pishva_display, send_notification, safe_edit_message_text)
 from config import (PISHVA_ID, ST_SEND_MSG_SELECT_ADMIN, ST_SEND_MSG_TEXT,
     ST_ANNOUNCEMENT_TEXT, ST_ANNOUNCEMENT_FILE, ST_NEWS_TEXT)
 
@@ -326,10 +326,10 @@ async def comms_notifs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     combined += [(a["sent_at"], "📢 بیانیه", a["text"]) for a in anns[:5]]
     combined.sort(key=lambda x: x[0], reverse=True)
     lines = [f"{t} `{str(d)[:10]}`: {txt[:60]}" for d, t, txt in combined[:15]]
-    await query.edit_message_text(
+    await safe_edit_message_text(
+        query,
         f"{box('🔔 اعلانات اخیر')}\n\n" + ("\n\n".join(lines) or "❗ اعلانی وجود ندارد."),
-        reply_markup=kb.kb_back("comms"),
-        parse_mode="Markdown"
+        reply_markup=kb.kb_back("comms")
     )
 
 async def comms_reports(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -344,10 +344,10 @@ async def comms_reports(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📊 هیچ گزارشی دریافت نشده.", reply_markup=kb.kb_back("comms"))
         return
     lines = [f"🚨 {r['content'][:80]}" for r in reports[:15]]
-    await query.edit_message_text(
+    await safe_edit_message_text(
+        query,
         f"{box('📊 گزارشات')}\n\n" + "\n\n".join(lines),
-        reply_markup=kb.kb_back("comms"),
-        parse_mode="Markdown"
+        reply_markup=kb.kb_back("comms")
     )
 
 async def msg_ack(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

@@ -258,7 +258,14 @@ async def _noop_callback(update: Update, ctx) -> None:
 
 async def global_error_handler(update, context) -> None:
     """هر خطای مدیریت‌نشده‌ای که توی هر هندلری رخ بده، اینجا گیر می‌افته.
-    به‌جای اینکه فقط توی لاگ Railway گم بشه، هم به پیشوا اطلاع می‌ده هم به کاربر."""
+    به‌جای اینکه فقط توی لاگ Railway گم بشه، هم به پیشوا اطلاع می‌ده هم به کاربر.
+
+    نکته‌ی مهم: خود این هندلر نباید هیچ‌وقت بترکه. قبلاً گزارش به پیشوا با
+    parse_mode="Markdown" و بدون escape کردن نام کاربر/متن خطا فرستاده می‌شد؛
+    اگه اسم کاربر یا متن خطا یه '_' یا '`' یا '*' فرد داشت، همین ارسالِ گزارشِ
+    خطا خودش با «Can't parse entities» رد می‌شد. الان escape می‌کنیم و اگه
+    بازم Markdown رد بشه، به‌صورت متن ساده می‌فرستیم — پس هیچ‌وقت گزارش گم نمی‌شه.
+    """
     import traceback
 
     tb_string = "".join(
@@ -280,21 +287,33 @@ async def global_error_handler(update, context) -> None:
     except Exception:
         pass
 
-    # اطلاع به پیشوا: خلاصه‌ی خطا + آخرین خط تریسبک (برای اینکه پیام خیلی طولانی نشه)
+    # اطلاع به پیشوا: خلاصه‌ی خطا + آخرین فریمِ مربوط به کد خودمون (نه کتابخانه‌ی
+    # تلگرام) تا واقعاً معلوم باشه خطا توی کدوم فایل/تابع رخ داده، نه فقط اینکه
+    # کتابخانه‌ی تلگرام کجا BadRequest رو raise کرده.
     try:
-        error_summary = str(context.error)[:300]
-        last_tb_lines = "\n".join(tb_string.strip().splitlines()[-6:])
+        from helpers import escape_md_legacy, safe_send_message
+
+        error_summary = escape_md_legacy(str(context.error)[:300])
+        tb_frames = traceback.extract_tb(context.error.__traceback__)
+        app_frames = [f for f in tb_frames if "site-packages" not in f.filename and "/telegram/" not in f.filename]
+        origin = app_frames[-1] if app_frames else (tb_frames[-1] if tb_frames else None)
+        origin_line = (
+            f"📍 محل خطا: `{origin.filename.split('/')[-1]}:{origin.lineno}` در `{origin.name}`\n\n"
+            if origin else ""
+        )
+        last_tb_lines = escape_md_legacy("\n".join(tb_string.strip().splitlines()[-6:]))
         user_info = ""
         if isinstance(update, Update) and update.effective_user:
             u = update.effective_user
-            user_info = f"👤 کاربر: {u.full_name} (`{u.id}`)\n"
+            user_info = f"👤 کاربر: {escape_md_legacy(u.full_name)} (`{u.id}`)\n"
         text = (
             "🚨 *خطای مدیریت‌نشده در ربات*\n\n"
             f"{user_info}"
             f"❗️ خطا: `{error_summary}`\n\n"
+            f"{origin_line}"
             f"```\n{last_tb_lines}\n```"
         )
-        await context.bot.send_message(chat_id=PISHVA_ID, text=text, parse_mode="Markdown")
+        await safe_send_message(context.bot, PISHVA_ID, text)
     except Exception as notify_err:
         logger.error(f"Could not notify PISHVA about error: {notify_err}")
 
