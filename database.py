@@ -389,6 +389,18 @@ async def set_admin_role(telegram_id: int, new_role: str):
         await db.commit()
 
 
+async def update_admin_role_active(telegram_id: int, new_role: str):
+    """تغییر نقش یک ادمین که از قبل توی دیتابیس هست، همراه با فعال‌کردن دوباره‌ش
+    (is_active=1) — برای وقتی که کاربر با کلیدواژه‌ی «تنظیم مدیر» روی یه نفر که
+    قبلاً وجود داشته (حتی اگه اخراج/غیرفعال بوده) نقش جدید می‌ذاره."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE admins SET role=?, is_active=1 WHERE telegram_id=?",
+            (new_role, telegram_id)
+        )
+        await db.commit()
+
+
 # ─── Classes ─────────────────────────────────────────────────
 async def get_all_classes():
     async with aiosqlite.connect(DB_PATH) as db:
