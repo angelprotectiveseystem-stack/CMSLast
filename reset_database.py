@@ -5,12 +5,15 @@
 به init_db() یا هیچ ست‌آپ دیگه‌ای نیست، ربات همون‌طوری که هست بالا میاد
 ولی با دیتابیس خالی.
 
-طرز اجرا (یک‌بار، از همون جایی که TURSO_URL و TURSO_AUTH_TOKEN در دسترسه):
-    python reset_database.py
-    # ازت تایید می‌گیره، باید دقیقاً بنویسی: RESET
+این نسخه برای اجرا از طریق Railway (بدون ترمینال/CLI، فقط با تغییر موقت
+startCommand) طراحی شده — چون توی اون حالت ورودی تعاملی (input) امکان‌پذیر
+نیست. به‌جاش، برای جلوگیری از اجرای تصادفی، باید متغیر محیطی زیر رو توی
+Railway -> Variables ست کنی:
 
-اگه روی Railway اجرا می‌کنی، این متغیرها از قبل توی Environment ست شدن، پس
-کافیه از طریق Railway CLI یا یه Shell موقت این فایل رو اجرا کنی.
+    RUN_RESET = YES
+
+اگه این متغیر نباشه یا مقدارش YES نباشه، اسکریپت هیچ کاری نمی‌کنه و فقط
+خطا می‌ده.
 """
 import asyncio
 import os
@@ -46,8 +49,7 @@ TABLES = [
 
 async def reset_all():
     if not os.getenv("TURSO_URL") or not os.getenv("TURSO_AUTH_TOKEN"):
-        print("❌ TURSO_URL و TURSO_AUTH_TOKEN ست نشدن. این اسکریپت باید همون‌جایی اجرا "
-              "بشه که ربات این متغیرها رو داره (مثلاً Railway).")
+        print("❌ TURSO_URL و TURSO_AUTH_TOKEN ست نشدن.")
         sys.exit(1)
 
     async with aiosqlite.connect("") as db:
@@ -58,12 +60,11 @@ async def reset_all():
             except Exception as e:
                 print(f"⚠️ رد شد ({table}): {e}")
 
-        # ریست کردن شمارنده‌ی AUTOINCREMENT (اگه جدول sqlite_sequence وجود داشته باشه)
         try:
             await db.execute("DELETE FROM sqlite_sequence")
             print("✅ شمارنده‌های autoincrement ریست شدن.")
         except Exception:
-            pass  # ممکنه اصلاً این جدول وجود نداشته باشه، مشکلی نیست
+            pass
 
         await db.commit()
 
@@ -71,10 +72,10 @@ async def reset_all():
 
 
 if __name__ == "__main__":
-    print("⚠️  این کار همه‌ی داده‌های دیتابیس (ادمین‌ها، بازیکنان، مسابقات، لاگ‌ها، همه‌چیز) رو "
-          "برای همیشه پاک می‌کنه. این عمل قابل بازگشت نیست.")
-    confirm = input("برای تایید، دقیقاً بنویس RESET و اینتر بزن: ")
-    if confirm.strip() != "RESET":
-        print("لغو شد.")
-        sys.exit(0)
+    confirmed = os.getenv("RUN_RESET", "") == "YES" or (len(sys.argv) > 1 and sys.argv[1] == "--confirm")
+    if not confirmed:
+        print("⚠️  برای اجرای واقعی، متغیر محیطی RUN_RESET=YES رو ست کن (یا --confirm بده).")
+        print("این کار همه‌ی داده‌های دیتابیس رو برای همیشه پاک می‌کنه — قابل بازگشت نیست.")
+        sys.exit(1)
     asyncio.run(reset_all())
+
