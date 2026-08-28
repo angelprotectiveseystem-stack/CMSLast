@@ -63,6 +63,24 @@ DEACTIVATE_WORDS = {"خروج از دستیار", "بستن دستیار", "بس
 
 AI_OFFLINE_MESSAGE = "💤 هوش مصنوعی فعلا در دسترس نیست."
 
+# ────────────────────────────────────────────────────────────────
+# اگه پیام کاربر شامل یکی از این کلمه‌ها باشه، یعنی احتمالاً یه کار
+# اجرایی می‌خواد (نه صرفاً درددل/سوال). توی این حالت به‌جای اینکه فقط
+# امیدوار باشیم مدل خودش تصمیم درست بگیره، با toolConfig مجبورش می‌کنیم
+# حتماً یکی از تابع‌های مجازش رو صدا بزنه (mode="ANY") — این همون چیزیه
+# که باعث می‌شد قبلاً باید ۱۰-۲۰ بار تکرار می‌کردی تا مدل بالاخره اقدام کنه.
+# ────────────────────────────────────────────────────────────────
+ACTION_KEYWORDS = [
+    "ثبت", "حذف", "پاک کن", "اخطار", "اخراج", "برگردون", "بازگردان", "برگردان",
+    "شروع", "پایان", "تموم کن", "تمومش کن", "ارسال", "بفرست", "بیانیه", "خبر",
+    "مسدود", "بلاک", "آنبلاک", "غیرفعال", "فعال کن", "تغییر نقش", "تغییر بده",
+    "نتیجه", "اصلاح کن", "باز کن", "روشن کن", "خاموش کن", "اجرا کن",
+]
+
+
+def _looks_like_action(text: str) -> bool:
+    return any(kw in text for kw in ACTION_KEYWORDS)
+
 
 def kb_ai_reply():
     """زیر هر پیام دستیار، همیشه دکمه‌ی خروج و چت جدید/تاریخچه باشد."""
@@ -156,7 +174,7 @@ def _thinking_config_for(model: str) -> dict:
     return {"thinkingBudget": 512}
 
 
-async def _call_gemini(contents: list, tools):
+async def _call_gemini(contents: list, tools, tool_config=None):
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
 
     last_error = None
@@ -176,6 +194,8 @@ async def _call_gemini(contents: list, tools):
             }
             if tools:
                 payload["tools"] = tools
+                if tool_config:
+                    payload["toolConfig"] = tool_config
             for attempt in range(RETRIES_PER_MODEL):
                 try:
                     resp = await client.post(url, headers=headers, json=payload)
@@ -306,11 +326,17 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     tools = _tools_for_role(role)
 
+    # فقط دور اول رو مجبور می‌کنیم حتماً یه تابع صدا بزنه (اگه پیام بوی «اقدام» بده)؛
+    # از دور دوم به بعد اجازه می‌دیم آزاد باشه، وگرنه ممکنه بین صدازدن تابع‌ها گیر کنه.
+    force_action = bool(tools) and _looks_like_action(text)
+    executed_actions = []  # برای گزارش سیستم زیر پیام نهایی
+
     await update.message.chat.send_action("typing")
 
     try:
         for _hop in range(MAX_TOOL_HOPS):
-            data = await _call_gemini(contents, tools)
+            tool_config = {"functionCallingConfig": {"mode": "ANY"}} if (force_action and _hop == 0) else None
+            data = await _call_gemini(contents, tools, tool_config)
             parts = _extract_parts(data)
             if not parts:
                 await update.message.reply_text("⚠️ پاسخی از مدل دریافت نشد، دوباره امتحان کن.")
@@ -323,6 +349,8 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 fargs = fn_call.get("args", {})
                 result_text = await ai_tools.dispatch(fname, fargs, uid, role, ctx)
                 await db.ai_add_message(session_id, "tool", f"🔧 {fname}({fargs}) → {result_text}")
+                if fname in ai_tools.ACTION_TOOL_NAMES:
+                    executed_actions.append((fname, fargs, result_text))
 
                 # نکته‌ی مهم: باید همون «parts»ی که خود مدل برگردونده رو عیناً پس بفرستیم،
                 # نه اینکه فقط functionCall رو دستی بازسازی کنیم. مدل‌های نسل ۳ جمینای یه
@@ -337,6 +365,10 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
             # پاسخ متنی نهایی
             reply_text = "".join(p.get("text", "") for p in parts).strip() or "باشه."
+            if executed_actions:
+                # گزارش سیستم — تأیید صریح که واقعاً چه اقدامی انجام شد، مستقل از لحن مدل.
+                report_lines = [f"— {fn}: {res}" for fn, _fargs, res in executed_actions]
+                reply_text += "\n\n📋 گزارش سیستم:\n" + "\n".join(report_lines)
             history.append({"role": "model", "parts": [{"text": reply_text}]})
             ctx.user_data["ai_history"] = history[-(MAX_HISTORY_TURNS * 2):]
             await db.ai_add_message(session_id, "ai", reply_text)
@@ -346,8 +378,11 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(reply_text, reply_markup=_merge_pending_buttons(ctx))
             return
 
-        await update.message.reply_text("⚠️ این درخواست خیلی پیچیده شد؛ لطفاً واضح‌تر یا مرحله‌به‌مرحله بگو.",
-                                         reply_markup=_merge_pending_buttons(ctx))
+        fallback = "⚠️ این درخواست خیلی پیچیده شد؛ لطفاً واضح‌تر یا مرحله‌به‌مرحله بگو."
+        if executed_actions:
+            report_lines = [f"— {fn}: {res}" for fn, _fargs, res in executed_actions]
+            fallback += "\n\n📋 گزارش سیستم (کارهایی که تا اینجا واقعاً انجام شد):\n" + "\n".join(report_lines)
+        await update.message.reply_text(fallback, reply_markup=_merge_pending_buttons(ctx))
 
     except httpx.HTTPStatusError as e:
         body = e.response.text[:500]

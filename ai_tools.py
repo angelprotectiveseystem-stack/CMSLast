@@ -30,6 +30,22 @@ logger = logging.getLogger(__name__)
 ALL_ROLES = [ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER]
 
 # ────────────────────────────────────────────────────────────────
+# تابع‌هایی که واقعاً چیزی رو در سیستم تغییر می‌دن (نه فقط گزارش/جست‌وجو).
+# بعد از اجرای هرکدوم از این‌ها، ai_assistant.py زیر پیام یه «گزارش سیستم»
+# جدا نشون می‌ده که دقیقاً چه تابعی با چه ورودی اجرا شد — تا هم معلوم بشه
+# واقعاً انجام شده، هم اگه مشکلی بود سریع معلوم بشه کجاست.
+# ────────────────────────────────────────────────────────────────
+ACTION_TOOL_NAMES = frozenset({
+    "start_workhours", "end_workhours",
+    "register_player", "warn_player", "kick_player", "revive_player",
+    "create_tournament", "record_match", "edit_match_result", "delete_match",
+    "send_announcement", "send_news",
+    "warn_admin", "clear_admin_warnings", "set_admin_role",
+    "block_user", "unblock_user",
+    "set_system_status", "toggle_ai_online", "toggle_admin_ai_access", "toggle_bot_setting",
+})
+
+# ────────────────────────────────────────────────────────────────
 # ماتریس دسترسی — کلید = اسم تابع، مقدار = لیست نقش‌های مجاز
 # ────────────────────────────────────────────────────────────────
 TOOL_PERMISSIONS = {
