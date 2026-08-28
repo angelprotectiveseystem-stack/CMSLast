@@ -5,7 +5,7 @@ from telegram.ext import ApplicationHandlerStop
 import database as db
 import keyboards as kb
 from helpers import safe_edit_message_text, box
-from config import PISHVA_ID
+from config import PISHVA_ID, STATUS_APS
 
 
 BLOCK_MESSAGE = (
@@ -20,6 +20,23 @@ QUEUE_MESSAGE = (
     "تا اطلاع ثانویه امکان ارسال درخواست جدید برای شما وجود ندارد. لطفاً صبور باشید."
 )
 
+# ─── پیام دروازه‌ی «وضعیت امنیتی APS» ─────────────────────────
+# وقتی وضعیت سیستم روی APS باشد، برای هیچ ادمینی (به‌جز مدیر ارشد)
+# نه پنل باز می‌شود، نه دستور کلمه‌ای اجرا می‌شود، و نه هیچ دکمه‌ای
+# از پنلی که از قبل باز بوده کار می‌کند.
+APS_GATE_MESSAGE = (
+    "🪽 *وضعیت امنیتی APS فعال است*\n\n"
+    "در حال حاضر کنترل امنیتی ربات به‌طور کامل به سیستم APS واگذار شده و\n"
+    "دسترسی شما — از جمله باز کردن پنل، دستورات کلمه‌ای و دکمه‌های پنل —\n"
+    "موقتاً و به‌طور کامل قطع شده است.\n\n"
+    "لطفاً تا پایان این وضعیت توسط مدیر ارشد شکیبا باشید."
+)
+
+APS_GATE_ALERT = (
+    "🪽 وضعیت امنیتی APS فعال است؛ دسترسی شما به همه‌ی دکمه‌های پنل "
+    "موقتاً قطع شده است."
+)
+
 
 # ─── دروازه‌ی امنیتی (روی هر آپدیت اجرا می‌شود) ────────────────
 async def block_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -29,15 +46,73 @@ async def block_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if user is None:
         return
     blocked = await db.get_blocked_user(user.id)
-    if not blocked:
+    if blocked:
+        try:
+            if update.callback_query:
+                await update.callback_query.answer(
+                    "🚫 دسترسی شما توسط واحد امنیتی APS محدود شده است.", show_alert=True
+                )
+            if update.effective_message:
+                await update.effective_message.reply_text(BLOCK_MESSAGE, parse_mode="Markdown")
+        except Exception:
+            pass
+        raise ApplicationHandlerStop()
+
+    # کاربر بلاک نیست؛ حالا دروازه‌ی وضعیت امنیتی APS را بررسی می‌کنیم.
+    await aps_gate(update, ctx, user)
+
+
+# ─── دروازه‌ی «وضعیت امنیتی APS» ──────────────────────────────
+async def aps_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user=None):
+    """وقتی system_status روی APS باشد:
+    - هیچ دکمه‌ی پنلی برای هیچ ادمینی (چه پنل از قبل باز بوده چه نه) کار نمی‌کند؛
+      روی هر تپ، همان دکمه با یک پیام هشدار وضعیت را توضیح می‌دهد.
+    - اگر ادمین دستور /start بزند، پنل باز نمی‌شود و به‌جایش پیام وضعیت داده می‌شود.
+    - اگر ادمین از دستورات کلمه‌ای (مثل «پنل»، «داشبورد»، «امنیت» و ...) استفاده کند،
+      باز هم به‌جای اجرای دستور، پیام وضعیت داده می‌شود.
+    مدیر ارشد از این محدودیت مستثناست، چون خودش کنترل‌کنندهٔ وضعیت APS است."""
+    if user is None:
+        user = update.effective_user
+    if user is None or user.id == PISHVA_ID:
         return
+
+    status = await db.get_setting("system_status", "normal")
+    if status != STATUS_APS:
+        return
+
+    admin = await db.get_admin(user.id)
+    if not (admin and admin["is_active"]):
+        return  # این دروازه فقط برای ادمین‌های فعال است
+
+    # ─── دکمه‌های پنل (بدون استثنا) ───
+    if update.callback_query:
+        try:
+            await update.callback_query.answer(APS_GATE_ALERT, show_alert=True)
+        except Exception:
+            pass
+        raise ApplicationHandlerStop()
+
+    # ─── پیام‌های متنی: فقط /start و دستورات کلمه‌ای را می‌گیریم ───
+    message = update.effective_message
+    if message is None or not message.text:
+        return
+
+    text = message.text.strip()
+    is_start_cmd = text.startswith("/start")
+
+    is_keyword_cmd = False
+    if not is_start_cmd:
+        try:
+            from keyword_commands import SIMPLE_KEYWORDS, ADMIN_KEYWORDS
+            is_keyword_cmd = text in SIMPLE_KEYWORDS or text in ADMIN_KEYWORDS
+        except Exception:
+            is_keyword_cmd = False
+
+    if not (is_start_cmd or is_keyword_cmd):
+        return
+
     try:
-        if update.callback_query:
-            await update.callback_query.answer(
-                "🚫 دسترسی شما توسط واحد امنیتی APS محدود شده است.", show_alert=True
-            )
-        if update.effective_message:
-            await update.effective_message.reply_text(BLOCK_MESSAGE, parse_mode="Markdown")
+        await message.reply_text(APS_GATE_MESSAGE, parse_mode="Markdown")
     except Exception:
         pass
     raise ApplicationHandlerStop()
