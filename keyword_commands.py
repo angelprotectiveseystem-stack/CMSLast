@@ -152,28 +152,6 @@ async def register_panel_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE, m
 
 
 # ─── پرسیدن محل باز شدن پنل (گروه vs پیوی) ──────────────────
-async def go_to_main_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int, is_pishva: bool, admin):
-    """
-    اکشن «پنل»/«شروع» (بازگشت به پنل اصلی) — به‌صورت تابع مستقل جدا شده
-    تا هم از handle_keyword_command و هم مستقیماً از دکمه‌ی 🔙 بازگشت
-    (در reply_menu.py) صدا زده بشه، بدون نیاز به دستکاری متن پیام.
-    همیشه در پایان ApplicationHandlerStop رو raise می‌کنه.
-    """
-    from telegram.ext import ApplicationHandlerStop
-    chat = update.effective_chat
-    if chat and chat.type in ("group", "supergroup"):
-        await ask_panel_location(update, ctx, "restart")
-    else:
-        from auth import show_pishva_welcome, show_admin_welcome
-        if is_pishva:
-            sent = await show_pishva_welcome(update, ctx)
-        else:
-            sent = await show_admin_welcome(update, ctx, admin)
-        if sent is not None and hasattr(sent, "message_id"):
-            await register_panel_owner(update, ctx, sent.message_id)
-    raise ApplicationHandlerStop()
-
-
 async def ask_panel_location(update: Update, ctx: ContextTypes.DEFAULT_TYPE, action: str):
     """
     وقتی در گروه keyword زده می‌شه، اول می‌پرسه:
@@ -347,27 +325,6 @@ async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """
-    Wrapper نازک دور _handle_keyword_command_impl: کار اصلی رو به همون
-    تابع می‌سپاره، ولی بعدش (چه با موفقیت تموم بشه چه با
-    ApplicationHandlerStop) وضعیت کیبورد پایین چت رو با بخشی که کاربر
-    واردش شده هماهنگ می‌کنه — «پنل»/«شروع» یعنی برگشتن به ریشه، هر
-    کلمه‌ی کلیدی دیگه یعنی ورود به یه بخش.
-    """
-    if not update.message or not update.message.text:
-        return
-    text = update.message.text.strip()
-    action = SIMPLE_KEYWORDS.get(text)
-    is_nav_keyword = action is not None or text in ADMIN_KEYWORDS
-    try:
-        await _handle_keyword_command_impl(update, ctx)
-    finally:
-        if is_nav_keyword:
-            from reply_menu import sync_section_keyboard
-            await sync_section_keyboard(update, ctx, entering_section=(action != "restart"))
-
-
-async def _handle_keyword_command_impl(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     from telegram.ext import ApplicationHandlerStop
     if not update.message or not update.message.text:
         return
@@ -769,8 +726,18 @@ async def _handle_keyword_command_impl(update: Update, ctx: ContextTypes.DEFAULT
 
     # ─── شروع (فقط برای کاربران قبلاً ثبت‌شده — بدون فلوی ثبت‌نام) ───
     if action == "restart":
-        await go_to_main_panel(update, ctx, uid, is_pishva, admin)
-        # go_to_main_panel خودش ApplicationHandlerStop رو raise می‌کنه
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "restart")
+        else:
+            from auth import show_pishva_welcome, show_admin_welcome
+            if is_pishva:
+                sent = await show_pishva_welcome(update, ctx)
+            else:
+                sent = await show_admin_welcome(update, ctx, admin)
+            if sent is not None and hasattr(sent, "message_id"):
+                await register_panel_owner(update, ctx, sent.message_id)
+        raise ApplicationHandlerStop()
 
     # ─── تنظیم/حذف مدیر (فقط مدیر ارشد، با ریپلای) ───
     if text in ADMIN_KEYWORDS:

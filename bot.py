@@ -969,20 +969,6 @@ def build_application():
     app.add_handler(CallbackQueryHandler(teams_settings, pattern="^teams_settings$"))
 
     # ══════════════════════════════════════════
-    # منوی ثابت پایین چت (Reply Keyboard) — قبل از کلمات کلیدی اجرا می‌شود.
-    # در گروه جدای -3 ثبت می‌شود (نه همون -2 کلمات کلیدی) چون PTB در هر
-    # گروه فقط اولین هندلری که فیلترش match کنه رو اجرا می‌کنه و به سراغ
-    # هندلر بعدیِ همون گروه نمی‌ره؛ این هندلر با raise کردن
-    # ApplicationHandlerStop فقط وقتی پیام واقعاً دکمه‌ی منو باشه جلوی
-    # بقیه‌ی هندلرها رو می‌گیره، وگرنه بی‌صدا برمی‌گرده و پردازش ادامه پیدا می‌کنه.
-    # ══════════════════════════════════════════
-    from reply_menu import handle_reply_menu_button
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reply_menu_button),
-        group=-3
-    )
-
-    # ══════════════════════════════════════════
     # کلمات کلیدی — قبل از ConversationHandlerها اجرا می‌شود
     # ══════════════════════════════════════════
     app.add_handler(
@@ -1014,16 +1000,6 @@ def build_application():
     # تا فقط برای back_... هایی اجرا بشه که هندلر اختصاصی‌شون بالاتر
     # پیدا نشده (اولویت با هندلرهای اختصاصی‌ست).
     app.add_handler(CallbackQueryHandler(universal_back_router, pattern="^back_"))
-
-    # ══════════════════════════════════════════
-    # هماهنگ‌کننده‌ی کیبورد پایین چت (فقط دکمه‌ی 🔙 بازگشت)
-    # عمداً در یه group کاملاً جدا (بعد از همه‌چی) ثبت می‌شه: فقط
-    # callback_data رو می‌خونه، هیچ query.answer یا پردازشی انجام
-    # نمی‌ده و پردازش رو هم متوقف نمی‌کنه — پس ترتیب/رفتار هیچ هندلر
-    # دیگه‌ای رو عوض نمی‌کنه.
-    # ══════════════════════════════════════════
-    from reply_menu import sync_reply_keyboard_on_callback
-    app.add_handler(CallbackQueryHandler(sync_reply_keyboard_on_callback, pattern=".*"), group=2)
 
     return app
 
