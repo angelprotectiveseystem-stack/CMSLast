@@ -15,14 +15,16 @@
     حالتی باشه (دستیار هوشمند، فرم نیمه‌کاره‌ی یه ConversationHandler
     و ...) — همیشه کاربر رو به پنل اصلی برمی‌گردونه.
 
-تلگرام راهی برای عوض کردن کیبورد ثابت بدون فرستادن یه پیام جدید نداره؛
-برای همین از یه ترفند ساده استفاده می‌کنیم: یه پیام کوتاه با کیبورد
-جدید می‌فرستیم و بلافاصله پاکش می‌کنیم. حذف پیام، کیبورد رو برنمی‌گردونه
-— یعنی کاربر هیچ دکمه‌ی اضافه‌ای توی خودِ این بخش نمی‌بینه، فقط همون
-مربع کوچیک کنار بخش نوشتن عوض می‌شه.
+محدودیت فنی تلگرام: تنها راه عوض کردن کیبورد ثابت، فرستادن یه پیامِ
+sendMessage جدیده (ویرایش پیام یا answerCallbackQuery این کارو نمی‌کنن).
+برای این‌که این پیام کاملاً بی‌سروصدا باشه:
+  • متنش یه کاراکتر نامرئی (zero-width space) است، نه یه جمله.
+  • پاک هم نمی‌شه — چون تست شد که پاک کردن پیامی که کیبورد رو ست کرده،
+    روی بعضی کلاینت‌های تلگرام خودِ کیبورد رو هم می‌بره.
+  • فقط سرِ تغییر واقعی وضعیت (ورود به بخش / بازگشت به ریشه) فرستاده
+    می‌شه، نه هر بار — پس اسپم نمی‌شه.
 
-وضعیت فعلی («root» یا «section») توی ctx.user_data ذخیره می‌شه تا این
-پیام مخفی فقط وقتی واقعاً وضعیت عوض شده فرستاده بشه، نه هر بار.
+وضعیت فعلی («root» یا «section») توی ctx.user_data ذخیره می‌شه.
 """
 
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
@@ -34,6 +36,9 @@ from config import PISHVA_ID
 BTN_BACK = "🔙 بازگشت"
 
 _KB_STATE_KEY = "_kb_state"  # "root" یا "section"
+
+# کاراکتر نامرئی — پیام باید حداقل یک کاراکتر داشته باشه، ولی چیزی دیده نمی‌شه
+_INVISIBLE = "\u2063"
 
 
 def back_only_keyboard() -> ReplyKeyboardMarkup:
@@ -55,19 +60,13 @@ async def _is_allowed(update: Update) -> bool:
     return bool(admin and admin["is_active"])
 
 
-async def _flash_keyboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE, markup, text: str):
-    """
-    یه پیام کوتاه فقط برای تغییر کیبورد پایین چت می‌فرسته.
-    توجه: این پیام دیگه پاک نمی‌شه — چون تلگرام (حداقل روی بعضی
-    کلاینت‌ها) با پاک شدن پیامی که کیبورد رو ست کرده، خودِ کیبورد رو
-    هم برمی‌گردونه/مخفی می‌کنه. برای همین پیام باقی می‌مونه، ولی چون
-    فقط سرِ تغییر وضعیت (نه هر بار) فرستاده می‌شه، اسپم نمی‌شه.
-    """
+async def _flash_keyboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE, markup):
+    """پیامی کاملاً بی‌متن (نامرئی) فقط برای تغییر کیبورد پایین چت می‌فرسته."""
     chat = update.effective_chat
     if not chat:
         return
     try:
-        await ctx.bot.send_message(chat_id=chat.id, text=text, reply_markup=markup)
+        await ctx.bot.send_message(chat_id=chat.id, text=_INVISIBLE, reply_markup=markup)
     except Exception:
         pass
 
@@ -83,10 +82,8 @@ async def sync_section_keyboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
     if ctx.user_data.get(_KB_STATE_KEY) == target:
         return
     ctx.user_data[_KB_STATE_KEY] = target
-    if entering_section:
-        await _flash_keyboard(update, ctx, back_only_keyboard(), "🔙 برای بازگشت، از دکمه‌ی پایین استفاده کن.")
-    else:
-        await _flash_keyboard(update, ctx, ReplyKeyboardRemove(), "🏠 برگشتی به پنل اصلی.")
+    markup = back_only_keyboard() if entering_section else ReplyKeyboardRemove()
+    await _flash_keyboard(update, ctx, markup)
 
 
 async def reset_to_root_keyboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -120,17 +117,23 @@ async def handle_reply_menu_button(update: Update, ctx: ContextTypes.DEFAULT_TYP
     if update.message.text.strip() != BTN_BACK:
         return  # این پیام مال منوی ما نیست؛ بذار بقیه‌ی هندلرها پردازشش کنن
 
-    if not await _is_allowed(update):
+    uid = update.effective_user.id if update.effective_user else None
+    if not uid:
         return
+    is_pishva = (uid == PISHVA_ID)
+    admin = None
+    if not is_pishva:
+        admin = await db.get_admin(uid)
+        if not admin or not admin["is_active"]:
+            return
 
     # فارغ از این‌که کاربر وسط چه حالتی بود (دستیار هوشمند و ...) پاکش کن
     ctx.user_data.pop("ai_mode", None)
     ctx.user_data.pop("ai_history", None)
     ctx.user_data.pop("ai_session_id", None)
 
-    from keyword_commands import handle_keyword_command
-    update.message.text = "پنل"
+    from keyword_commands import go_to_main_panel
     try:
-        await handle_keyword_command(update, ctx)
+        await go_to_main_panel(update, ctx, uid, is_pishva, admin)
     finally:
         await sync_section_keyboard(update, ctx, entering_section=False)
