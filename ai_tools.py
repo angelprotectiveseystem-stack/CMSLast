@@ -22,6 +22,7 @@ import logging
 import database as db
 import workhours
 import comms
+import ai_scheduler
 from helpers import broadcast_to_admins, now_shamsi, notify_pishva
 from config import ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
 
@@ -63,6 +64,28 @@ ACTION_TOOL_NAMES = frozenset({
     "block_user", "unblock_user",
     "set_system_status", "toggle_ai_online", "toggle_admin_ai_access", "toggle_bot_setting",
 })
+
+# ────────────────────────────────────────────────────────────────
+# ابزارهایی که می‌شه با schedule_action برای یه لحظه‌ی آینده موکولشون کرد.
+# عمداً همه‌ی TOOL_DECLARATIONS نیستن: خود ابزارهای زمان‌بندی (پایین) و
+# open_panel (که بی‌کانتکست معنی نداره) از این لیست بیرونن.
+# ────────────────────────────────────────────────────────────────
+SCHEDULABLE_TOOL_NAMES = frozenset({
+    "start_workhours", "end_workhours",
+    "register_player", "search_player", "warn_player", "kick_player", "revive_player",
+    "create_tournament", "list_tournaments", "record_match", "edit_match_result",
+    "delete_match", "recent_matches",
+    "quick_stats", "system_status",
+    "send_announcement", "send_news",
+    "list_admins", "warn_admin", "clear_admin_warnings", "set_admin_role",
+    "block_user", "unblock_user",
+    "get_admin_profile", "set_system_status",
+    "toggle_ai_online", "toggle_admin_ai_access", "toggle_bot_setting",
+})
+
+# این دو تا هم چون یه اقدام واقعی (زمان‌بندی/لغو یه رویداد آینده) رو در سیستم
+# ثبت می‌کنن، جزو ACTION_TOOL_NAMES حساب می‌شن تا مدیر ارشد ازش باخبر بشه.
+ACTION_TOOL_NAMES = ACTION_TOOL_NAMES | frozenset({"schedule_action", "cancel_scheduled"})
 
 # ────────────────────────────────────────────────────────────────
 # ماتریس دسترسی — کلید = اسم تابع، مقدار = لیست نقش‌های مجاز
@@ -116,6 +139,15 @@ TOOL_PERMISSIONS = {
     "toggle_ai_online":    [ROLE_PISHVA],
     "toggle_admin_ai_access": [ROLE_PISHVA],
     "toggle_bot_setting":  [ROLE_PISHVA],
+
+    # ── یادآور و اقدام‌های زمان‌بندی‌شده — همه‌ی نقش‌ها می‌تونن استفاده کنن؛
+    # دسترسی به خودِ عملیاتِ زمان‌بندی‌شده (schedule_action) دوباره سر لحظه‌ی
+    # اجرا با همین TOOL_PERMISSIONS چک می‌شه، پس نقش نمی‌تونه با تاخیرانداختن
+    # کاری که الان اجازه‌ش رو نداره دور بزنه ──
+    "set_reminder":        ALL_ROLES,
+    "schedule_action":     ALL_ROLES,
+    "list_scheduled":      ALL_ROLES,
+    "cancel_scheduled":    ALL_ROLES,
 }
 
 # ────────────────────────────────────────────────────────────────
@@ -442,6 +474,64 @@ TOOL_DECLARATIONS = [
                 "value": {"type": "boolean"},
             },
             "required": ["key", "value"],
+        },
+    },
+    {
+        "name": "set_reminder",
+        "description": (
+            "یه یادآور متنی ساده برای خود همین کاربر تنظیم می‌کنه که سر یه لحظه‌ی مشخص "
+            "(دقیقاً، بدون کوچک‌ترین انحراف) براش پیام بفرستی. برای درخواست‌هایی مثل "
+            "«۱۵ دقیقه دیگه یادم بنداز بیام تو ربات» یا «فردا ساعت ۳ ظهر یادم بنداز فلان کار رو بکنم» "
+            "از این استفاده کن. برای مدت نسبی (X دقیقه/ساعت/روز دیگه) از in_minutes استفاده کن "
+            "(ساعت×۶۰ یا روز×۱۴۴۰ رو خودت حساب کن). برای زمان مطلق (فردا/پس‌فردا/تاریخ خاص + ساعت خاص) "
+            "از at_datetime استفاده کن — با توجه دقیق به لحظه‌ی الان که در پرامپت سیستمی داری محاسبه‌ش کن."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "متن دقیق یادآوری (چیزی که باید بهش یادآوری بشه)"},
+                "in_minutes": {"type": "integer", "description": "بعد از چند دقیقه (برای زمان نسبی)"},
+                "at_datetime": {"type": "string", "description": "لحظه‌ی مطلق به فرمت 'YYYY-MM-DD HH:MM' میلادی، به‌وقت تهران (برای زمان مطلق)"},
+            },
+            "required": ["message"],
+        },
+    },
+    {
+        "name": "schedule_action",
+        "description": (
+            "اجرای یکی دیگه از ابزارهای دستیار (مثلاً start_workhours، end_workhours، "
+            "set_system_status، send_announcement و مانند آن) رو به یه لحظه‌ی مشخص در آینده "
+            "موکول می‌کنه، و سر همون لحظه دقیقاً (بدون کوچک‌ترین انحراف) اجراش می‌کنه. "
+            "برای درخواست‌هایی مثل «فردا ساعت ۳ ظهر حالت امنیتی رو فعال کن»، "
+            "«فردا ساعت ۳ ساعت کاری رو باز کن»، یا «چند روز دیگه بهم بگو وضعیت ربات چطوره» "
+            "(با tool_name='system_status') از این استفاده کن — نه از اجرای مستقیم همون تابع. "
+            "دسترسی نقش کاربر به همون تابع، سر لحظه‌ی اجرا هم دوباره چک می‌شه؛ اگه اجازه نداره، "
+            "نباید ازش برای این کاربر زمان‌بندی کنی."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tool_name": {"type": "string", "description": "اسم دقیق تابعی که باید بعداً اجرا بشه (مثل start_workhours یا set_system_status)"},
+                "tool_args": {"type": "object", "description": "همون پارامترهایی که اون تابع لازم داره، دقیقاً مثل وقتی خودش رو مستقیم صدا می‌زنی (اگه نیازی به پارامتر نداره، خالی بذار)"},
+                "in_minutes": {"type": "integer", "description": "بعد از چند دقیقه اجرا بشه (برای زمان نسبی)"},
+                "at_datetime": {"type": "string", "description": "لحظه‌ی مطلق اجرا، به فرمت 'YYYY-MM-DD HH:MM' میلادی، به‌وقت تهران"},
+                "description": {"type": "string", "description": "توضیح کوتاه فارسی از این اقدام، برای نمایش در لیست و گزارش‌ها"},
+            },
+            "required": ["tool_name"],
+        },
+    },
+    {
+        "name": "list_scheduled",
+        "description": "نمایش لیست یادآورها و اقدام‌های زمان‌بندی‌شده‌ای که هنوز اجرا نشدن (برای مدیر ارشد همه رو نشون می‌ده، برای بقیه فقط مال خودشون).",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cancel_scheduled",
+        "description": "لغو یه یادآور یا اقدام زمان‌بندی‌شده با شناسه‌ش (شناسه رو از list_scheduled بگیر).",
+        "parameters": {
+            "type": "object",
+            "properties": {"job_id": {"type": "integer", "description": "شناسه‌ی عددی رویداد (# جلوی هر ردیف در list_scheduled)"}},
+            "required": ["job_id"],
         },
     },
 ]
@@ -773,6 +863,52 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             await db.set_setting(key, "1" if value else "0")
             await db.log_action(caller_id, "toggle_setting", f"{key} -> {value} (دستیار هوشمند)")
             return f"✅ «{key}» {'فعال' if value else 'غیرفعال'} شد."
+
+        # ── یادآور ساده ──
+        elif name == "set_reminder":
+            message = (args.get("message") or "").strip()
+            if not message:
+                return "❌ متن یادآوری نمی‌تونه خالی باشه."
+            target, err = ai_scheduler.resolve_target(args)
+            if err:
+                return f"❌ {err}"
+            job_id = await ai_scheduler.create_reminder(ctx.job_queue, caller_id, caller_role, target, message)
+            when = ai_scheduler.format_moment(target)
+            return f"✅ یادآور #{job_id} ثبت شد؛ سر «{when}» بهت پیام می‌دم: «{message}»"
+
+        # ── زمان‌بندی یه اقدام دیگه ──
+        elif name == "schedule_action":
+            target_tool = (args.get("tool_name") or "").strip()
+            if target_tool not in SCHEDULABLE_TOOL_NAMES:
+                return f"❌ «{target_tool}» قابل زمان‌بندی نیست (یا اسم تابع اشتباهه)."
+            allowed = TOOL_PERMISSIONS.get(target_tool)
+            if allowed is None or caller_role not in allowed:
+                return f"⛔ نقش شما اجازه‌ی اجرای «{target_tool}» رو ندارد، پس نمی‌تونه براش زمان‌بندی بشه."
+            target, err = ai_scheduler.resolve_target(args)
+            if err:
+                return f"❌ {err}"
+            tool_args = args.get("tool_args") or {}
+            description = (args.get("description") or "").strip() or target_tool
+            job_id = await ai_scheduler.create_action(
+                ctx.job_queue, caller_id, caller_role, target, target_tool, tool_args, description
+            )
+            when = ai_scheduler.format_moment(target)
+            return f"✅ اقدام #{job_id} («{description}») برای «{when}» زمان‌بندی شد؛ دقیقاً سر همون لحظه اجرا می‌شه."
+
+        # ── لیست یادآورها/اقدام‌های در انتظار ──
+        elif name == "list_scheduled":
+            is_pishva = caller_role == ROLE_PISHVA
+            return await ai_scheduler.render_pending_list(caller_id, caller_role, is_pishva)
+
+        # ── لغو یه یادآور/اقدام ──
+        elif name == "cancel_scheduled":
+            job_id = args.get("job_id")
+            try:
+                job_id = int(job_id)
+            except (TypeError, ValueError):
+                return "❌ job_id باید یه عدد باشه (از list_scheduled بگیرش)."
+            is_pishva = caller_role == ROLE_PISHVA
+            return await ai_scheduler.cancel(ctx.job_queue, job_id, caller_id, is_pishva)
 
         return f"❌ تابع «{name}» تعریف نشده."
 

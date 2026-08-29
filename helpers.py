@@ -24,6 +24,35 @@ def today_shamsi() -> str:
 def today_gregorian() -> str:
     return datetime.now(TEHRAN_TZ).strftime("%Y-%m-%d")
 
+_WEEKDAY_FA = {
+    5: "شنبه", 6: "یکشنبه", 0: "دوشنبه", 1: "سه‌شنبه",
+    2: "چهارشنبه", 3: "پنجشنبه", 4: "جمعه",
+}
+
+def weekday_fa(dt: datetime = None) -> str:
+    """اسم روز هفته به فارسی (شنبه تا جمعه)، بر اساس دیتتایم تهران."""
+    dt = dt or datetime.now(TEHRAN_TZ)
+    return _WEEKDAY_FA[dt.weekday()]
+
+def now_context_for_ai() -> str:
+    """
+    یه بلوک آماده برای تزریق به پرامپت سیستمی دستیار هوشمند: لحظه‌ی دقیق
+    الان (میلادی و شمسی + روز هفته) به‌وقت تهران. هر بار که صدا زده بشه
+    تازه محاسبه می‌شه — یعنی دستیار همیشه، حتی وسط یه گفت‌وگوی طولانی،
+    به لحظه‌ی واقعیِ همین الان دسترسی داره، نه یه زمان قدیمی/کش‌شده.
+    این خروجی پایه‌ی هر محاسبه‌ی زمانیِ دستیار (یادآور، زمان‌بندی اقدام) است.
+    """
+    now = datetime.now(TEHRAN_TZ)
+    jd = jdatetime.datetime.fromgregorian(datetime=now)
+    return (
+        f"لحظه‌ی دقیق الان (وقت رسمی تهران، Asia/Tehran):\n"
+        f"- میلادی: {now.strftime('%Y-%m-%d %H:%M:%S')} ({weekday_fa(now)})\n"
+        f"- شمسی: {jd.strftime('%Y/%m/%d %H:%M:%S')}\n"
+        f"این لحظه، مرجع مطلق توئه برای هر محاسبه‌ی زمانی (مثل «۱۵ دقیقه دیگه»، "
+        f"«فردا ساعت ۳ ظهر»، «چند روز دیگه»). همیشه از همین لحظه محاسبه کن، نه از "
+        f"حافظه یا حدس."
+    )
+
 # ─── Progress Bars ───────────────────────────────────────────
 def progress_bar(percent: float, length: int = BAR_LENGTH) -> str:
     percent = max(0, min(100, percent))

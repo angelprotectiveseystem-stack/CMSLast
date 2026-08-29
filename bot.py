@@ -228,6 +228,14 @@ async def post_init(application: Application) -> None:
     except Exception as e:
         logger.warning(f"Could not restore working-hours jobs: {e}")
 
+    # Restore AI-assistant reminders / scheduled actions (survives Railway restarts)
+    try:
+        import ai_scheduler
+        await ai_scheduler.restore_all(application)
+        logger.info("AI scheduler jobs restored.")
+    except Exception as e:
+        logger.warning(f"Could not restore AI scheduler jobs: {e}")
+
     # Schedule auto-backup if enabled
     try:
         enabled = await db.get_setting("auto_backup_enabled", "0")
