@@ -1015,6 +1015,16 @@ def build_application():
     # پیدا نشده (اولویت با هندلرهای اختصاصی‌ست).
     app.add_handler(CallbackQueryHandler(universal_back_router, pattern="^back_"))
 
+    # ══════════════════════════════════════════
+    # هماهنگ‌کننده‌ی کیبورد پایین چت (فقط دکمه‌ی 🔙 بازگشت)
+    # عمداً در یه group کاملاً جدا (بعد از همه‌چی) ثبت می‌شه: فقط
+    # callback_data رو می‌خونه، هیچ query.answer یا پردازشی انجام
+    # نمی‌ده و پردازش رو هم متوقف نمی‌کنه — پس ترتیب/رفتار هیچ هندلر
+    # دیگه‌ای رو عوض نمی‌کنه.
+    # ══════════════════════════════════════════
+    from reply_menu import sync_reply_keyboard_on_callback
+    app.add_handler(CallbackQueryHandler(sync_reply_keyboard_on_callback, pattern=".*"), group=2)
+
     return app
 
 

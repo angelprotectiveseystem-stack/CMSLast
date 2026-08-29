@@ -259,15 +259,15 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if is_pishva:
         result = await show_pishva_welcome(update, ctx)
         if update.message:
-            from reply_menu import send_main_reply_keyboard
-            await send_main_reply_keyboard(update, ctx)
+            from reply_menu import reset_to_root_keyboard
+            await reset_to_root_keyboard(update, ctx)
         return result
     if is_admin:
         await db.update_admin_activity(uid)
         result = await show_admin_welcome(update, ctx, admin)
         if update.message:
-            from reply_menu import send_main_reply_keyboard
-            await send_main_reply_keyboard(update, ctx)
+            from reply_menu import reset_to_root_keyboard
+            await reset_to_root_keyboard(update, ctx)
         return result
 
     # ⏳ اگر این شخص در صف انتظار امنیتی است، اجازه‌ی درخواست جدید نمی‌دهیم

@@ -325,6 +325,27 @@ async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """
+    Wrapper نازک دور _handle_keyword_command_impl: کار اصلی رو به همون
+    تابع می‌سپاره، ولی بعدش (چه با موفقیت تموم بشه چه با
+    ApplicationHandlerStop) وضعیت کیبورد پایین چت رو با بخشی که کاربر
+    واردش شده هماهنگ می‌کنه — «پنل»/«شروع» یعنی برگشتن به ریشه، هر
+    کلمه‌ی کلیدی دیگه یعنی ورود به یه بخش.
+    """
+    if not update.message or not update.message.text:
+        return
+    text = update.message.text.strip()
+    action = SIMPLE_KEYWORDS.get(text)
+    is_nav_keyword = action is not None or text in ADMIN_KEYWORDS
+    try:
+        await _handle_keyword_command_impl(update, ctx)
+    finally:
+        if is_nav_keyword:
+            from reply_menu import sync_section_keyboard
+            await sync_section_keyboard(update, ctx, entering_section=(action != "restart"))
+
+
+async def _handle_keyword_command_impl(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     from telegram.ext import ApplicationHandlerStop
     if not update.message or not update.message.text:
         return
