@@ -22,12 +22,31 @@ import logging
 import database as db
 import workhours
 import comms
-from helpers import broadcast_to_admins, now_shamsi
+from helpers import broadcast_to_admins, now_shamsi, notify_pishva
 from config import ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
 
 logger = logging.getLogger(__name__)
 
 ALL_ROLES = [ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER]
+
+# برچسب فارسی نقش‌ها فقط برای متن نوتیفیکیشن‌های زیر — مستقل از ai_assistant.py
+# نگه داشته شده تا وارد کردنش import چرخه‌ای (circular import) درست نکنه.
+_ROLE_LABELS_FOR_NOTIFY = {
+    ROLE_PISHVA: "مدیر ارشد",
+    ROLE_TOURNAMENT_MANAGER: "مدیر مسابقات",
+    ROLE_SECURITY_MANAGER: "مدیر امنیتی",
+}
+
+
+async def _actor_label(caller_id: int, caller_role: str) -> str:
+    """اسم نمایشی + نقش کسی که یه اقدام رو انجام داده، برای نوتیف مدیر ارشد."""
+    role_label = _ROLE_LABELS_FOR_NOTIFY.get(caller_role, caller_role)
+    if caller_role == ROLE_PISHVA:
+        name = await db.get_setting("pishva_display_name", "مدیر ارشد")
+    else:
+        admin = await db.get_admin(caller_id)
+        name = (admin["display_name"] or admin["full_name"]) if admin else str(caller_id)
+    return f"{name} ({role_label})"
 
 # ────────────────────────────────────────────────────────────────
 # تابع‌هایی که واقعاً چیزی رو در سیستم تغییر می‌دن (نه فقط گزارش/جست‌وجو).
@@ -448,7 +467,7 @@ async def _find_admin_by_identifier(identifier: str):
 # ────────────────────────────────────────────────────────────────
 # دیسپچر اصلی — این تابع صداش می‌شه، هم چک دسترسی می‌کنه هم اجرا
 # ────────────────────────────────────────────────────────────────
-async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx) -> str:
+async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str, ctx) -> str:
     """
     اجرای واقعی یک ابزار. خروجی: پیام متنی فارسی (نتیجه‌ی عملیات یا خطا)
     که هم به مدل برگردونده می‌شه، هم خلاصه‌ش به کاربر گفته می‌شه.
@@ -760,3 +779,32 @@ async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx)
     except Exception as e:
         logger.exception(f"AI tool '{name}' failed")
         return f"⚠️ در اجرای این عملیات خطایی رخ داد: {e}"
+
+
+# ────────────────────────────────────────────────────────────────
+# نوتیفیکیشن مدیر ارشد — برای هر اقدامی که واقعاً چیزی رو در سیستم
+# تغییر می‌ده (همون‌هایی که در ACTION_TOOL_NAMES هستن)، بعد از اجرا
+# یه پیام جدا برای مدیر ارشد فرستاده می‌شه؛ مستقل از این‌که خود دستیار
+# داخل چت به کاربر چی گفته. اگه اقدام با خطا/عدم‌دسترسی مواجه بشه
+# (پیام با ❌ یا ⛔ شروع بشه) نوتیف فرستاده نمی‌شه.
+# ────────────────────────────────────────────────────────────────
+async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx) -> str:
+    result = await _dispatch_impl(name, args, caller_id, caller_role, ctx)
+
+    if name in ACTION_TOOL_NAMES and not result.startswith(("❌", "⛔", "⚠️")):
+        try:
+            actor = await _actor_label(caller_id, caller_role)
+            args_str = ", ".join(f"{k}={v}" for k, v in (args or {}).items())
+            notif = (
+                "📣 گزارش اقدام دستیار هوشمند\n"
+                f"👤 انجام‌دهنده: {actor}\n"
+                f"🛠 عملیات: {name}"
+                + (f"\n📝 ورودی: {args_str}" if args_str else "")
+                + f"\n📋 نتیجه: {result}"
+                + f"\n🕒 {now_shamsi()}"
+            )
+            await notify_pishva(ctx.bot, notif)
+        except Exception:
+            logger.exception(f"Failed to notify pishva about action '{name}'")
+
+    return result
