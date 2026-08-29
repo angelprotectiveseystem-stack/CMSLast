@@ -55,19 +55,21 @@ async def _is_allowed(update: Update) -> bool:
     return bool(admin and admin["is_active"])
 
 
-async def _flash_keyboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE, markup):
-    """یه پیام کوتاه فقط برای تغییر کیبورد پایین چت می‌فرسته و فوراً پاکش می‌کنه."""
+async def _flash_keyboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE, markup, text: str):
+    """
+    یه پیام کوتاه فقط برای تغییر کیبورد پایین چت می‌فرسته.
+    توجه: این پیام دیگه پاک نمی‌شه — چون تلگرام (حداقل روی بعضی
+    کلاینت‌ها) با پاک شدن پیامی که کیبورد رو ست کرده، خودِ کیبورد رو
+    هم برمی‌گردونه/مخفی می‌کنه. برای همین پیام باقی می‌مونه، ولی چون
+    فقط سرِ تغییر وضعیت (نه هر بار) فرستاده می‌شه، اسپم نمی‌شه.
+    """
     chat = update.effective_chat
     if not chat:
         return
     try:
-        msg = await ctx.bot.send_message(chat_id=chat.id, text="⌨️", reply_markup=markup)
+        await ctx.bot.send_message(chat_id=chat.id, text=text, reply_markup=markup)
     except Exception:
-        return
-    try:
-        await ctx.bot.delete_message(chat_id=chat.id, message_id=msg.message_id)
-    except Exception:
-        pass  # پاک نشدن این پیام مشکلی نیست؛ کیبورد در هر صورت عوض شده
+        pass
 
 
 async def sync_section_keyboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE, entering_section: bool):
@@ -81,8 +83,10 @@ async def sync_section_keyboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE, 
     if ctx.user_data.get(_KB_STATE_KEY) == target:
         return
     ctx.user_data[_KB_STATE_KEY] = target
-    markup = back_only_keyboard() if entering_section else ReplyKeyboardRemove()
-    await _flash_keyboard(update, ctx, markup)
+    if entering_section:
+        await _flash_keyboard(update, ctx, back_only_keyboard(), "🔙 برای بازگشت، از دکمه‌ی پایین استفاده کن.")
+    else:
+        await _flash_keyboard(update, ctx, ReplyKeyboardRemove(), "🏠 برگشتی به پنل اصلی.")
 
 
 async def reset_to_root_keyboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
