@@ -41,7 +41,8 @@ var state = {
   moveList: [],          // تاریخچه‌ی حرکات (SAN) — همیشه از سرور می‌آید، نه از chess.js
   drawOfferBy: null,
   drawModalShown: false,
-  animating: false
+  animating: false,
+  pendingRender: null
 };
 
 // ─── Board sizing ───────────────────────────────────────────
@@ -160,6 +161,28 @@ function renderPieces(animateFrom, animateTo){
   // pixel واقعی از getBoundingClientRect. این باعث می‌شود انیمیشن
   // کاملاً مستقل از نوسانات لحظه‌ای layout (که منبع اصلی ناهمواری
   // بود) و همیشه دقیقاً به اندازه‌ی N خانه جابه‌جا شود.
+  //
+  // نکته‌ی حیاتی درباره‌ی «سکته»: هر ۱.۵ ثانیه pollState با سرور چک
+  // می‌کند و اگر FEN تغییر کرده باشد renderPieces را دوباره صدا
+  // می‌زند. وقتی خودمان یک حرکت انجام می‌دهیم، انیمیشن محلی شروع
+  // می‌شود (چند صد میلی‌ثانیه)، ولی معمولاً خیلی زودتر از این مدت
+  // پاسخ سرور برای همان حرکت می‌رسد و poll بعدی renderPieces را دوباره
+  // صدا می‌زند — درست وسط انیمیشن قبلی، روی همان المان مهره. دو
+  // انیمیشن هم‌زمان روی یک المان دقیقاً همان بریدگی/سکته‌ای بود که
+  // مشاهده شد.
+  //
+  // راه‌حل: اگر همین الان انیمیشنی در جریان است، این فراخوانی را اجرا
+  // نمی‌کنیم — فقط آخرین animateFrom/animateTo درخواستی را ذخیره
+  // می‌کنیم و صبر می‌کنیم انیمیشن فعلی طبیعی تمام شود؛ همان لحظه که
+  // تمام شد (در animDone) یک‌بار renderPieces با آخرین آرگومان‌های
+  // ذخیره‌شده دوباره صدا زده می‌شود. چون FEN همیشه از chess.board()
+  // خوانده می‌شود (نه از یک snapshot قدیمی)، این تأخیر کوتاه هرگز
+  // باعث از دست رفتن حرکتی نمی‌شود — فقط رندرش را به زمان مناسب موکول
+  // می‌کند.
+  if(state.animating){
+    state.pendingRender = { from: animateFrom, to: animateTo };
+    return;
+  }
   var boardState = chess.board();
   var desired = {};
   for(var r=0;r<8;r++){
@@ -262,16 +285,33 @@ function renderPieces(animateFrom, animateTo){
   // دقیق N خانه جابه‌جا می‌کنیم. چون سایز هر خانه از روی خودِ board-size
   // متغیر CSS محاسبه می‌شود، این کار مستقل از هرگونه نوسان لحظه‌ای در
   // layout بیرونی است.
+  //
+  // از Web Animations API (element.animate) استفاده می‌کنیم، نه
+  // دستکاری دستی style.transform/transition. دلیل: با دستکاری دستی
+  // (ست‌کردن transform به مقدار جهش‌خورده، فورس‌کردن reflow، بعد ست
+  // کردن transition، بعد در rAF برگرداندن به صفر) بین نوشتن استایل‌ها
+  // race condition پیش می‌آمد — روی برخی وب‌ویوها (به‌خصوص WebView
+  // تلگرام) مرورگر فریم شروع را می‌بلعد و مستقیم می‌پرد به مقدار نهایی،
+  // پس هیچ انیمیشنی دیده نمی‌شد. Web Animations API این مشکل را ندارد
+  // چون هر دو کی‌فریم (شروع و پایان) در یک فراخوانی به مرورگر داده
+  // می‌شود و خود مرورگر تضمین می‌کند اولین فریم واقعاً رندر شود.
   if(moves.length){
     state.animating = true;
     var pendingAnims = moves.length;
-    function animDone(){
+    var animDone = function(){
       pendingAnims--;
       if(pendingAnims <= 0){
         state.animating = false;
         sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
+        // اگر در حین انیمیشن یک به‌روزرسانی دیگر (مثلاً از pollState)
+        // درخواست شده بود، همین الان که تخته آزاد است اجرایش می‌کنیم.
+        if(state.pendingRender){
+          var pending = state.pendingRender;
+          state.pendingRender = null;
+          renderPieces(pending.from, pending.to);
+        }
       }
-    }
+    };
     var boardEl = $("board");
     var squarePx = boardEl.clientWidth / 8;
     moves.forEach(function(m){
@@ -282,36 +322,61 @@ function renderPieces(animateFrom, animateTo){
       var dx = dCol * squarePx;
       var dy = dRow * squarePx;
       var dist = Math.sqrt(dx*dx + dy*dy);
-      // سرعت ثابت شبیه chess.com: مدت‌زمان متناسب با فاصله اما با یک
-      // سقف پایین (حرکت‌های طولانی هم زیاد کش نمی‌آیند) — بدون بالا
-      // رفتن (lift) یا بزرگ‌شدن (scale)، فقط یک سُر خوردن خطی-نرم.
-      var dur = Math.max(120, Math.min(230, dist * 0.42));
-      m.el.style.willChange = "transform";
+      // مدت‌زمان بلندتر و ثابت‌تر، شبیه chess.com: حرکت یک‌خانه‌ای هم
+      // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند، نه
+      // یک ومضه‌ی چندفریمی که روی موبایل/WebView به‌نظر لگ می‌رسد.
+      // فاصله‌های بلندتر (مثل حرکت وزیر از یک سر تخته به سر دیگر) کمی
+      // بیشتر طول می‌کشند تا سرعت حسی طبیعی بماند.
+      var dur = Math.max(260, Math.min(420, 220 + dist * 0.35));
       m.el.style.zIndex = "5";
-      m.el.style.transform = "translate(" + dx + "px," + dy + "px)";
-      // فورس یک ری‌فلو کوچک تا مرورگر state شروع را با مقدار jump-شده
-      // ثبت کند، قبل از این‌که به سمت صفر انیمیت کنیم.
-      // eslint-disable-next-line no-unused-expressions
-      m.el.getBoundingClientRect();
-      m.el.style.transition = "transform " + dur + "ms cubic-bezier(.15,.35,.25,1)";
-      requestAnimationFrame(function(){
-        m.el.style.transform = "translate(0,0)";
-      });
-      var finished = false;
-      function cleanup(){
-        if(finished) return;
-        finished = true;
-        m.el.style.transition = "";
-        m.el.style.transform = "";
-        m.el.style.willChange = "";
+      if(typeof m.el.animate !== "function"){
+        // مرورگر/وب‌ویوی خیلی قدیمی که Web Animations API ندارد —
+        // بدون انیمیشن مستقیم جابه‌جا می‌شود (بهتر از throw خطا).
         m.el.style.zIndex = "";
         animDone();
+        return;
       }
-      m.el.addEventListener("transitionend", cleanup, { once: true });
-      // شبکه‌ی ایمنی: اگر به هر دلیلی transitionend فایر نشود (مثلاً
-      // المان قبل از پایان از DOM حذف شود)، بعد از مدت‌زمان مورد انتظار
-      // به‌هرحال cleanup را اجرا کن تا انیمیشن هیچ‌وقت گیر نکند.
-      setTimeout(cleanup, dur + 80);
+      var anim = m.el.animate(
+        [
+          { transform: "translate(" + dx + "px," + dy + "px)" },
+          { transform: "translate(0px,0px)" }
+        ],
+        // easing از نوع ease-out ملایم: شروع کمی سریع‌تر، پایان نرم و
+        // بدون توقف ناگهانی — هیچ jank بصری در وسط راه ایجاد نمی‌کند
+        // چون خودِ مرورگر (نه جاوااسکریپت) هر فریم را محاسبه می‌کند.
+        { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)", fill: "forwards" }
+      );
+      var settled = false;
+      // finish() موقعیت را دقیقاً روی کی‌فریم پایانی قفل می‌کند (بدون
+      // پرش) و سپس style موقت را پاک می‌کنیم. از cancel() اینجا استفاده
+      // نمی‌کنیم چون cancel وسط انیمیشن باعث پرش آنی به موقعیت نهایی
+      // می‌شد — دقیقاً همان «سکته» که در تست دیده شد. finish فقط وقتی
+      // معنی دارد که انیمیشن واقعاً به پایان طبیعی‌اش رسیده باشد.
+      var settle = function(){
+        if(settled) return;
+        settled = true;
+        try{ anim.finish(); }catch(e){}
+        // بعد از finish، effect را از استک انیمیشن پاک می‌کنیم تا در
+        // رندرهای بعدی (مثلاً اگر همین مهره دوباره حرکت کند) هیچ اثر
+        // باقی‌مانده‌ای تداخل ایجاد نکند. چون finish() از قبل مقدار
+        // نهایی (0,0) را قفل کرده، این cancel هیچ پرش بصری‌ای ایجاد
+        // نمی‌کند.
+        try{ anim.cancel(); }catch(e){}
+        m.el.style.zIndex = "";
+        animDone();
+      };
+      anim.onfinish = settle;
+      anim.oncancel = function(){
+        if(settled) return;
+        settled = true;
+        m.el.style.zIndex = "";
+        animDone();
+      };
+      // شبکه‌ی ایمنی: اگر به هر دلیلی onfinish هرگز فایر نشود (مثلاً
+      // تب در پس‌زمینه رفت)، با تأخیر قابل‌توجه (نه نزدیک به dur واقعی)
+      // یک‌بار settle را صدا می‌زنیم تا هرگز گیر نکنیم، بدون این‌که با
+      // پایان طبیعی انیمیشن رقابت کند.
+      setTimeout(settle, dur + 400);
     });
   }
 
