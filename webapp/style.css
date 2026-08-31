@@ -190,8 +190,8 @@ html,body{
   display:flex; align-items:center; justify-content:center;
   font-size: calc(var(--board-size, 320px) / 8 * 0.62);
   cursor:grab;
-  position:relative; z-index:2;
-  transition: transform .18s cubic-bezier(.34,1.56,.64,1), filter .15s ease;
+  position:absolute; inset:0; margin:auto; z-index:2;
+  transition: filter .15s ease;
   filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
 }
 .piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }

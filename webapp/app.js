@@ -100,71 +100,136 @@ function buildBoard(){
 }
 
 function renderPieces(animateFrom, animateTo){
+  // پیاده‌سازی به روش FLIP واقعی: به‌جای این‌که مهره‌ی مبدا را با «محو
+  // و کوچک‌شدن» حذف کنیم و هم‌زمان یک مهره‌ی تازه در مقصد با پرش وارد
+  // کنیم (که باعث می‌شد یک لحظه دو تصویر از مهره هم‌زمان دیده شود و
+  // حرکت به‌جای سُر خوردن، تکه‌تکه و لگ‌دار به‌نظر برسد)، همان المان
+  // DOM مهره را از خانه‌ی مبدا به مقصد منتقل می‌کنیم و با ترنسفورم آن
+  // را «سُر» می‌دهیم. تنها مهره‌هایی که واقعاً گرفته می‌شوند محو/کوچک
+  // می‌شوند؛ بقیه فقط جابه‌جا می‌شوند. این هم رخنه‌ی بصری را حذف می‌کند
+  // و هم با batch کردن خواندن/نوشتن‌های layout از افت فریم جلوگیری می‌کند.
   var boardState = chess.board();
-  // به‌جای پاک‌کردن و ساختن دوباره‌ی هر ۳۲ مهره در هر حرکت (که باعث افت
-  // فریم و حس «لگ‌دار» می‌شد)، فقط خانه‌هایی که واقعاً تغییر کردند
-  // به‌روزرسانی می‌شوند. مهره‌ی گرفته‌شده هم دیگر آنی محو نمی‌شود، بلکه
-  // با یک انیمیشن نرم کوچک و محو می‌شود.
   var desired = {};
   for(var r=0;r<8;r++){
     for(var c=0;c<8;c++){
       var p = boardState[r][c];
-      if(!p) continue;
-      desired[FILES[c] + (8-r)] = p;
+      if(p) desired[FILES[c] + (8-r)] = p;
     }
   }
-  var fromRect = null;
-  if(animateFrom && state.boardEls[animateFrom]){
-    var fromPieceEl = state.boardEls[animateFrom].querySelector(".piece");
-    if(fromPieceEl) fromRect = fromPieceEl.getBoundingClientRect();
-  }
+  var current = {};
   Object.keys(state.boardEls).forEach(function(sq){
-    var el = state.boardEls[sq];
-    var existingEl = el.querySelector(".piece");
-    var want = desired[sq];
-    var have = existingEl ? { type: existingEl.dataset.ptype, color: existingEl.dataset.pcolor } : null;
-    if(have && want && have.type === want.type && have.color === want.color) return; // بدون تغییر
-    if(existingEl){
-      existingEl.style.position = "absolute";
-      existingEl.style.inset = "0";
-      existingEl.style.margin = "auto";
-      existingEl.classList.add("captured-anim");
-      (function(elToRemove){
-        setTimeout(function(){ if(elToRemove.parentNode) elToRemove.remove(); }, 260);
-      })(existingEl);
-    }
-    if(want){
-      var span = document.createElement("div");
-      span.className = "piece " + (want.color==="w" ? "white-p" : "black-p");
-      span.textContent = PIECE_GLYPH[want.type];
-      span.dataset.ptype = want.type;
-      span.dataset.pcolor = want.color;
-      if(sq !== animateTo) span.classList.add("landed");
-      el.appendChild(span);
+    var el = state.boardEls[sq].querySelector(".piece");
+    if(el) current[sq] = { type: el.dataset.ptype, color: el.dataset.pcolor, el: el };
+  });
+
+  var vacated = [];
+  var arrived = [];
+  Object.keys(current).forEach(function(sq){
+    var c = current[sq], d = desired[sq];
+    if(!d || d.type !== c.type || d.color !== c.color){
+      vacated.push({ sq: sq, type: c.type, color: c.color, el: c.el });
     }
   });
-  if(animateTo && fromRect && state.boardEls[animateTo]){
-    var landedEl = state.boardEls[animateTo].querySelector(".piece:not(.captured-anim)");
-    if(landedEl){
-      var toRect = landedEl.getBoundingClientRect();
-      var dx = fromRect.left - toRect.left;
-      var dy = fromRect.top - toRect.top;
-      if(dx !== 0 || dy !== 0){
-        // مدت‌زمان انیمیشن متناسب با فاصله‌ی واقعی حرکت است (نه یک عدد
-        // ثابت برای همه)، و یک بالارفتن/بزرگ‌شدن جزئی وسط مسیر به آن حس
-        // «برداشتن و گذاشتن» می‌دهد به‌جای فقط سرخوردن مسطح.
+  Object.keys(desired).forEach(function(sq){
+    var d = desired[sq], c = current[sq];
+    if(!c || c.type !== d.type || c.color !== d.color){
+      arrived.push({ sq: sq, type: d.type, color: d.color });
+    }
+  });
+
+  if(!vacated.length && !arrived.length){ paintHighlights(); return; }
+
+  // FIRST — قبل از هر تغییری در DOM، موقعیت فعلی مهره‌های جابه‌جاشونده
+  // را می‌خوانیم (یک‌جا، بدون نوشتن بین این خواندن‌ها تا reflow اضافه
+  // ایجاد نشود).
+  vacated.forEach(function(v){ v.rect = v.el.getBoundingClientRect(); });
+
+  function takeVacated(sq){
+    for(var i=0;i<vacated.length;i++) if(vacated[i].sq === sq) return vacated.splice(i,1)[0];
+    return null;
+  }
+  function takeArrived(sq){
+    for(var i=0;i<arrived.length;i++) if(arrived[i].sq === sq) return arrived.splice(i,1)[0];
+    return null;
+  }
+  function takeArrivedByType(type, color){
+    for(var i=0;i<arrived.length;i++) if(arrived[i].type === type && arrived[i].color === color) return arrived.splice(i,1)[0];
+    return null;
+  }
+
+  var moves = [];
+  // ۱) جفت‌شدن صریح بر اساس حرکت اعلام‌شده (from/to همان حرکتی که رخ داده)
+  if(animateFrom && animateTo){
+    var v0 = takeVacated(animateFrom);
+    if(v0){
+      var a0 = takeArrived(animateTo);
+      if(a0) moves.push({ el: v0.el, toSq: a0.sq, toType: a0.type, fromRect: v0.rect });
+      else vacated.push(v0); // مقصد تغییر نکرده؛ احتمالاً همگام‌سازی عجیب — بگذار به مرحله‌ی بعد برود
+    }
+  }
+  // ۲) بقیه‌ی مهره‌های جابه‌جا‌شده بر اساس نوع+رنگ یکسان جفت می‌شوند
+  // (مثل رخ در قلعه، یا چند حرکت که با هم از سرور رسیده‌اند)
+  vacated.slice().forEach(function(v){
+    var a = takeArrivedByType(v.type, v.color);
+    if(a){
+      takeVacated(v.sq);
+      moves.push({ el: v.el, toSq: a.sq, toType: a.type, fromRect: v.rect });
+    }
+  });
+
+  // LAST — همان المان مهره را فیزیکی به خانه‌ی مقصد منتقل می‌کنیم
+  moves.forEach(function(m){
+    state.boardEls[m.toSq].appendChild(m.el);
+    if(m.el.dataset.ptype !== m.toType){ // ترفیع: نوع مهره عوض شده
+      m.el.textContent = PIECE_GLYPH[m.toType];
+      m.el.dataset.ptype = m.toType;
+    }
+  });
+
+  // باقی‌مانده‌ی vacated یعنی واقعاً «گرفته‌شده‌اند» — فقط این‌ها محو/کوچک می‌شوند
+  vacated.forEach(function(v){
+    v.el.classList.add("captured-anim");
+    (function(elToRemove){
+      setTimeout(function(){ if(elToRemove.parentNode) elToRemove.remove(); }, 260);
+    })(v.el);
+  });
+  // باقی‌مانده‌ی arrived یعنی مهره‌ی کاملاً تازه (بار اول لود صفحه، یا
+  // ترفیعی که جفتش پیدا نشد) — با یک پاپ کوچک ظاهر می‌شود
+  arrived.forEach(function(a){
+    var span = document.createElement("div");
+    span.className = "piece " + (a.color==="w" ? "white-p" : "black-p");
+    span.textContent = PIECE_GLYPH[a.type];
+    span.dataset.ptype = a.type;
+    span.dataset.pcolor = a.color;
+    span.classList.add("landed");
+    state.boardEls[a.sq].appendChild(span);
+  });
+
+  // INVERT + PLAY — یک فریم صبر می‌کنیم تا layout با موقعیت جدید هماهنگ
+  // شود (بدون فورس‌کردن reflow هم‌زمان)، بعد هر مهره را از موقعیت قبلی‌اش
+  // با ترنسفورم به موقعیت جدید «سر می‌دهیم».
+  if(moves.length){
+    requestAnimationFrame(function(){
+      moves.forEach(function(m){
+        var toRect = m.el.getBoundingClientRect();
+        var dx = m.fromRect.left - toRect.left;
+        var dy = m.fromRect.top - toRect.top;
+        if(!dx && !dy) return;
         var dist = Math.sqrt(dx*dx + dy*dy);
         var dur = Math.max(140, Math.min(320, dist * 0.55));
         var lift = Math.min(10, dist * 0.06);
-        landedEl.style.transform = "translate(0,0)";
-        landedEl.animate([
+        m.el.style.willChange = "transform";
+        m.el.style.zIndex = "5";
+        var anim = m.el.animate([
           { transform: "translate(" + dx + "px," + dy + "px) scale(1)" },
           { transform: "translate(" + (dx*0.5) + "px," + (dy*0.5 - lift) + "px) scale(1.14)", offset: 0.55 },
           { transform: "translate(0,0) scale(1)" }
         ], { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)" });
-      }
-    }
+        anim.onfinish = anim.oncancel = function(){ m.el.style.willChange = ""; m.el.style.zIndex = ""; };
+      });
+    });
   }
+
   paintHighlights();
 }
 
