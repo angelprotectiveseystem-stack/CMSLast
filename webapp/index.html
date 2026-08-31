@@ -73,10 +73,11 @@
 
     <div class="turn-banner" id="turn-banner">نوبت شما</div>
 
-    <div class="action-row">
+    <div class="action-row" id="action-row">
       <button class="action-btn danger" id="btn-resign">تسلیم</button>
       <button class="action-btn" id="btn-draw">پیشنهاد تساوی</button>
     </div>
+    <div class="spectator-note hidden" id="spectator-note">👁 در حال تماشای این بازی هستید</div>
 
   </div>
 
@@ -128,7 +129,20 @@
       <div id="modal-icon" class="modal-icon">♔</div>
       <div id="modal-title" class="modal-title">پایان بازی</div>
       <div id="modal-sub" class="modal-sub"></div>
+      <div id="modal-elo" class="modal-elo"></div>
       <button class="action-btn primary" id="modal-close">بستن</button>
+    </div>
+  </div>
+
+  <div id="draw-modal-overlay" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-icon">🤝</div>
+      <div class="modal-title">پیشنهاد تساوی</div>
+      <div class="modal-sub">حریف پیشنهاد تساوی داد. آیا قبول می‌کنید؟</div>
+      <div class="action-row">
+        <button class="action-btn danger" id="btn-draw-decline">رد</button>
+        <button class="action-btn primary" id="btn-draw-accept">قبول</button>
+      </div>
     </div>
   </div>
 

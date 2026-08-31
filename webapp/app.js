@@ -35,7 +35,11 @@ var state = {
   chatTimer: null,
   lastChatId: 0,
   chatOpen: false,
-  chatUnread: 0
+  chatUnread: 0,
+  isSpectator: false,
+  moveList: [],          // تاریخچه‌ی حرکات (SAN) — همیشه از سرور می‌آید، نه از chess.js
+  drawOfferBy: null,
+  drawModalShown: false
 };
 
 function $(id){ return document.getElementById(id); }
@@ -161,10 +165,11 @@ function paintHighlights(){
 }
 
 function myTurn(){
-  return state.status === "active" && chess.turn() === state.myColor;
+  return !state.isSpectator && state.status === "active" && chess.turn() === state.myColor;
 }
 
 function onSquareClick(sq){
+  if(state.isSpectator) return;
   if(!myTurn()) return;
   var piece = chess.get(sq);
   if(state.selected){
@@ -211,6 +216,7 @@ function doMove(from, to, promotion){
   state.selected = null;
   state.legalTargets = [];
   state.lastMove = { from: from, to: to };
+  state.moveList = state.moveList.concat([move.san]);
   renderPieces(from, to);
   renderCaptured();
   renderHistory();
@@ -239,6 +245,7 @@ function sendMove(move){
       } else {
         setConnStatus(true);
         applyServerState(res.state, false);
+        if(res.state.moves){ state.moveList = res.state.moves; renderHistory(); }
       }
     })
     .catch(function(){ setConnStatus(false); });
@@ -279,6 +286,7 @@ function applyServerState(s, fromPoll){
     var prevLast = state.lastMove;
     chess.load(incomingFen);
     state.lastMove = s.last_move || prevLast;
+    if(s.moves) state.moveList = s.moves;
     renderPieces(state.lastMove && state.lastMove.from, state.lastMove && state.lastMove.to);
     renderCaptured();
     renderHistory();
@@ -288,20 +296,65 @@ function applyServerState(s, fromPoll){
   state.turn = chess.turn();
   updateClocks();
   updateTurnBanner();
+  updateDrawOfferUI(s);
   if(s.status !== "active" && !state.gameOverShown){
     state.status = s.status;
-    showGameOver(s.status, s.winner_id);
+    showGameOver(s.status, s.winner_id, s.white_elo_change, s.black_elo_change);
   }
 }
 
+// ─── Draw offers ──────────────────────────────────────────────
+function updateDrawOfferUI(s){
+  if(state.isSpectator || state.status !== "active"){
+    $("draw-modal-overlay").classList.add("hidden");
+    return;
+  }
+  state.drawOfferBy = s.draw_offer_by || null;
+  var iOffered = state.drawOfferBy && String(state.drawOfferBy) === String(state.myId);
+  var theyOffered = state.drawOfferBy && !iOffered;
+
+  $("btn-draw").disabled = !!state.drawOfferBy;
+  $("btn-draw").textContent = iOffered ? "در انتظار پاسخ حریف..." : "پیشنهاد تساوی";
+
+  if(theyOffered && !state.drawModalShown){
+    state.drawModalShown = true;
+    $("draw-modal-overlay").classList.remove("hidden");
+  } else if(!theyOffered){
+    state.drawModalShown = false;
+    $("draw-modal-overlay").classList.add("hidden");
+  }
+}
+
+function respondToDraw(accept){
+  $("draw-modal-overlay").classList.add("hidden");
+  state.drawModalShown = false;
+  apiPost("/api/draw_response", { accept: accept }).then(function(res){
+    if(res.ok) applyServerState(res.state, false);
+  });
+}
+$("btn-draw-accept").addEventListener("click", function(){ respondToDraw(true); });
+$("btn-draw-decline").addEventListener("click", function(){ respondToDraw(false); });
+
 // ─── Captured pieces / history ──────────────────────────────
+var STANDARD_COUNTS = { p:8, n:2, b:2, r:2, q:1 };
 function renderCaptured(){
-  var history = chess.history({ verbose: true });
-  var captured = { w: [], b: [] };
-  history.forEach(function(m){
-    if(m.captured){
-      captured[m.color === "w" ? "b" : "w"].push(m.captured);
+  // قبلاً از chess.history() استفاده می‌شد که با هر chess.load() (یعنی هر بار
+  // که حرکت حریف از سرور می‌رسید) پاک می‌شد. حالا مستقیم از روی وضعیت فعلی
+  // صفحه محاسبه می‌شود، پس همیشه درست است، حتی بعد از رفرش صفحه.
+  var boardState = chess.board();
+  var onBoard = { w:{p:0,n:0,b:0,r:0,q:0}, b:{p:0,n:0,b:0,r:0,q:0} };
+  for(var r=0;r<8;r++){
+    for(var c=0;c<8;c++){
+      var p = boardState[r][c];
+      if(p && p.type !== "k") onBoard[p.color][p.type]++;
     }
+  }
+  var captured = { w: [], b: [] };
+  Object.keys(STANDARD_COUNTS).forEach(function(t){
+    var missingWhite = STANDARD_COUNTS[t] - onBoard.w[t];
+    for(var i=0;i<missingWhite;i++) captured.w.push(t);
+    var missingBlack = STANDARD_COUNTS[t] - onBoard.b[t];
+    for(var i=0;i<missingBlack;i++) captured.b.push(t);
   });
   var topIsWhite = state.myColor === "b";
   var order = { p:1,n:3,b:3,r:5,q:9,k:0 };
@@ -312,13 +365,23 @@ function renderCaptured(){
 }
 
 function renderHistory(){
+  // از state.moveList استفاده می‌شود که همیشه از سرور سینک می‌شود، نه از
+  // chess.history() که با هر chess.load() (بعد از هر حرکت حریف) خالی می‌شد
+  // و همین باعث می‌شد تاریخچه‌ی حرکات کار نکند.
   var list = $("history-list");
-  var history = chess.history();
+  var moves = state.moveList || [];
   list.innerHTML = "";
-  for(var i=0;i<history.length;i+=2){
+  if(!moves.length){
+    var empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.textContent = "هنوز حرکتی ثبت نشده";
+    list.appendChild(empty);
+    return;
+  }
+  for(var i=0;i<moves.length;i+=2){
     var row = document.createElement("div");
     row.className = "history-row";
-    row.innerHTML = '<span class="history-num">' + (i/2+1) + '.</span><span class="history-move">' + history[i] + '</span><span class="history-move">' + (history[i+1]||"") + '</span>';
+    row.innerHTML = '<span class="history-num">' + (i/2+1) + '.</span><span class="history-move">' + moves[i] + '</span><span class="history-move">' + (moves[i+1]||"") + '</span>';
     list.appendChild(row);
   }
   list.scrollTop = list.scrollHeight;
@@ -327,9 +390,14 @@ function renderHistory(){
 function updateTurnBanner(){
   var banner = $("turn-banner");
   if(state.status !== "active"){ banner.textContent = "بازی پایان یافت"; banner.className = "turn-banner"; return; }
-  var mine = myTurn();
-  banner.textContent = mine ? "نوبت شماست" : "در انتظار حریف...";
-  banner.className = "turn-banner " + (mine ? "mine" : "theirs");
+  if(state.isSpectator){
+    banner.textContent = chess.turn() === "w" ? "نوبت سفید" : "نوبت سیاه";
+    banner.className = "turn-banner";
+  } else {
+    var mine = myTurn();
+    banner.textContent = mine ? "نوبت شماست" : "در انتظار حریف...";
+    banner.className = "turn-banner " + (mine ? "mine" : "theirs");
+  }
   var whiteIsTop = state.myColor === "b";
   $("clock-top").classList.toggle("active", (whiteIsTop && chess.turn()==="w") || (!whiteIsTop && chess.turn()==="b"));
   $("clock-bottom").classList.toggle("active", (!whiteIsTop && chess.turn()==="w") || (whiteIsTop && chess.turn()==="b"));
@@ -367,10 +435,11 @@ function checkLocalGameOver(){
   }
 }
 
-function showGameOver(status, winnerId){
+function showGameOver(status, winnerId, whiteEloChange, blackEloChange){
   state.gameOverShown = true;
   clearInterval(state.clockTimer);
-  var icon = $("modal-icon"), title = $("modal-title"), sub = $("modal-sub");
+  $("draw-modal-overlay").classList.add("hidden");
+  var icon = $("modal-icon"), title = $("modal-title"), sub = $("modal-sub"), eloEl = $("modal-elo");
   var iWon = winnerId && String(winnerId) === String(state.myId);
   var isDraw = status === "draw" || status === "stalemate";
   if(isDraw){
@@ -388,6 +457,21 @@ function showGameOver(status, winnerId){
     icon.textContent = iWon ? "🏆" : "♚";
     title.textContent = iWon ? "کیش و مات! بردید" : "کیش و مات، باختید";
     sub.textContent = iWon ? "بازی عالی بود!" : "دفعه بعد بهتر می‌شود.";
+  }
+  if(state.isSpectator){
+    if(isDraw){ title.textContent = "بازی مساوی شد"; sub.textContent = "یک بازی خوب و برابر بود."; }
+    else if(status === "resigned"){ title.textContent = "یکی از طرفین تسلیم شد"; sub.textContent = ""; }
+    else if(status === "timeout"){ title.textContent = "زمان یکی از طرفین تمام شد"; sub.textContent = ""; }
+    else { title.textContent = "کیش و مات!"; sub.textContent = "بازی به پایان رسید."; }
+    icon.textContent = isDraw ? "🤝" : (status === "resigned" ? "🏳️" : (status === "timeout" ? "⏱" : "♚"));
+  }
+  eloEl.textContent = "";
+  if(!state.isSpectator && (whiteEloChange !== null && whiteEloChange !== undefined)){
+    var myChange = state.myColor === "w" ? whiteEloChange : blackEloChange;
+    if(myChange !== null && myChange !== undefined){
+      var sign = myChange > 0 ? "+" : "";
+      eloEl.textContent = "📊 تغییر امتیاز Elo شما: " + sign + myChange;
+    }
   }
   $("modal-overlay").classList.remove("hidden");
   if(iWon) launchConfetti();
@@ -522,16 +606,17 @@ $("btn-close-theme").addEventListener("click", function(){ $("theme-panel").clas
 
 // ─── Actions ────────────────────────────────────────────────
 $("btn-resign").addEventListener("click", function(){
-  if(state.status !== "active") return;
+  if(state.status !== "active" || state.isSpectator) return;
   if(!confirm("مطمئنید می‌خواهید تسلیم شوید؟")) return;
   apiPost("/api/resign", {}).then(function(res){
     if(res.ok) applyServerState(res.state, false);
   });
 });
 $("btn-draw").addEventListener("click", function(){
-  if(state.status !== "active") return;
+  if(state.status !== "active" || state.isSpectator || state.drawOfferBy) return;
   apiPost("/api/draw_offer", {}).then(function(res){
     if(tg) tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light");
+    if(res.ok) applyServerState(res.state, false);
   });
 });
 $("btn-history").addEventListener("click", function(){ $("history-panel").classList.add("open"); });
@@ -549,15 +634,30 @@ function init(){
     var s = res.state;
     var myId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : s.you_id;
     state.myId = myId;
-    state.myColor = String(s.white_id) === String(myId) ? "w" : "b";
-    state.myName = state.myColor === "w" ? s.white_name : s.black_name;
-    state.oppName = state.myColor === "w" ? s.black_name : s.white_name;
+    var isWhite = String(s.white_id) === String(myId);
+    var isBlack = String(s.black_id) === String(myId);
+    state.isSpectator = !isWhite && !isBlack;
+
+    if(state.isSpectator){
+      // شخص سوم (ناظر): تخته همیشه از دید سفید نشان داده می‌شود و امکان
+      // حرکت‌دادن یا تسلیم/پیشنهاد تساوی وجود ندارد، ولی چت باز است.
+      state.myColor = "w";
+      state.myName = s.white_name;
+      state.oppName = s.black_name;
+      $("action-row").classList.add("hidden");
+      $("spectator-note").classList.remove("hidden");
+    } else {
+      state.myColor = isWhite ? "w" : "b";
+      state.myName = state.myColor === "w" ? s.white_name : s.black_name;
+      state.oppName = state.myColor === "w" ? s.black_name : s.white_name;
+    }
     $("name-top").textContent = state.oppName;
     $("name-bottom").textContent = state.myName;
     $("avatar-top").textContent = (state.oppName||"?").slice(0,1);
     $("avatar-bottom").textContent = (state.myName||"?").slice(0,1);
     if(s.fen) chess.load(s.fen);
     state.lastMove = s.last_move || null;
+    state.moveList = s.moves || [];
     state.whiteTime = s.white_time; state.blackTime = s.black_time;
     state.status = s.status;
     buildBoard();
@@ -566,12 +666,13 @@ function init(){
     renderHistory();
     updateTurnBanner();
     updateClocks();
+    updateDrawOfferUI(s);
     showScreen("screen-game");
     state.pollTimer = setInterval(pollState, 1500);
     state.clockTimer = setInterval(tickClocks, 1000);
     state.chatTimer = setInterval(pollChat, 2000);
     pollChat();
-    if(s.status !== "active"){ showGameOver(s.status, s.winner_id); }
+    if(s.status !== "active"){ showGameOver(s.status, s.winner_id, s.white_elo_change, s.black_elo_change); }
   }).catch(function(){
     showError("اتصال به سرور برقرار نشد.");
   });
