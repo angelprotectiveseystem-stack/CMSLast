@@ -232,6 +232,63 @@ async def api_game_over(request):
     return web.json_response({"ok": True})
 
 
+_last_chat_at = {}  # token -> {user_id: monotonic_time}, ساده و در حافظه (کافی برای این حجم)
+CHAT_MAX_LEN = 300
+CHAT_MIN_INTERVAL = 1.5  # ثانیه بین دو پیام هر کاربر
+
+
+@routes.post("/api/chat")
+async def api_chat_send(request):
+    body = await request.json()
+    token = body.get("token")
+    user_id, fallback_name = await _resolve_user_id(body)
+    game = await db.get_chess_game(token) if token else None
+    if not game:
+        return web.json_response({"ok": False, "error": "بازی پیدا نشد."})
+    if user_id is None:
+        return web.json_response({"ok": False, "error": "احراز هویت ناموفق بود."})
+    if user_id not in (game["white_id"], game["black_id"]):
+        return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
+
+    text = (body.get("text") or "").strip()
+    if not text:
+        return web.json_response({"ok": False, "error": "پیام خالی است."})
+    if len(text) > CHAT_MAX_LEN:
+        text = text[:CHAT_MAX_LEN]
+
+    now = time.monotonic()
+    bucket = _last_chat_at.setdefault(token, {})
+    last = bucket.get(user_id, 0)
+    if now - last < CHAT_MIN_INTERVAL:
+        return web.json_response({"ok": False, "error": "کمی آرام‌تر ✋"})
+    bucket[user_id] = now
+
+    sender_name = game["white_name"] if user_id == game["white_id"] else game["black_name"]
+    msg_id = await db.add_chess_chat_message(token, user_id, sender_name, text)
+    return web.json_response({"ok": True, "id": msg_id})
+
+
+@routes.get("/api/chat")
+async def api_chat_fetch(request):
+    token = request.query.get("token")
+    after = int(request.query.get("after") or 0)
+    game = await db.get_chess_game(token) if token else None
+    if not game:
+        return web.json_response({"ok": False, "error": "بازی پیدا نشد."})
+    rows = await db.get_chess_chat_messages(token, after)
+    messages = [
+        {
+            "id": r["id"],
+            "sender_id": r["sender_id"],
+            "sender_name": r["sender_name"],
+            "text": r["text"],
+            "sent_at": r["sent_at"],
+        }
+        for r in rows
+    ]
+    return web.json_response({"ok": True, "messages": messages})
+
+
 def new_game_token():
     return uuid.uuid4().hex + secrets.token_hex(4)
 

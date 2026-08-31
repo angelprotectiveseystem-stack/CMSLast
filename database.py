@@ -246,6 +246,14 @@ async def init_db():
             created_at TEXT,
             finished_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS chess_chat (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT,
+            sender_id INTEGER,
+            sender_name TEXT,
+            text TEXT,
+            sent_at TEXT
+        );
         """)
 
         # ─── Lightweight migrations (add columns if missing) ──────────
@@ -1577,3 +1585,24 @@ async def set_chess_draw_offer(token, by_id):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE chess_games SET draw_offer_by=? WHERE token=?", (by_id, token))
         await db.commit()
+
+
+async def add_chess_chat_message(token: str, sender_id: int, sender_name: str, text: str):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "INSERT INTO chess_chat(token, sender_id, sender_name, text, sent_at) VALUES (?,?,?,?,?)",
+            (token, sender_id, sender_name, text, now)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_chess_chat_messages(token: str, after_id: int = 0):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM chess_chat WHERE token=? AND id>? ORDER BY id ASC",
+            (token, after_id)
+        ) as cur:
+            return await cur.fetchall()
