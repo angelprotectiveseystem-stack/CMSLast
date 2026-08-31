@@ -69,13 +69,13 @@ html,body{
 /* loading */
 #screen-loading{ align-items:center; justify-content:center; gap:18px; }
 .brand-mark{
-  width:88px; height:88px; border-radius:24px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  width:96px; height:96px; border-radius:24px;
+  overflow:hidden;
   display:flex; align-items:center; justify-content:center;
-  color:#fff;
   animation: floaty 2.4s ease-in-out infinite;
-  box-shadow: 0 10px 40px rgba(91,124,250,.35);
+  box-shadow: 0 10px 40px rgba(180,20,20,.35);
 }
+.brand-logo{ width:100%; height:100%; object-fit:cover; display:block; }
 @keyframes floaty{ 0%,100%{ transform: translateY(0) rotate(0deg);} 50%{ transform: translateY(-8px) rotate(4deg);} }
 .loading-text{ color: var(--text-2); font-size:14px; }
 .spinner{
@@ -145,9 +145,9 @@ html,body{
 .clock.active{ color:#fff; background: var(--accent); box-shadow: 0 0 14px rgba(91,124,250,.5); }
 .clock.low{ color:#fff; background: var(--danger); animation: pulse 1s ease-in-out infinite; }
 
-.board-wrap{ position:relative; flex: 1; display:flex; align-items:center; justify-content:center; min-height:0; }
+.board-wrap{ position:relative; flex: 1; display:flex; align-items:center; justify-content:center; min-height:0; width:100%; }
 .board{
-  width:min(100%, calc(100vh - 300px), 560px);
+  width: var(--board-size, min(92vw, 480px));
   aspect-ratio:1;
   display:grid;
   grid-template-columns: repeat(8,1fr);
@@ -185,7 +185,7 @@ html,body{
 .piece{
   width:82%; height:82%;
   display:flex; align-items:center; justify-content:center;
-  font-size: clamp(30px, 10vw, 52px);
+  font-size: calc(var(--board-size, 320px) / 8 * 0.62);
   cursor:grab;
   position:relative; z-index:2;
   transition: transform .18s cubic-bezier(.34,1.56,.64,1), filter .15s ease;

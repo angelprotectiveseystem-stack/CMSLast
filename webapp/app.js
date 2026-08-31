@@ -42,6 +42,31 @@ var state = {
   drawModalShown: false
 };
 
+// ─── Board sizing ───────────────────────────────────────────
+// اندازه‌ی واقعی فضای در دسترس را با جاوااسکریپت اندازه می‌گیریم و به‌جای
+// فرمول‌های تقریبی CSS (که با تغییر ارتفاع صفحه در دستگاه‌های مختلف/باز
+// شدن کیبورد/تغییر UI تلگرام هماهنگ نبودند) روی خود تخته اعمال می‌کنیم.
+// همین متغیر برای اندازه‌ی مهره‌ها هم استفاده می‌شود تا همیشه دقیقاً
+// اندازه‌ی خانه‌ها باشند و جا نمانند یا اندازه‌شان نامتناسب نشود.
+function sizeBoard(){
+  var wrap = document.querySelector(".board-wrap");
+  if(!wrap) return;
+  var w = wrap.clientWidth;
+  var h = wrap.clientHeight;
+  var size = Math.floor(Math.min(w, h));
+  if(size > 40){
+    document.documentElement.style.setProperty("--board-size", size + "px");
+  }
+}
+window.addEventListener("resize", sizeBoard);
+window.addEventListener("orientationchange", function(){ setTimeout(sizeBoard, 50); });
+if(window.visualViewport){
+  window.visualViewport.addEventListener("resize", sizeBoard);
+}
+if(tg && tg.onEvent){
+  try{ tg.onEvent("viewportChanged", sizeBoard); }catch(e){}
+}
+
 function $(id){ return document.getElementById(id); }
 function showScreen(id){
   document.querySelectorAll(".screen").forEach(function(s){ s.classList.remove("active"); });
@@ -291,9 +316,19 @@ function applyServerState(s, fromPoll){
     renderCaptured();
     renderHistory();
   }
-  state.whiteTime = s.white_time;
-  state.blackTime = s.black_time;
   state.turn = chess.turn();
+  if(fromPoll){
+    // قبلاً هر ۱.۵ ثانیه زمان محلی (که هر ثانیه تیک می‌خورد) با مقدار
+    // سرور جایگزین می‌شد، حتی وقتی اختلافشان فقط چند صدم ثانیه بود؛
+    // همین باعث می‌شد ساعت هر بار «سکته» بزند و یک لحظه بپرد جلو/عقب.
+    // حالا فقط وقتی اختلاف واقعی و محسوس باشد (مثلاً تب پس‌زمینه بوده)
+    // با سرور همگام می‌شویم، وگرنه شمارش نرم محلی ادامه پیدا می‌کند.
+    if(Math.abs((s.white_time||0) - state.whiteTime) > 2) state.whiteTime = s.white_time;
+    if(Math.abs((s.black_time||0) - state.blackTime) > 2) state.blackTime = s.black_time;
+  } else {
+    state.whiteTime = s.white_time;
+    state.blackTime = s.black_time;
+  }
   updateClocks();
   updateTurnBanner();
   updateDrawOfferUI(s);
@@ -668,6 +703,8 @@ function init(){
     updateClocks();
     updateDrawOfferUI(s);
     showScreen("screen-game");
+    sizeBoard();
+    setTimeout(sizeBoard, 100); // اجرای دوباره بعد از استقرار کامل layout (رفع باگ سایز اشتباه در بار اول)
     state.pollTimer = setInterval(pollState, 1500);
     state.clockTimer = setInterval(tickClocks, 1000);
     state.chatTimer = setInterval(pollChat, 2000);
