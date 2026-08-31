@@ -1,8 +1,12 @@
 import turso_db as aiosqlite
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import DB_PATH, STATUS_NORMAL, ROLE_PISHVA, PISHVA_ID
+
+# درخواست‌های بازی شطرنجی که طرف مقابل بعد از این مدت به آن‌ها پاسخ نداده باشد،
+# دیگر «در انتظار پاسخ» حساب نمی‌شوند و مانع ارسال درخواست جدید نمی‌شوند.
+CHESS_REQUEST_EXPIRY_MINUTES = 30
 
 logger = logging.getLogger(__name__)
 
@@ -1559,13 +1563,50 @@ async def set_chess_request_status(req_id: int, status: str):
 
 
 async def has_pending_chess_request(requester_id: int, target_id: int) -> bool:
+    """
+    باگ قبلی: اگر طرف مقابل هیچ‌وقت به یک درخواست پاسخ نمی‌داد (نه قبول نه رد)،
+    آن ردیف برای همیشه status='pending' می‌ماند و کاربر تا ابد نمی‌توانست درخواست
+    جدیدی بفرستد؛ پیام «درخواست قبلی هنوز در انتظار پاسخ است» نشان داده می‌شد
+    درحالی‌که از نظر کاربر اصلاً بازی/درخواستی در جریان نبود.
+    الان درخواست‌های خیلی قدیمی (بیشتر از CHESS_REQUEST_EXPIRY_MINUTES دقیقه)
+    به‌صورت خودکار منقضی می‌شوند و دیگر مانع ارسال درخواست تازه نیستند.
+    """
     async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT id FROM chess_requests WHERE requester_id=? AND target_id=? AND status='pending'",
+            "SELECT id, created_at FROM chess_requests WHERE requester_id=? AND target_id=? AND status='pending'",
             (requester_id, target_id)
         ) as cur:
             row = await cur.fetchone()
-            return row is not None
+        if row is None:
+            return False
+
+        cutoff = (datetime.now() - timedelta(minutes=CHESS_REQUEST_EXPIRY_MINUTES)).isoformat()
+        created_at = row["created_at"]
+        if created_at and created_at < cutoff:
+            now = datetime.now().isoformat()
+            await db.execute(
+                "UPDATE chess_requests SET status='expired', responded_at=? WHERE id=?",
+                (now, row["id"])
+            )
+            await db.commit()
+            return False
+        return True
+
+
+async def expire_other_chess_requests(user_a: int, user_b: int, exclude_req_id: int):
+    """وقتی بین دو نفر بازی‌ای ساخته می‌شود (یا دیگر لازم نیست)، هر درخواست
+    pending دیگری بین همین دو نفر (در هر دو جهت) را منقضی می‌کند تا برای
+    همیشه به‌صورت یتیم روی «در انتظار پاسخ» باقی نماند."""
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """UPDATE chess_requests SET status='expired', responded_at=?
+               WHERE status='pending' AND id!=?
+                 AND ((requester_id=? AND target_id=?) OR (requester_id=? AND target_id=?))""",
+            (now, exclude_req_id, user_a, user_b, user_b, user_a)
+        )
+        await db.commit()
 
 
 async def create_chess_game(token, white_id, black_id, white_name, black_name, fen, time_control=300):

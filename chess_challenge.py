@@ -291,10 +291,26 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
         return
 
+    requester_id = req["requester_id"]
+
+    # جلوگیری از باگ «بعد از تمومِ یه بازی، هنوز میشه وارد بازی قبلی شد»:
+    # اگر یکی از دو طرف از قبل یک بازی فعال دیگر داشته باشد (مثلاً همزمان چند
+    # درخواست قبول شده)، دو ردیف active در chess_games ساخته می‌شد و
+    # get_active_chess_game_for گاهی بازیِ قدیمی و تمام‌نشده را برمی‌گرداند.
+    # پس قبل از ساخت بازی جدید، فعال نبودنِ بازی برای هر دو طرف را می‌سنجیم.
+    if await db.get_active_chess_game_for(uid):
+        await query.answer("شما یک بازی فعال دیگر دارید؛ ابتدا آن را تمام کنید.", show_alert=True)
+        return
+    if await db.get_active_chess_game_for(requester_id):
+        await query.answer("درخواست‌دهنده در حال حاضر یک بازی فعال دیگر دارد.", show_alert=True)
+        return
+
     await query.answer()
     await db.set_chess_request_status(req_id, "accepted")
+    # هر درخواست pending دیگری بین همین دو نفر (در هر دو جهت) دیگر معنا ندارد؛
+    # منقضی‌اش می‌کنیم تا برای همیشه به‌عنوان «در انتظار پاسخ» گیر نکند.
+    await db.expire_other_chess_requests(requester_id, uid, req_id)
 
-    requester_id = req["requester_id"]
     requester_name = await _display_name(requester_id)
     accepter_name = await _display_name(uid)
     time_control = req["time_control"] or 300
