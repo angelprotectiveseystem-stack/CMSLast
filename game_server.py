@@ -18,9 +18,23 @@ import chess as pychess
 from aiohttp import web
 
 import database as db
-from config import BOT_TOKEN, WEBAPP_PORT
+from config import BOT_TOKEN, WEBAPP_PORT, PISHVA_ID
 
 logger = logging.getLogger(__name__)
+
+LIVE_CHESS_LOCKED_MSG = "شطرنج زنده در حال حاضر غیرفعال است."
+
+
+async def _game_locked_for_viewing(game) -> bool:
+    """قفل شطرنج زنده برای درخواست‌های بدون احراز هویت (مثل /api/state):
+    در وضعیت خطرناک/APS برای همه (حتی مدیر ارشد) قفل است؛ سوییچ دستیِ
+    مدیر ارشد هم قفل می‌کند مگر این‌که خودِ مدیر ارشد یکی از دو بازیکن باشد."""
+    if await db.is_chess_locked_by_status():
+        return True
+    if await db.is_chess_admin_switch_off():
+        if PISHVA_ID not in (game["white_id"], game["black_id"]):
+            return True
+    return False
 
 WEBAPP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webapp")
 INIT_DATA_MAX_AGE = 24 * 3600  # ثانیه
@@ -154,6 +168,8 @@ async def api_state(request):
     game = await db.get_chess_game(token) if token else None
     if not game:
         return web.json_response({"ok": False, "error": "بازی پیدا نشد یا منقضی شده است."})
+    if await _game_locked_for_viewing(game):
+        return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
     viewer_id = request.query.get("uid")
     game = _apply_clock_decay(game)
     if game["status"] == "active":
@@ -183,6 +199,8 @@ async def api_move(request):
         return web.json_response({"ok": False, "error": "احراز هویت ناموفق بود."})
     if user_id not in (game["white_id"], game["black_id"]):
         return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
+    if not await db.can_use_live_chess(user_id):
+        return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
 
     game = _apply_clock_decay(game)
     board = pychess.Board(game["fen"])
@@ -230,6 +248,8 @@ async def api_resign(request):
         return web.json_response({"ok": False, "error": "بازی فعالی یافت نشد."})
     if user_id not in (game["white_id"], game["black_id"]):
         return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
+    if not await db.can_use_live_chess(user_id):
+        return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
     winner = game["black_id"] if user_id == game["white_id"] else game["white_id"]
     await _finish_with_elo(token, "resigned", game, winner)
     fresh = await db.get_chess_game(token)
@@ -246,6 +266,8 @@ async def api_draw_offer(request):
         return web.json_response({"ok": False})
     if user_id not in (game["white_id"], game["black_id"]):
         return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
+    if not await db.can_use_live_chess(user_id):
+        return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
     await db.set_chess_draw_offer(token, user_id)
     fresh = await db.get_chess_game(token)
     return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
@@ -264,6 +286,8 @@ async def api_draw_response(request):
         return web.json_response({"ok": False, "error": "بازی فعالی یافت نشد."})
     if user_id not in (game["white_id"], game["black_id"]):
         return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
+    if not await db.can_use_live_chess(user_id):
+        return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
     offerer = game["draw_offer_by"]
     if not offerer or offerer == user_id:
         return web.json_response({"ok": False, "error": "پیشنهاد تساوی معتبری برای پاسخ وجود ندارد."})
@@ -298,6 +322,8 @@ async def api_chat_send(request):
         return web.json_response({"ok": False, "error": "بازی پیدا نشد."})
     if user_id is None:
         return web.json_response({"ok": False, "error": "احراز هویت ناموفق بود."})
+    if not await db.can_use_live_chess(user_id):
+        return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
 
     text = (body.get("text") or "").strip()
     if not text:

@@ -22,6 +22,30 @@ logger = logging.getLogger(__name__)
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
+async def _chess_block_reason(uid: int) -> str:
+    """اگر شطرنج زنده برای این کاربر مسدود باشد، متن پیام مناسب را برمی‌گرداند؛
+    در غیر این صورت رشته‌ی خالی (یعنی مجاز است)."""
+    if await db.is_chess_locked_by_status():
+        return (
+            f"{box('♟️ شطرنج زنده غیرفعال است')}\n\n"
+            "🔴 به‌دلیل وضعیت امنیتی فعلی سیستم (خطرناک/APS)، این بخش به‌طور کامل از کار افتاده است.\n"
+            "به‌محض بازگشت وضعیت به «بد» یا «نرمال»، دوباره در دسترس قرار می‌گیرد."
+        )
+    if uid == PISHVA_ID:
+        return ""
+    if await db.is_chess_admin_switch_off():
+        return (
+            f"{box('♟️ شطرنج زنده غیرفعال است')}\n\n"
+            "⛔ این بخش در حال حاضر توسط مدیر ارشد خاموش شده است."
+        )
+    if not await db.can_use_live_chess(uid):
+        return (
+            f"{box('♟️ شطرنج زنده غیرفعال است')}\n\n"
+            "⛔ شما دسترسی استفاده از شطرنج زنده را ندارید. برای فعال‌سازی با مدیر ارشد در ارتباط باشید."
+        )
+    return ""
+
+
 async def _display_name(user_id: int) -> str:
     if user_id == PISHVA_ID:
         return await pishva_display()
@@ -45,8 +69,15 @@ async def _eligible_opponents(requester_id: int):
 
 async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     uid = query.from_user.id
+
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    await query.answer()
 
     active_game = await db.get_active_chess_game_for(uid)
     if active_game:
@@ -88,6 +119,12 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def chess_elo_board(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    uid = query.from_user.id
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
+        return
     await query.answer()
     from elo import ensure_chess_elo_table, get_chess_elo_leaderboard, get_elo_title
 
@@ -126,6 +163,11 @@ async def chess_pick_time(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = query.from_user.id
     target_id = int(query.data.split("_")[-1])
 
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
+        return
     if target_id == uid:
         await query.answer("نمی‌توانید به خودتان درخواست بدهید.", show_alert=True)
         return
@@ -154,6 +196,12 @@ async def chess_pick_time(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def chess_pick_color(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """قدم دوم: میزبان رنگ مهره‌های خودش را انتخاب می‌کند."""
     query = update.callback_query
+    uid = query.from_user.id
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
+        return
     await query.answer()
     _, _, target_id, secs = query.data.split("_")
     rows = [
@@ -178,6 +226,12 @@ async def chess_send_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if target_id == uid:
         await query.answer("نمی‌توانید به خودتان درخواست بدهید.", show_alert=True)
+        return
+
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
         return
 
     if await db.has_pending_chess_request(uid, target_id):
@@ -229,6 +283,12 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if not req or req["status"] != "pending" or req["target_id"] != uid:
         await query.answer("این درخواست دیگر معتبر نیست.", show_alert=True)
+        return
+
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
         return
 
     await query.answer()

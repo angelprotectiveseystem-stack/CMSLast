@@ -312,6 +312,7 @@ def kb_pishva_settings_simple(settings):
         [InlineKeyboardButton(f"👤 مدیران سازنده تیم {tog('managers_can_create_teams')}", callback_data="setting_mgr_team")],
         [InlineKeyboardButton(f"📊 داشبورد ادمین‌ها {tog('admin_dashboard_enabled')}", callback_data="setting_admin_dashboard")],
         [InlineKeyboardButton(f"🤖 هوش مصنوعی {tog('ai_online')}", callback_data="setting_ai_online")],
+        [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('live_chess_enabled')}", callback_data="setting_live_chess")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
 
@@ -429,6 +430,7 @@ def kb_admin_permissions(tid, perms):
         [InlineKeyboardButton(f"✏️ ویرایش مسابقه {tog('edit_delete_match')}", callback_data=f"perm_{tid}_edit_delete_match"),
         InlineKeyboardButton(f"📡 مخابرات {tog('communications')}", callback_data=f"perm_{tid}_communications")],
         [InlineKeyboardButton(f"🤖 دسترسی هوش مصنوعی {tog('ai_access')}", callback_data=f"perm_{tid}_ai_access")],
+        [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('chess_access')}", callback_data=f"perm_{tid}_chess_access")],
         [InlineKeyboardButton("✅ ذخیره و بازگشت", callback_data=f"admin_view_{tid}")],
     ])
 

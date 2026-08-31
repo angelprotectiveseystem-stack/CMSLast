@@ -2,7 +2,7 @@ import turso_db as aiosqlite
 import json
 import logging
 from datetime import datetime
-from config import DB_PATH, STATUS_NORMAL, ROLE_PISHVA
+from config import DB_PATH, STATUS_NORMAL, ROLE_PISHVA, PISHVA_ID
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +295,7 @@ async def init_db():
             "announcement_group_id": "",
             "bot_update_mode": "0",
             "ai_online": "1",
+            "live_chess_enabled": "1",
         }
         for k, v in defaults.items():
             await db.execute(
@@ -352,6 +353,7 @@ async def create_admin(telegram_id, username, full_name, role):
         "direct_ban": False, "assign_task": False, "report": True,
         "bot_active": True, "settings_access": False, "senior_admin": False,
         "edit_delete_match": True, "communications": True, "ai_access": True,
+        "chess_access": True,
     })
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -392,6 +394,41 @@ async def set_admin_permission(telegram_id: int, perm: str, value: bool):
         await db.execute("UPDATE admins SET permissions=? WHERE telegram_id=?",
                           (json.dumps(perms), telegram_id))
         await db.commit()
+
+
+# ─── شطرنج زنده — قفل امنیتی و سوییچ دستی ──────────────────────
+async def is_chess_locked_by_status() -> bool:
+    """در وضعیت خطرناک یا APS، شطرنج زنده برای همه — حتی مدیر ارشد — کاملاً
+    قفل می‌شود و تا برگشتن وضعیت به «بد» یا «نرمال» دوباره فعال نمی‌شود."""
+    status = await get_setting("system_status", STATUS_NORMAL)
+    return status in ("danger", "aps")
+
+
+async def is_chess_admin_switch_off() -> bool:
+    """سوییچ دستیِ مدیر ارشد از پنل تنظیمات (روشن/خاموش شطرنج زنده)؛
+    فقط روی مدیران عادی اثر دارد، نه خود مدیر ارشد."""
+    return (await get_setting("live_chess_enabled", "1")) != "1"
+
+
+async def can_use_live_chess(telegram_id: int) -> bool:
+    """قفل نهایی و ترکیبی شطرنج زنده برای یک کاربر مشخص:
+    ۱) وضعیت خطرناک/APS → برای همه (حتی مدیر ارشد) قفل.
+    ۲) سوییچ دستی مدیر ارشد → فقط مدیران عادی را قفل می‌کند.
+    ۳) دسترسی اختصاصی هر مدیر (chess_access) در پرمیشن‌های شخصی‌اش."""
+    if await is_chess_locked_by_status():
+        return False
+    if telegram_id == PISHVA_ID:
+        return True
+    if await is_chess_admin_switch_off():
+        return False
+    admin = await get_admin(telegram_id)
+    if not admin:
+        return False
+    try:
+        perms = json.loads(admin["permissions"])
+    except Exception:
+        perms = {}
+    return perms.get("chess_access", True)
 
 
 async def update_admin_display_name(telegram_id: int, name: str):
