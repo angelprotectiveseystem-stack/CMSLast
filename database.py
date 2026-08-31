@@ -361,11 +361,12 @@ async def update_admin_display_name(telegram_id: int, name: str):
 async def add_admin_warning(telegram_id: int, reason: str, issued_by: int):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE admins SET warnings=warnings+1 WHERE telegram_id=?", (telegram_id,))
-        await db.execute(
-            "INSERT INTO warnings_log(target_type,target_id,reason,issued_by,issued_at) VALUES (?,?,?,?,?)",
-            ("admin", telegram_id, reason, issued_by, now)
-        )
+        async with db.batch():
+            await db.execute("UPDATE admins SET warnings=warnings+1 WHERE telegram_id=?", (telegram_id,))
+            await db.execute(
+                "INSERT INTO warnings_log(target_type,target_id,reason,issued_by,issued_at) VALUES (?,?,?,?,?)",
+                ("admin", telegram_id, reason, issued_by, now)
+            )
         await db.commit()
 
 
@@ -491,11 +492,12 @@ async def update_player(player_id: int, **kwargs):
 async def add_player_warning(player_id: int, reason: str, issued_by: int):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE players SET warnings=warnings+1 WHERE id=?", (player_id,))
-        await db.execute(
-            "INSERT INTO warnings_log(target_type,target_id,reason,issued_by,issued_at) VALUES (?,?,?,?,?)",
-            ("player", player_id, reason, issued_by, now)
-        )
+        async with db.batch():
+            await db.execute("UPDATE players SET warnings=warnings+1 WHERE id=?", (player_id,))
+            await db.execute(
+                "INSERT INTO warnings_log(target_type,target_id,reason,issued_by,issued_at) VALUES (?,?,?,?,?)",
+                ("player", player_id, reason, issued_by, now)
+            )
         await db.commit()
 
 
@@ -575,8 +577,9 @@ async def update_tournament(tid: int, **kwargs):
 
 async def set_default_tournament(tid: int):
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE tournaments SET is_default=0")
-        await db.execute("UPDATE tournaments SET is_default=1 WHERE id=?", (tid,))
+        async with db.batch():
+            await db.execute("UPDATE tournaments SET is_default=0")
+            await db.execute("UPDATE tournaments SET is_default=1 WHERE id=?", (tid,))
         await db.commit()
 
 
@@ -1141,11 +1144,12 @@ async def delete_team(team_id: int):
 async def add_team_warning(team_id: int, reason: str, issued_by: int):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE teams SET warnings=warnings+1 WHERE id=?", (team_id,))
-        await db.execute(
-            "INSERT INTO warnings_log(target_type,target_id,reason,issued_by,issued_at) VALUES (?,?,?,?,?)",
-            ("team", team_id, reason, issued_by, now)
-        )
+        async with db.batch():
+            await db.execute("UPDATE teams SET warnings=warnings+1 WHERE id=?", (team_id,))
+            await db.execute(
+                "INSERT INTO warnings_log(target_type,target_id,reason,issued_by,issued_at) VALUES (?,?,?,?,?)",
+                ("team", team_id, reason, issued_by, now)
+            )
         await db.commit()
 
 
@@ -1378,11 +1382,12 @@ async def ai_create_session(user_id: int, role: str) -> int:
 async def ai_add_message(session_id: int, sender: str, text: str):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO ai_chat_messages(session_id,sender,text,sent_at) VALUES (?,?,?,?)",
-            (session_id, sender, text, now)
-        )
-        await db.execute("UPDATE ai_chat_sessions SET last_message_at=? WHERE id=?", (now, session_id))
+        async with db.batch():
+            await db.execute(
+                "INSERT INTO ai_chat_messages(session_id,sender,text,sent_at) VALUES (?,?,?,?)",
+                (session_id, sender, text, now)
+            )
+            await db.execute("UPDATE ai_chat_sessions SET last_message_at=? WHERE id=?", (now, session_id))
         await db.commit()
 
 

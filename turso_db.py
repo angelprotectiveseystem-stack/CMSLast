@@ -25,9 +25,11 @@ def _get_client():
                 "متغیرهای TURSO_URL و TURSO_AUTH_TOKEN تنظیم نشدن. "
                 "این‌ها باید در Railway -> Variables اضافه شده باشن."
             )
-        # به جای پروتکل وب‌سوکت (libsql:// / wss://) از HTTP ساده استفاده می‌کنیم،
-        # چون بعضی هاست‌ها مثل Railway با هندشیک وب‌سوکت به Turso مشکل دارن.
-        if url.startswith("libsql://"):
+        # با وب‌سوکت (libsql://) یک اتصال باز باقی می‌مونه و همه کوئری‌ها روش رد می‌شن
+        # که خیلی سریع‌تر از HTTP هست (هر کوئری با HTTP یعنی یک هندشیک TLS جدید).
+        # می‌تونی با متغیر محیطی TURSO_FORCE_HTTP=1 به حالت قبلی (HTTP) برگردی
+        # اگه هاست مشکل هندشیک وب‌سوکت داشت.
+        if os.getenv("TURSO_FORCE_HTTP") == "1" and url.startswith("libsql://"):
             url = "https://" + url[len("libsql://"):]
         _client = create_client(url=url, auth_token=token)
     return _client
@@ -137,12 +139,43 @@ class _ExecuteAwaitable:
         return False
 
 
+class _NoopAwaitable:
+    """داخل یک batch برگردونده می‌شه چون کوئری واقعی هنوز اجرا نشده
+    (تا پایان بلاک batch صف می‌مونه). await کردنش فقط یک cursor خالی می‌ده."""
+
+    async def _run(self):
+        return _Cursor(type("R", (), {"columns": [], "rows": [], "last_insert_rowid": None})())
+
+    def __await__(self):
+        return self._run().__await__()
+
+    async def __aenter__(self):
+        return await self._run()
+
+    async def __aexit__(self, *exc):
+        return False
+
+
 class _Connection:
     def __init__(self):
         self.row_factory = None  # نادیده گرفته میشه، همیشه فعاله
+        self._batch_stmts = None  # وقتی None نیست یعنی داخل یک batch هستیم
 
     def execute(self, query, params=None):
+        if self._batch_stmts is not None:
+            # داخل یک batch: به‌جای رفتن به شبکه، فقط صف می‌کنیم.
+            # نتیجه‌ای برای برگردوندن نیست (batch فقط برای نوشتن‌هاست).
+            self._batch_stmts.append((query, params))
+            return _NoopAwaitable()
         return _ExecuteAwaitable(query, params)
+
+    def batch(self):
+        """استفاده: async with conn.batch(): چند تا execute پشت‌سرهم.
+        همه‌ی کوئری‌ها با یک درخواست شبکه (نه یکی‌یکی) اجرا می‌شن.
+        نکته: نتیجه‌ی هر execute داخل بلاک batch در دسترس نیست، چون
+        همه با هم در انتهای بلاک اجرا می‌شن. برای کوئری‌هایی که فقط
+        نوشتن هستن (insert/update/delete) استفاده کن، نه select."""
+        return _BatchCM(self)
 
     async def executescript(self, script):
         client = _get_client()
@@ -155,6 +188,29 @@ class _Connection:
 
     async def close(self):
         pass
+
+
+class _BatchCM:
+    def __init__(self, conn):
+        self._conn = conn
+
+    async def __aenter__(self):
+        self._conn._batch_stmts = []
+        return self._conn
+
+    async def __aexit__(self, exc_type, exc, tb):
+        stmts = self._conn._batch_stmts
+        self._conn._batch_stmts = None
+        if exc_type is not None or not stmts:
+            return False  # خطا شد یا چیزی صف نشده، چیزی رو اجرا نکن
+        client = _get_client()
+        import libsql_client
+        batch_items = [
+            libsql_client.Statement(q, list(p) if p is not None else [])
+            for q, p in stmts
+        ]
+        await client.batch(batch_items)
+        return False
 
 
 class _ConnectCM:
