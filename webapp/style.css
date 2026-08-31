@@ -194,13 +194,13 @@ html,body{
   line-height: 1;
   cursor:grab;
   position:absolute; inset:0; margin:auto; z-index:2;
-  transition: filter .15s ease;
-  filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
+  transition: text-shadow .15s ease;
+  text-shadow: 0 2px 3px rgba(0,0,0,.5);
 }
 .piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }
 .piece.black-p{ color: var(--piece-black); -webkit-text-stroke: .5px var(--piece-black-stroke); }
 .piece.dragging{ transform: scale(1.18); z-index:20; cursor:grabbing; }
-.piece.moving{ z-index:15; }
+.piece.moving{ z-index:15; will-change: transform; }
 .piece.captured-anim{ animation: capturepop .25s ease forwards; }
 @keyframes capturepop{ to{ transform: scale(0); opacity:0; } }
 .piece.landed{ animation: land .22s ease; }

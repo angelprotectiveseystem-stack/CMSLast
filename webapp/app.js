@@ -42,7 +42,8 @@ var state = {
   drawOfferBy: null,
   drawModalShown: false,
   animating: false,
-  activeAnims: []
+  activeAnims: [],
+  pendingAnimFrame: null
 };
 
 // ─── Board sizing ───────────────────────────────────────────
@@ -168,6 +169,10 @@ function buildBoard(){
 //    هرگز صف نمی‌شوند — سکته‌ی ناشی از تاخیر یا هم‌پوشانی دو انیمیشن
 //    از ریشه حذف می‌شود.
 function settleActiveAnimations(){
+  if(state.pendingAnimFrame){
+    cancelAnimationFrame(state.pendingAnimFrame);
+    state.pendingAnimFrame = null;
+  }
   var anims = state.activeAnims;
   state.activeAnims = [];
   anims.forEach(function(a){
@@ -284,45 +289,58 @@ function renderPieces(animateFrom, animateTo){
   // که همین الان بعد از appendChild گرفته می‌شود). این عدد فیزیکی است
   // و به rtl/ltr، چرخش تخته، یا گرد شدن اعشاری اندازه‌ی خانه‌ها کاری
   // ندارد؛ پس مهره همیشه دقیقاً در مسیر واقعی‌اش حرکت می‌کند.
+  //
+  // شروعِ خودِ انیمیشن (اندازه‌گیری rect + فراخوانی animate) را به
+  // یک requestAnimationFrame تازه موکول می‌کنیم. تا این نقطه، همین
+  // تابع رندر (که ممکن است پشت‌سرش renderCaptured/renderHistory و
+  // شروع درخواست شبکه هم صدا زده شوند — همه در یک تسک synchronous)
+  // مقداری کار روی ترد اصلی انجام داده؛ اگر animate() درست وسط همین
+  // تسک صدا زده شود، مرورگر گاهی اولین فریم(های) حرکت را از دست
+  // می‌دهد و نتیجه دقیقاً همان «تیکه‌تیکه پخش شدن» است. با موکول‌کردن
+  // به rAF، انیمیشن درست سر مرز فریم بعدی و با یک صفحه‌ی تازه شروع
+  // می‌شود.
   if(moves.length){
     state.animating = true;
-    moves.forEach(function(m){
-      var toRect = state.boardEls[m.toSq].getBoundingClientRect();
-      if(!m.fromRect) return;
-      var dx = m.fromRect.left - toRect.left;
-      var dy = m.fromRect.top - toRect.top;
-      if(!dx && !dy) return;
-      var dist = Math.sqrt(dx*dx + dy*dy);
-      // مدت‌زمان بلندتر و ثابت‌تر، شبیه chess.com: حرکت یک‌خانه‌ای هم
-      // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند، نه
-      // یک ومضه‌ی چندفریمی که روی موبایل/WebView به‌نظر لگ می‌رسد.
-      var dur = Math.max(260, Math.min(420, 220 + dist * 0.35));
-      m.el.style.zIndex = "5";
-      if(typeof m.el.animate !== "function"){
-        m.el.style.zIndex = "";
-        return;
-      }
-      var anim = m.el.animate(
-        [
-          { transform: "translate(" + dx + "px," + dy + "px)" },
-          { transform: "translate(0px,0px)" }
-        ],
-        { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)", fill: "forwards" }
-      );
-      state.activeAnims.push(anim);
-      var done = function(){
-        var i = state.activeAnims.indexOf(anim);
-        if(i >= 0) state.activeAnims.splice(i, 1);
-        m.el.style.zIndex = "";
-        if(!state.activeAnims.length){
-          state.animating = false;
-          sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
+    moves.forEach(function(m){ m.el.classList.add("moving"); });
+    state.pendingAnimFrame = requestAnimationFrame(function(){
+      state.pendingAnimFrame = null;
+      moves.forEach(function(m){
+        var toRect = state.boardEls[m.toSq].getBoundingClientRect();
+        if(!m.fromRect){ m.el.classList.remove("moving"); return; }
+        var dx = m.fromRect.left - toRect.left;
+        var dy = m.fromRect.top - toRect.top;
+        if(!dx && !dy){ m.el.classList.remove("moving"); return; }
+        var dist = Math.sqrt(dx*dx + dy*dy);
+        // مدت‌زمان بلندتر و ثابت‌تر، شبیه chess.com: حرکت یک‌خانه‌ای هم
+        // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند، نه
+        // یک ومضه‌ی چندفریمی که روی موبایل/WebView به‌نظر لگ می‌رسد.
+        var dur = Math.max(260, Math.min(420, 220 + dist * 0.35));
+        if(typeof m.el.animate !== "function"){
+          m.el.classList.remove("moving");
+          return;
         }
-      };
-      anim.onfinish = done;
-      anim.oncancel = done;
+        var anim = m.el.animate(
+          [
+            { transform: "translate(" + dx + "px," + dy + "px)" },
+            { transform: "translate(0px,0px)" }
+          ],
+          { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)", fill: "forwards" }
+        );
+        state.activeAnims.push(anim);
+        var done = function(){
+          var i = state.activeAnims.indexOf(anim);
+          if(i >= 0) state.activeAnims.splice(i, 1);
+          m.el.classList.remove("moving");
+          if(!state.activeAnims.length){
+            state.animating = false;
+            sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
+          }
+        };
+        anim.onfinish = done;
+        anim.oncancel = done;
+      });
+      if(!state.activeAnims.length) state.animating = false;
     });
-    if(!state.activeAnims.length) state.animating = false;
   }
 
   paintHighlights();
