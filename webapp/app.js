@@ -137,15 +137,29 @@ function buildBoard(){
   }
 }
 
+function squareToRowCol(sq){
+  // مختصات شبکه‌ی خانه (row, col) را از روی موقعیت واقعی‌اش در DOM
+  // برمی‌گرداند — این با توجه به state.boardEls (که با رعایت چرخش
+  // صفحه/flip ساخته شده) محاسبه می‌شود، پس چه بازیکن سفید باشد چه
+  // سیاه، جهت حرکت درست است.
+  var el = state.boardEls[sq];
+  if(!el || !el.parentNode) return null;
+  var idx = Array.prototype.indexOf.call(el.parentNode.children, el);
+  return { row: Math.floor(idx / 8), col: idx % 8 };
+}
+
 function renderPieces(animateFrom, animateTo){
-  // پیاده‌سازی به روش FLIP واقعی: به‌جای این‌که مهره‌ی مبدا را با «محو
-  // و کوچک‌شدن» حذف کنیم و هم‌زمان یک مهره‌ی تازه در مقصد با پرش وارد
-  // کنیم (که باعث می‌شد یک لحظه دو تصویر از مهره هم‌زمان دیده شود و
-  // حرکت به‌جای سُر خوردن، تکه‌تکه و لگ‌دار به‌نظر برسد)، همان المان
-  // DOM مهره را از خانه‌ی مبدا به مقصد منتقل می‌کنیم و با ترنسفورم آن
-  // را «سُر» می‌دهیم. تنها مهره‌هایی که واقعاً گرفته می‌شوند محو/کوچک
-  // می‌شوند؛ بقیه فقط جابه‌جا می‌شوند. این هم رخنه‌ی بصری را حذف می‌کند
-  // و هم با batch کردن خواندن/نوشتن‌های layout از افت فریم جلوگیری می‌کند.
+  // پیاده‌سازی FLIP سبک chess.com: مهره‌ی واقعی در DOM به خانه‌ی
+  // مقصدش منتقل می‌شود و بلافاصله با transform به مکان قبلی‌اش
+  // برگردانده می‌شود (بدون هیچ پرش/تغییر سایز)، سپس با یک انیمیشن
+  // خطی و کوتاه (فقط translate، بدون scale یا lift) به سمت صفر
+  // حرکت می‌کند — دقیقاً حسی که در chess.com هست: یک سُر خوردن صاف
+  // و سریع، بدون تاب خوردن یا بالا/پایین پریدن.
+  //
+  // فاصله بر اساس تعداد خانه‌ها (row/col delta) محاسبه می‌شود، نه
+  // pixel واقعی از getBoundingClientRect. این باعث می‌شود انیمیشن
+  // کاملاً مستقل از نوسانات لحظه‌ای layout (که منبع اصلی ناهمواری
+  // بود) و همیشه دقیقاً به اندازه‌ی N خانه جابه‌جا شود.
   var boardState = chess.board();
   var desired = {};
   for(var r=0;r<8;r++){
@@ -177,10 +191,9 @@ function renderPieces(animateFrom, animateTo){
 
   if(!vacated.length && !arrived.length){ paintHighlights(); return; }
 
-  // FIRST — قبل از هر تغییری در DOM، موقعیت فعلی مهره‌های جابه‌جاشونده
-  // را می‌خوانیم (یک‌جا، بدون نوشتن بین این خواندن‌ها تا reflow اضافه
-  // ایجاد نشود).
-  vacated.forEach(function(v){ v.rect = v.el.getBoundingClientRect(); });
+  // موقعیت شبکه‌ای (row/col) هر مهره‌ی جابه‌جاشونده را قبل از هر
+  // تغییری در DOM ثبت می‌کنیم.
+  vacated.forEach(function(v){ v.grid = squareToRowCol(v.sq); });
 
   function takeVacated(sq){
     for(var i=0;i<vacated.length;i++) if(vacated[i].sq === sq) return vacated.splice(i,1)[0];
@@ -201,7 +214,7 @@ function renderPieces(animateFrom, animateTo){
     var v0 = takeVacated(animateFrom);
     if(v0){
       var a0 = takeArrived(animateTo);
-      if(a0) moves.push({ el: v0.el, toSq: a0.sq, toType: a0.type, fromRect: v0.rect });
+      if(a0) moves.push({ el: v0.el, toSq: a0.sq, toType: a0.type, fromGrid: v0.grid });
       else vacated.push(v0); // مقصد تغییر نکرده؛ احتمالاً همگام‌سازی عجیب — بگذار به مرحله‌ی بعد برود
     }
   }
@@ -211,12 +224,14 @@ function renderPieces(animateFrom, animateTo){
     var a = takeArrivedByType(v.type, v.color);
     if(a){
       takeVacated(v.sq);
-      moves.push({ el: v.el, toSq: a.sq, toType: a.type, fromRect: v.rect });
+      moves.push({ el: v.el, toSq: a.sq, toType: a.type, fromGrid: v.grid });
     }
   });
 
   // LAST — همان المان مهره را فیزیکی به خانه‌ی مقصد منتقل می‌کنیم
   moves.forEach(function(m){
+    var toGrid = squareToRowCol(m.toSq);
+    m.toGrid = toGrid;
     state.boardEls[m.toSq].appendChild(m.el);
     if(m.el.dataset.ptype !== m.toType){ // ترفیع: نوع مهره عوض شده
       m.el.textContent = PIECE_GLYPH[m.toType];
@@ -228,7 +243,7 @@ function renderPieces(animateFrom, animateTo){
   vacated.forEach(function(v){
     v.el.classList.add("captured-anim");
     (function(elToRemove){
-      setTimeout(function(){ if(elToRemove.parentNode) elToRemove.remove(); }, 260);
+      setTimeout(function(){ if(elToRemove.parentNode) elToRemove.remove(); }, 200);
     })(v.el);
   });
   // باقی‌مانده‌ی arrived یعنی مهره‌ی کاملاً تازه (بار اول لود صفحه، یا
@@ -243,9 +258,10 @@ function renderPieces(animateFrom, animateTo){
     state.boardEls[a.sq].appendChild(span);
   });
 
-  // INVERT + PLAY — یک فریم صبر می‌کنیم تا layout با موقعیت جدید هماهنگ
-  // شود (بدون فورس‌کردن reflow هم‌زمان)، بعد هر مهره را از موقعیت قبلی‌اش
-  // با ترنسفورم به موقعیت جدید «سر می‌دهیم».
+  // PLAY — بر اساس اختلاف row/col (نه pixel واقعی) مهره را به‌اندازه‌ی
+  // دقیق N خانه جابه‌جا می‌کنیم. چون سایز هر خانه از روی خودِ board-size
+  // متغیر CSS محاسبه می‌شود، این کار مستقل از هرگونه نوسان لحظه‌ای در
+  // layout بیرونی است.
   if(moves.length){
     state.animating = true;
     var pendingAnims = moves.length;
@@ -256,24 +272,46 @@ function renderPieces(animateFrom, animateTo){
         sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
       }
     }
-    requestAnimationFrame(function(){
-      moves.forEach(function(m){
-        var toRect = m.el.getBoundingClientRect();
-        var dx = m.fromRect.left - toRect.left;
-        var dy = m.fromRect.top - toRect.top;
-        if(!dx && !dy){ animDone(); return; }
-        var dist = Math.sqrt(dx*dx + dy*dy);
-        var dur = Math.max(140, Math.min(320, dist * 0.55));
-        var lift = Math.min(10, dist * 0.06);
-        m.el.style.willChange = "transform";
-        m.el.style.zIndex = "5";
-        var anim = m.el.animate([
-          { transform: "translate(" + dx + "px," + dy + "px) scale(1)" },
-          { transform: "translate(" + (dx*0.5) + "px," + (dy*0.5 - lift) + "px) scale(1.14)", offset: 0.55 },
-          { transform: "translate(0,0) scale(1)" }
-        ], { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)" });
-        anim.onfinish = anim.oncancel = function(){ m.el.style.willChange = ""; m.el.style.zIndex = ""; animDone(); };
+    var boardEl = $("board");
+    var squarePx = boardEl.clientWidth / 8;
+    moves.forEach(function(m){
+      if(!m.fromGrid || !m.toGrid){ animDone(); return; }
+      var dCol = m.fromGrid.col - m.toGrid.col;
+      var dRow = m.fromGrid.row - m.toGrid.row;
+      if(!dCol && !dRow){ animDone(); return; }
+      var dx = dCol * squarePx;
+      var dy = dRow * squarePx;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      // سرعت ثابت شبیه chess.com: مدت‌زمان متناسب با فاصله اما با یک
+      // سقف پایین (حرکت‌های طولانی هم زیاد کش نمی‌آیند) — بدون بالا
+      // رفتن (lift) یا بزرگ‌شدن (scale)، فقط یک سُر خوردن خطی-نرم.
+      var dur = Math.max(120, Math.min(230, dist * 0.42));
+      m.el.style.willChange = "transform";
+      m.el.style.zIndex = "5";
+      m.el.style.transform = "translate(" + dx + "px," + dy + "px)";
+      // فورس یک ری‌فلو کوچک تا مرورگر state شروع را با مقدار jump-شده
+      // ثبت کند، قبل از این‌که به سمت صفر انیمیت کنیم.
+      // eslint-disable-next-line no-unused-expressions
+      m.el.getBoundingClientRect();
+      m.el.style.transition = "transform " + dur + "ms cubic-bezier(.15,.35,.25,1)";
+      requestAnimationFrame(function(){
+        m.el.style.transform = "translate(0,0)";
       });
+      var finished = false;
+      function cleanup(){
+        if(finished) return;
+        finished = true;
+        m.el.style.transition = "";
+        m.el.style.transform = "";
+        m.el.style.willChange = "";
+        m.el.style.zIndex = "";
+        animDone();
+      }
+      m.el.addEventListener("transitionend", cleanup, { once: true });
+      // شبکه‌ی ایمنی: اگر به هر دلیلی transitionend فایر نشود (مثلاً
+      // المان قبل از پایان از DOM حذف شود)، بعد از مدت‌زمان مورد انتظار
+      // به‌هرحال cleanup را اجرا کن تا انیمیشن هیچ‌وقت گیر نکند.
+      setTimeout(cleanup, dur + 80);
     });
   }
 
