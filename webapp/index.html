@@ -14,7 +14,49 @@
 
   <div id="screen-loading" class="screen active">
     <div class="brand-mark">
-      <img src="assets/logo.png" alt="لوگو" class="brand-logo">
+      <svg viewBox="0 0 100 100" width="72" height="72" class="brand-svg">
+        <defs>
+          <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#f0cf8c"/>
+            <stop offset="100%" stop-color="#b9823f"/>
+          </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="100" height="100" rx="22" fill="#8a0f0f"/>
+        <!-- shield arc behind the king -->
+        <path d="M25,46 C25,28 33,16 50,10 C67,16 75,28 75,46" fill="none" stroke="url(#goldGrad)" stroke-width="4.2" stroke-linecap="round"/>
+        <!-- circuit lines: left -->
+        <g fill="none" stroke="url(#goldGrad)" stroke-width="2.6" stroke-linecap="round">
+          <path d="M8,45 L20,45 L27,52"/>
+          <path d="M6,56 L18,56 L25,63"/>
+          <path d="M9,67 L21,67 L28,74"/>
+        </g>
+        <g fill="#8a0f0f" stroke="url(#goldGrad)" stroke-width="2.4">
+          <circle cx="8" cy="45" r="3"/>
+          <circle cx="6" cy="56" r="3"/>
+          <circle cx="9" cy="67" r="3"/>
+        </g>
+        <!-- circuit lines: right (mirrored) -->
+        <g fill="none" stroke="url(#goldGrad)" stroke-width="2.6" stroke-linecap="round">
+          <path d="M92,45 L80,45 L73,52"/>
+          <path d="M94,56 L82,56 L75,63"/>
+          <path d="M91,67 L79,67 L72,74"/>
+        </g>
+        <g fill="#8a0f0f" stroke="url(#goldGrad)" stroke-width="2.4">
+          <circle cx="92" cy="45" r="3"/>
+          <circle cx="94" cy="56" r="3"/>
+          <circle cx="91" cy="67" r="3"/>
+        </g>
+        <!-- king piece -->
+        <g fill="url(#goldGrad)">
+          <rect x="47.3" y="20" width="5.4" height="11" rx="1.2"/>
+          <rect x="43" y="24.3" width="14" height="4" rx="1.2"/>
+          <ellipse cx="50" cy="38" rx="9.5" ry="8"/>
+          <rect x="45.5" y="44" width="9" height="7" rx="1.5"/>
+          <path d="M38,73 C38,60 42,53 50,51 C58,53 62,60 62,73 Z"/>
+          <rect x="34" y="73" width="32" height="7" rx="2"/>
+          <rect x="31" y="80" width="38" height="6" rx="2"/>
+        </g>
+      </svg>
     </div>
     <div class="loading-text">در حال اتصال به بازی...</div>
     <div class="spinner"></div>
