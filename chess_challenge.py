@@ -73,6 +73,7 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for opp_id, name in opponents:
         label = ("👑 " if opp_id == PISHVA_ID else "🎖️ ") + name
         rows.append([InlineKeyboardButton(label, callback_data=f"chess_req_{opp_id}")])
+    rows.append([InlineKeyboardButton("🏆 جدول Elo شطرنج زنده", callback_data="chess_elo_board")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")])
 
     await safe_edit_message_text(
@@ -81,6 +82,30 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "با یکی از مدیران محترم یا مدیر ارشد وارد یک بازی شطرنج زنده شوید.\n"
         "حریف خود را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def chess_elo_board(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    from elo import ensure_chess_elo_table, get_chess_elo_leaderboard, get_elo_title
+
+    await ensure_chess_elo_table()
+    rows = await get_chess_elo_leaderboard(15)
+    if not rows:
+        text = f"{box('🏆 جدول Elo شطرنج زنده')}\n\nهنوز هیچ بازی‌ای ثبت نشده است."
+    else:
+        medals = ["🥇", "🥈", "🥉"]
+        lines = []
+        for i, r in enumerate(rows):
+            medal = medals[i] if i < 3 else f"{i + 1}."
+            lines.append(f"{medal} {r['display_name']} — `{int(r['rating'])}` ({get_elo_title(r['rating'])})")
+        text = f"{box('🏆 جدول Elo شطرنج زنده')}\n\n" + "\n".join(lines)
+
+    await safe_edit_message_text(
+        query, text,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="chess_menu")]]),
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -247,6 +272,36 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception:
         logger.exception("Failed to notify requester %s", requester_id)
 
+    await _announce_game_to_others(ctx, requester_id, uid, white_name, black_name, token)
+
+
+async def _announce_game_to_others(ctx, player1_id, player2_id, white_name, black_name, token):
+    """به بقیه‌ی مدیران (و پیشوا، در صورتی که خودش بازیکن نباشد) خبر می‌دهد که
+    یک بازی شطرنج زنده در جریان است و امکان تماشا و ارسال پیام را می‌دهد."""
+    notify_ids = set()
+    if player1_id != PISHVA_ID and player2_id != PISHVA_ID:
+        notify_ids.add(PISHVA_ID)
+    admins = await db.get_active_admins()
+    for a in admins:
+        tid = a["telegram_id"]
+        if tid not in (player1_id, player2_id):
+            notify_ids.add(tid)
+
+    if not notify_ids:
+        return
+    text = (
+        f"{box('♟️ یک بازی شطرنج زنده در جریان است')}\n\n"
+        f"⚪ {white_name}  در مقابل  ⚫ {black_name}\n\n"
+        "می‌توانید بازی را زنده تماشا کنید و حتی در گفتگوی آن پیام بدهید."
+    )
+    for tid in notify_ids:
+        try:
+            await ctx.bot.send_message(
+                chat_id=tid, text=text, reply_markup=_kb_spectate(token), parse_mode=ParseMode.MARKDOWN,
+            )
+        except Exception:
+            logger.exception("Failed to notify %s about ongoing chess game", tid)
+
 
 async def chess_decline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -286,6 +341,15 @@ def _kb_play(token: str) -> InlineKeyboardMarkup:
 
 def _kb_resume(token: str) -> InlineKeyboardMarkup:
     return _kb_play(token)
+
+
+def _kb_spectate(token: str) -> InlineKeyboardMarkup:
+    if not WEBAPP_URL:
+        return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
+    url = f"{WEBAPP_URL}/webapp/?token={token}"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("👁 تماشای بازی", web_app=WebAppInfo(url=url))],
+    ])
 
 
 def _kb_back() -> InlineKeyboardMarkup:

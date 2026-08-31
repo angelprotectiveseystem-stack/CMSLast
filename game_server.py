@@ -66,6 +66,7 @@ async def _resolve_user_id(request_json):
 
 
 def _game_to_state(game, viewer_id):
+    pgn = game["pgn"] or ""
     return {
         "fen": game["fen"],
         "status": game["status"],
@@ -80,8 +81,29 @@ def _game_to_state(game, viewer_id):
             {"from": game["last_move_from"], "to": game["last_move_to"]}
             if game["last_move_from"] else None
         ),
+        "moves": pgn.split(",") if pgn else [],
+        "draw_offer_by": game["draw_offer_by"],
+        "white_elo_change": game["white_elo_change"],
+        "black_elo_change": game["black_elo_change"],
         "you_id": viewer_id,
     }
+
+
+async def _finish_with_elo(token, status, game, winner_id):
+    """بازی را با محاسبه‌ی تغییر امتیاز Elo هر دو مدیر تمام می‌کند."""
+    result = "draw" if winner_id is None else (
+        "white" if winner_id == game["white_id"] else "black"
+    )
+    chg_w = chg_b = None
+    try:
+        from elo import ensure_chess_elo_table, update_chess_elo_after_game
+        await ensure_chess_elo_table()
+        _, _, chg_w, chg_b = await update_chess_elo_after_game(
+            game["white_id"], game["white_name"], game["black_id"], game["black_name"], result
+        )
+    except Exception:
+        logger.exception("Chess Elo update failed for game %s", token)
+    await db.finish_chess_game(token, status, winner_id, chg_w, chg_b)
 
 
 def _apply_clock_decay(game):
@@ -141,7 +163,7 @@ async def api_state(request):
         elif game["black_time"] <= 0:
             loser, winner = game["black_id"], game["white_id"]
         if loser:
-            await db.finish_chess_game(token, "timeout", winner)
+            await _finish_with_elo(token, "timeout", game, winner)
             game["status"] = "timeout"
             game["winner_id"] = winner
     return web.json_response({"ok": True, "state": _game_to_state(game, viewer_id)})
@@ -178,6 +200,7 @@ async def api_move(request):
     if move not in board.legal_moves:
         return web.json_response({"ok": False, "error": "حرکت غیرمجاز است."})
 
+    san = board.san(move)
     board.push(move)
     status, winner = "active", None
     if board.is_checkmate():
@@ -187,11 +210,11 @@ async def api_move(request):
         status = "draw"
 
     await db.update_chess_game_move(
-        token, board.fen(), "", frm, to,
+        token, board.fen(), san, frm, to,
         game["white_time"], game["black_time"]
     )
     if status != "active":
-        await db.finish_chess_game(token, status, winner)
+        await _finish_with_elo(token, status, game, winner)
 
     fresh = await db.get_chess_game(token)
     return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
@@ -208,7 +231,7 @@ async def api_resign(request):
     if user_id not in (game["white_id"], game["black_id"]):
         return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
     winner = game["black_id"] if user_id == game["white_id"] else game["white_id"]
-    await db.finish_chess_game(token, "resigned", winner)
+    await _finish_with_elo(token, "resigned", game, winner)
     fresh = await db.get_chess_game(token)
     return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
 
@@ -221,8 +244,36 @@ async def api_draw_offer(request):
     game = await db.get_chess_game(token) if token else None
     if not game or game["status"] != "active":
         return web.json_response({"ok": False})
+    if user_id not in (game["white_id"], game["black_id"]):
+        return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
     await db.set_chess_draw_offer(token, user_id)
-    return web.json_response({"ok": True})
+    fresh = await db.get_chess_game(token)
+    return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
+
+
+@routes.post("/api/draw_response")
+async def api_draw_response(request):
+    """پاسخ به پیشنهاد تساوی: قبول یا رد. قبلاً این مسیر اصلاً وجود نداشت،
+    برای همین پیشنهاد تساوی ثبت می‌شد ولی هیچ‌وقت به نتیجه نمی‌رسید."""
+    body = await request.json()
+    token = body.get("token")
+    accept = bool(body.get("accept"))
+    user_id, _ = await _resolve_user_id(body)
+    game = await db.get_chess_game(token) if token else None
+    if not game or game["status"] != "active":
+        return web.json_response({"ok": False, "error": "بازی فعالی یافت نشد."})
+    if user_id not in (game["white_id"], game["black_id"]):
+        return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
+    offerer = game["draw_offer_by"]
+    if not offerer or offerer == user_id:
+        return web.json_response({"ok": False, "error": "پیشنهاد تساوی معتبری برای پاسخ وجود ندارد."})
+
+    if accept:
+        await _finish_with_elo(token, "draw", game, None)
+    else:
+        await db.clear_chess_draw_offer(token)
+    fresh = await db.get_chess_game(token)
+    return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
 
 
 @routes.post("/api/game_over")
@@ -247,8 +298,6 @@ async def api_chat_send(request):
         return web.json_response({"ok": False, "error": "بازی پیدا نشد."})
     if user_id is None:
         return web.json_response({"ok": False, "error": "احراز هویت ناموفق بود."})
-    if user_id not in (game["white_id"], game["black_id"]):
-        return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
 
     text = (body.get("text") or "").strip()
     if not text:
@@ -263,7 +312,12 @@ async def api_chat_send(request):
         return web.json_response({"ok": False, "error": "کمی آرام‌تر ✋"})
     bucket[user_id] = now
 
-    sender_name = game["white_name"] if user_id == game["white_id"] else game["black_name"]
+    if user_id == game["white_id"]:
+        sender_name = game["white_name"]
+    elif user_id == game["black_id"]:
+        sender_name = game["black_name"]
+    else:
+        sender_name = f"👁 {fallback_name}" if fallback_name else "👁 تماشاگر"
     msg_id = await db.add_chess_chat_message(token, user_id, sender_name, text)
     return web.json_response({"ok": True, "id": msg_id})
 
