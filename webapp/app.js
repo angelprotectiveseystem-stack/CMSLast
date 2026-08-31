@@ -314,17 +314,21 @@ function renderPieces(animateFrom, animateTo){
         // مدت‌زمان بلندتر و ثابت‌تر، شبیه chess.com: حرکت یک‌خانه‌ای هم
         // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند، نه
         // یک ومضه‌ی چندفریمی که روی موبایل/WebView به‌نظر لگ می‌رسد.
-        var dur = Math.max(260, Math.min(420, 220 + dist * 0.35));
+        // مقادیر کمی افزایش داده شده + منحنی easing نرم‌تر (expo-out) +
+        // یک «بلندشدن» ظریف وسط مسیر تا کل حرکت خیلی روان‌تر و باکیفیت‌تر
+        // به‌نظر برسد (شبیه اپ‌های حرفه‌ای شطرنج).
+        var dur = Math.max(300, Math.min(480, 250 + dist * 0.4));
         if(typeof m.el.animate !== "function"){
           m.el.classList.remove("moving");
           return;
         }
         var anim = m.el.animate(
           [
-            { transform: "translate(" + dx + "px," + dy + "px)" },
-            { transform: "translate(0px,0px)" }
+            { transform: "translate(" + dx + "px," + dy + "px) scale(1.05)" },
+            { transform: "translate(" + (dx*0.12) + "px," + (dy*0.12) + "px) scale(1.05)", offset: 0.82 },
+            { transform: "translate(0px,0px) scale(1)" }
           ],
-          { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)", fill: "forwards" }
+          { duration: dur, easing: "cubic-bezier(.19,1,.22,1)", fill: "forwards" }
         );
         state.activeAnims.push(anim);
         var done = function(){
@@ -730,34 +734,75 @@ function showGameOver(status, winnerId, whiteEloChange, blackEloChange){
 }
 
 function launchConfetti(){
+  // رفع باگ ریشه‌ای: قبلاً ذرات با سرعت ثابتِ کم (بدون شتاب) رها می‌شدند
+  // و انیمیشن با یک سقف زمانیِ ثابت (۳۲۰۰ میلی‌ثانیه) — صرف‌نظر از این‌که
+  // ذرات واقعاً به کجای صفحه رسیده بودند — قطع می‌شد. چون نقطه‌ی شروع
+  // بعضی ذرات تا نیمی از ارتفاعِ صفحه بالاتر از بالای صفحه بود و سرعتشان
+  // هم کم بود، در بسیاری از اجراها اصلاً وقت نمی‌کردند به پایین صفحه
+  // برسند و ناگهان (وسط سقوط) ناپدید می‌شدند.
+  // راه‌حل: به ذرات شتاب گرانشی واقعی می‌دهیم (سرعت هر فریم بیشتر می‌شود)
+  // و انیمیشن را نه بر اساس یک تایمر ثابت، بلکه تا وقتی که همه‌ی ذرات
+  // واقعاً از پایین صفحه خارج شده باشند ادامه می‌دهیم (با یک سقف زمانیِ
+  // بالا فقط به‌عنوان محافظ در برابر حلقه‌ی بی‌نهایت). نزدیک پایین صفحه
+  // هم به‌آرامی محو می‌شوند تا خروج‌شان چشم‌نواز باشد، نه قطع ناگهانی.
   var canvas = $("confetti");
   canvas.style.display = "block";
   canvas.width = window.innerWidth; canvas.height = window.innerHeight;
   var ctx = canvas.getContext("2d");
   var colors = ["#5b7cfa","#8b6bf0","#3fd68f","#f0b93f","#f0546e"];
+  var gravity = 0.16;
+  var fadeZoneStart = canvas.height * 0.78;
+  var fadeZoneSize = canvas.height * 0.3;
   var parts = [];
-  for(var i=0;i<80;i++){
+  var count = 110;
+  for(var i=0;i<count;i++){
     parts.push({
-      x: Math.random()*canvas.width, y: -20 - Math.random()*canvas.height*0.5,
-      vy: 2+Math.random()*3, vx: -1.5+Math.random()*3,
-      size: 4+Math.random()*5, color: colors[i%colors.length],
-      rot: Math.random()*360, vr: -6+Math.random()*12
+      x: Math.random()*canvas.width,
+      y: -20 - Math.random()*160,
+      vy: 1.5 + Math.random()*2,
+      vx: -2 + Math.random()*4,
+      size: 5 + Math.random()*6,
+      color: colors[i%colors.length],
+      rot: Math.random()*360,
+      vr: -9 + Math.random()*18,
+      shape: (i % 3 === 0) ? "circle" : "rect",
+      opacity: 1
     });
   }
   var start = Date.now();
+  var MAX_MS = 6000; // محافظ در برابر اجرای بی‌پایان
+  function allSettled(){
+    return parts.every(function(p){ return p.y - p.size > canvas.height; });
+  }
   function frame(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
     var elapsed = Date.now()-start;
     parts.forEach(function(p){
+      p.vy += gravity;
       p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+      if(p.y > fadeZoneStart){
+        p.opacity = Math.max(0, 1 - (p.y - fadeZoneStart) / fadeZoneSize);
+      }
+      if(p.opacity <= 0) return;
       ctx.save();
+      ctx.globalAlpha = p.opacity;
       ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180);
       ctx.fillStyle = p.color;
-      ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size);
+      if(p.shape === "circle"){
+        ctx.beginPath();
+        ctx.arc(0,0,p.size/2,0,Math.PI*2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size*0.65);
+      }
       ctx.restore();
     });
-    if(elapsed < 3200) requestAnimationFrame(frame);
-    else { canvas.style.display = "none"; ctx.clearRect(0,0,canvas.width,canvas.height); }
+    if(!allSettled() && elapsed < MAX_MS){
+      requestAnimationFrame(frame);
+    } else {
+      canvas.style.display = "none";
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+    }
   }
   requestAnimationFrame(frame);
 }
