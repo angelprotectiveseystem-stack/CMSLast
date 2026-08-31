@@ -292,10 +292,12 @@ function renderPieces(animateFrom, animateTo){
       var dx = dCol * squarePx;
       var dy = dRow * squarePx;
       var dist = Math.sqrt(dx*dx + dy*dy);
-      // سرعت ثابت شبیه chess.com: مدت‌زمان متناسب با فاصله اما با یک
-      // سقف پایین (حرکت‌های طولانی هم زیاد کش نمی‌آیند) — بدون بالا
-      // رفتن (lift) یا بزرگ‌شدن (scale)، فقط یک سُر خوردن خطی-نرم.
-      var dur = Math.max(140, Math.min(260, dist * 0.5));
+      // مدت‌زمان بلندتر و ثابت‌تر، شبیه chess.com: حرکت یک‌خانه‌ای هم
+      // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند، نه
+      // یک ومضه‌ی چندفریمی که روی موبایل/WebView به‌نظر لگ می‌رسد.
+      // فاصله‌های بلندتر (مثل حرکت وزیر از یک سر تخته به سر دیگر) کمی
+      // بیشتر طول می‌کشند تا سرعت حسی طبیعی بماند.
+      var dur = Math.max(260, Math.min(420, 220 + dist * 0.35));
       m.el.style.zIndex = "5";
       if(typeof m.el.animate !== "function"){
         // مرورگر/وب‌ویوی خیلی قدیمی که Web Animations API ندارد —
@@ -309,22 +311,42 @@ function renderPieces(animateFrom, animateTo){
           { transform: "translate(" + dx + "px," + dy + "px)" },
           { transform: "translate(0px,0px)" }
         ],
-        { duration: dur, easing: "cubic-bezier(.15,.35,.25,1)", fill: "both" }
+        // easing از نوع ease-out ملایم: شروع کمی سریع‌تر، پایان نرم و
+        // بدون توقف ناگهانی — هیچ jank بصری در وسط راه ایجاد نمی‌کند
+        // چون خودِ مرورگر (نه جاوااسکریپت) هر فریم را محاسبه می‌کند.
+        { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)", fill: "forwards" }
       );
-      var finished = false;
-      var cleanup = function(){
-        if(finished) return;
-        finished = true;
-        anim.cancel();
+      var settled = false;
+      // finish() موقعیت را دقیقاً روی کی‌فریم پایانی قفل می‌کند (بدون
+      // پرش) و سپس style موقت را پاک می‌کنیم. از cancel() اینجا استفاده
+      // نمی‌کنیم چون cancel وسط انیمیشن باعث پرش آنی به موقعیت نهایی
+      // می‌شد — دقیقاً همان «سکته» که در تست دیده شد. finish فقط وقتی
+      // معنی دارد که انیمیشن واقعاً به پایان طبیعی‌اش رسیده باشد.
+      var settle = function(){
+        if(settled) return;
+        settled = true;
+        try{ anim.finish(); }catch(e){}
+        // بعد از finish، effect را از استک انیمیشن پاک می‌کنیم تا در
+        // رندرهای بعدی (مثلاً اگر همین مهره دوباره حرکت کند) هیچ اثر
+        // باقی‌مانده‌ای تداخل ایجاد نکند. چون finish() از قبل مقدار
+        // نهایی (0,0) را قفل کرده، این cancel هیچ پرش بصری‌ای ایجاد
+        // نمی‌کند.
+        try{ anim.cancel(); }catch(e){}
         m.el.style.zIndex = "";
         animDone();
       };
-      anim.onfinish = cleanup;
-      anim.oncancel = cleanup;
-      // شبکه‌ی ایمنی: اگر به هر دلیلی onfinish فایر نشود، بعد از
-      // مدت‌زمان مورد انتظار به‌هرحال cleanup را اجرا کن تا انیمیشن
-      // هیچ‌وقت گیر نکند.
-      setTimeout(cleanup, dur + 100);
+      anim.onfinish = settle;
+      anim.oncancel = function(){
+        if(settled) return;
+        settled = true;
+        m.el.style.zIndex = "";
+        animDone();
+      };
+      // شبکه‌ی ایمنی: اگر به هر دلیلی onfinish هرگز فایر نشود (مثلاً
+      // تب در پس‌زمینه رفت)، با تأخیر قابل‌توجه (نه نزدیک به dur واقعی)
+      // یک‌بار settle را صدا می‌زنیم تا هرگز گیر نکنیم، بدون این‌که با
+      // پایان طبیعی انیمیشن رقابت کند.
+      setTimeout(settle, dur + 400);
     });
   }
 
