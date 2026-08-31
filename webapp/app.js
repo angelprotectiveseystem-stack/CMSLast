@@ -37,6 +37,7 @@ var state = {
   chatOpen: false,
   chatUnread: 0,
   isSpectator: false,
+  pendingChat: [],       // پیام‌های خودم که هنوز از سرور تایید نشده‌اند (برای نمایش آنی بدون تاخیر)
   moveList: [],          // تاریخچه‌ی حرکات (SAN) — همیشه از سرور می‌آید، نه از chess.js
   drawOfferBy: null,
   drawModalShown: false
@@ -100,10 +101,18 @@ function buildBoard(){
 
 function renderPieces(animateFrom, animateTo){
   var boardState = chess.board();
-  var flip = state.myColor === "b";
-  // FLIP prep: capture where the moving piece currently sits on screen
-  // (its square before this re-render) so we can slide it into place
-  // instead of having it teleport.
+  // به‌جای پاک‌کردن و ساختن دوباره‌ی هر ۳۲ مهره در هر حرکت (که باعث افت
+  // فریم و حس «لگ‌دار» می‌شد)، فقط خانه‌هایی که واقعاً تغییر کردند
+  // به‌روزرسانی می‌شوند. مهره‌ی گرفته‌شده هم دیگر آنی محو نمی‌شود، بلکه
+  // با یک انیمیشن نرم کوچک و محو می‌شود.
+  var desired = {};
+  for(var r=0;r<8;r++){
+    for(var c=0;c<8;c++){
+      var p = boardState[r][c];
+      if(!p) continue;
+      desired[FILES[c] + (8-r)] = p;
+    }
+  }
   var fromRect = null;
   if(animateFrom && state.boardEls[animateFrom]){
     var fromPieceEl = state.boardEls[animateFrom].querySelector(".piece");
@@ -111,25 +120,31 @@ function renderPieces(animateFrom, animateTo){
   }
   Object.keys(state.boardEls).forEach(function(sq){
     var el = state.boardEls[sq];
-    var existing = el.querySelector(".piece");
-    if(existing) existing.remove();
-  });
-  for(var r=0;r<8;r++){
-    for(var c=0;c<8;c++){
-      var p = boardState[r][c];
-      if(!p) continue;
-      var sq = FILES[c] + (8-r);
-      var el = state.boardEls[sq];
-      if(!el) continue;
+    var existingEl = el.querySelector(".piece");
+    var want = desired[sq];
+    var have = existingEl ? { type: existingEl.dataset.ptype, color: existingEl.dataset.pcolor } : null;
+    if(have && want && have.type === want.type && have.color === want.color) return; // بدون تغییر
+    if(existingEl){
+      existingEl.style.position = "absolute";
+      existingEl.style.inset = "0";
+      existingEl.style.margin = "auto";
+      existingEl.classList.add("captured-anim");
+      (function(elToRemove){
+        setTimeout(function(){ if(elToRemove.parentNode) elToRemove.remove(); }, 260);
+      })(existingEl);
+    }
+    if(want){
       var span = document.createElement("div");
-      span.className = "piece " + (p.color==="w" ? "white-p" : "black-p");
-      span.textContent = PIECE_GLYPH[p.type];
-      if(sq === animateTo && !fromRect) span.classList.add("landed");
+      span.className = "piece " + (want.color==="w" ? "white-p" : "black-p");
+      span.textContent = PIECE_GLYPH[want.type];
+      span.dataset.ptype = want.type;
+      span.dataset.pcolor = want.color;
+      if(sq !== animateTo) span.classList.add("landed");
       el.appendChild(span);
     }
-  }
+  });
   if(animateTo && fromRect && state.boardEls[animateTo]){
-    var landedEl = state.boardEls[animateTo].querySelector(".piece");
+    var landedEl = state.boardEls[animateTo].querySelector(".piece:not(.captured-anim)");
     if(landedEl){
       var toRect = landedEl.getBoundingClientRect();
       var dx = fromRect.left - toRect.left;
@@ -565,13 +580,13 @@ document.querySelectorAll(".theme-opt").forEach(function(btn){
 })();
 
 // ─── Chat ───────────────────────────────────────────────────
-function renderChatMessage(m){
+function renderChatMessage(m, pending){
   var list = $("chat-list");
   var empty = list.querySelector(".chat-empty");
   if(empty) empty.remove();
   var mine = String(m.sender_id) === String(state.myId);
   var bubble = document.createElement("div");
-  bubble.className = "chat-bubble" + (mine ? " mine" : "");
+  bubble.className = "chat-bubble" + (mine ? " mine" : "") + (pending ? " sending" : "");
   var senderSpan = document.createElement("span");
   senderSpan.className = "chat-sender";
   senderSpan.textContent = mine ? "شما" : (m.sender_name || state.oppName);
@@ -581,6 +596,7 @@ function renderChatMessage(m){
   bubble.appendChild(textDiv);
   list.appendChild(bubble);
   list.scrollTop = list.scrollHeight;
+  return bubble;
 }
 
 function pollChat(){
@@ -591,6 +607,17 @@ function pollChat(){
       if(!res.ok || !res.messages || !res.messages.length) return;
       res.messages.forEach(function(m){
         state.lastChatId = Math.max(state.lastChatId, m.id);
+        // اگر این پیام خودم است و همین الان لوکال نمایشش داده بودیم،
+        // به‌جای رندر تکراری فقط تاییدش می‌کنیم (حباب لوکال محو نمی‌شود،
+        // فقط حالت «در حال ارسال» برداشته می‌شود — بدون پرش یا فلیکر).
+        if(String(m.sender_id) === String(state.myId) && state.pendingChat.length){
+          var idx = state.pendingChat.findIndex(function(p){ return p.text === m.text; });
+          if(idx >= 0){
+            var pending = state.pendingChat.splice(idx, 1)[0];
+            if(pending.el) pending.el.classList.remove("sending");
+            return;
+          }
+        }
         renderChatMessage(m);
         if(!state.chatOpen && String(m.sender_id) !== String(state.myId)){
           state.chatUnread++;
@@ -616,8 +643,20 @@ function sendChatMessage(){
   var text = input.value.trim();
   if(!text) return;
   input.value = "";
+  // نمایش آنی پیام خودم بدون منتظرماندن برای دور بعدی poll (که تا ۲ ثانیه
+  // طول می‌کشید و حس تاخیر/لگ می‌داد). بعد از تایید سرور فقط حالت
+  // «در حال ارسال» برداشته می‌شود.
+  var bubble = renderChatMessage({ sender_id: state.myId, sender_name: "شما", text: text }, true);
+  state.pendingChat.push({ text: text, el: bubble });
   apiPost("/api/chat", { text: text }).then(function(res){
-    if(!res.ok && res.error){ input.value = text; }
+    if(!res.ok){
+      bubble.classList.remove("sending");
+      bubble.classList.add("failed");
+      if(res.error) input.value = text;
+    }
+  }).catch(function(){
+    bubble.classList.remove("sending");
+    bubble.classList.add("failed");
   });
 }
 
