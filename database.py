@@ -270,6 +270,8 @@ async def init_db():
             "ALTER TABLE chess_requests ADD COLUMN requester_color TEXT DEFAULT 'random'",
             "ALTER TABLE chess_games ADD COLUMN white_elo_change INTEGER",
             "ALTER TABLE chess_games ADD COLUMN black_elo_change INTEGER",
+            "ALTER TABLE chess_games ADD COLUMN white_msg_id INTEGER",
+            "ALTER TABLE chess_games ADD COLUMN black_msg_id INTEGER",
         ):
             try:
                 await db.execute(stmt)
@@ -1638,6 +1640,30 @@ async def get_active_chess_game_for(telegram_id: int):
             (telegram_id, telegram_id)
         ) as cur:
             return await cur.fetchone()
+
+
+async def get_active_chess_games_excluding(telegram_id: int):
+    """همه‌ی بازی‌های شطرنج زنده‌ای که الان در جریانند و طرف داده‌شده در
+    آن‌ها بازیکن نیست — برای پیشنهاد «تماشا» به شخص ثالث در پنل شطرنج زنده."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM chess_games WHERE status='active' AND white_id!=? AND black_id!=? ORDER BY id DESC",
+            (telegram_id, telegram_id)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def set_chess_game_messages(token: str, white_msg_id=None, black_msg_id=None):
+    """آی‌دیِ پیام تلگرامیِ حاوی دکمه‌ی «ورود به بازی» برای هر طرف را ذخیره
+    می‌کند، تا وقتی بازی تمام شد بتوان همان پیام را به یک پنل «بازی جدید /
+    منوی اصلی» ویرایش کرد (به‌جای این‌که دکمه‌ی قدیمی برای همیشه بماند)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE chess_games SET white_msg_id=?, black_msg_id=? WHERE token=?",
+            (white_msg_id, black_msg_id, token)
+        )
+        await db.commit()
 
 
 async def update_chess_game_move(token, fen, pgn, last_from, last_to, white_time, black_time):

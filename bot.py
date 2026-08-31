@@ -177,7 +177,7 @@ async def post_init(application: Application) -> None:
 
     try:
         from game_server import start_game_server
-        application.bot_data["chess_server_runner"] = await start_game_server()
+        application.bot_data["chess_server_runner"] = await start_game_server(application.bot)
     except Exception as e:
         logger.warning(f"Chess mini-app server failed to start: {e}")
 

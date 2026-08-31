@@ -91,7 +91,14 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     opponents = await _eligible_opponents(uid)
-    if not opponents:
+    # بازی‌های دیگرانی که همین الان در جریانند (خود uid در آن‌ها بازیکن
+    # نیست) — رفعِ نبودِ گزینه‌ی «تماشا» برای شخص ثالث: قبلاً فقط یک پیامِ
+    # یک‌باره وقتِ شروعِ بازی به بقیه می‌رفت که اگر در چت گم می‌شد دیگر راهی
+    # برای پیدا کردنِ بازیِ در حال انجام نبود؛ حالا همیشه در همین پنل
+    # لیست می‌شود.
+    other_games = await db.get_active_chess_games_excluding(uid)
+
+    if not opponents and not other_games:
         await safe_edit_message_text(
             query,
             f"{box('♟️ شطرنج زنده')}\n\nهیچ مدیر دیگری برای دعوت به بازی پیدا نشد.",
@@ -104,14 +111,26 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for opp_id, name in opponents:
         label = ("👑 " if opp_id == PISHVA_ID else "🎖️ ") + name
         rows.append([InlineKeyboardButton(label, callback_data=f"chess_req_{opp_id}")])
+
+    if other_games and WEBAPP_URL:
+        for g in other_games:
+            url = f"{WEBAPP_URL}/webapp/?token={g['token']}"
+            label = f"👁 تماشا: ⚪ {g['white_name']} در مقابل ⚫ {g['black_name']}"
+            rows.append([InlineKeyboardButton(label, web_app=WebAppInfo(url=url))])
+
     rows.append([InlineKeyboardButton("🏆 جدول Elo شطرنج زنده", callback_data="chess_elo_board")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")])
 
+    text = f"{box('♟️ شطرنج زنده')}\n\n"
+    if opponents:
+        text += "با یکی از مدیران محترم یا مدیر ارشد وارد یک بازی شطرنج زنده شوید.\nحریف خود را انتخاب کنید:"
+    else:
+        text += "هیچ مدیر دیگری برای دعوت به بازی پیدا نشد."
+    if other_games:
+        text += "\n\n👁 یا یکی از بازی‌های در حال انجام را زنده تماشا کنید:"
+
     await safe_edit_message_text(
-        query,
-        f"{box('♟️ شطرنج زنده')}\n\n"
-        "با یکی از مدیران محترم یا مدیر ارشد وارد یک بازی شطرنج زنده شوید.\n"
-        "حریف خود را انتخاب کنید:",
+        query, text,
         reply_markup=InlineKeyboardMarkup(rows),
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -328,15 +347,16 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await db.create_chess_game(token, white_id, black_id, white_name, black_name, START_FEN, time_control)
 
     requester_is_white = white_id == requester_id
-    await safe_edit_message_text(
+    accepter_msg = await safe_edit_message_text(
         query,
         f"{box('♟️ بازی پذیرفته شد!')}\n\nبازی بین شما و {requester_name} آغاز شد. "
         f"شما با مهره‌های {'سیاه' if requester_is_white else 'سفید'} بازی می‌کنید.",
         reply_markup=_kb_play(token),
         parse_mode=ParseMode.MARKDOWN,
     )
+    requester_msg = None
     try:
-        await ctx.bot.send_message(
+        requester_msg = await ctx.bot.send_message(
             chat_id=requester_id,
             text=f"{box('♟️ درخواست شما پذیرفته شد!')}\n\n"
                  f"{accepter_name} درخواست بازی شما را قبول کرد. "
@@ -347,6 +367,21 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     except Exception:
         logger.exception("Failed to notify requester %s", requester_id)
+
+    # ذخیره‌ی آی‌دیِ همین دو پیام (که دکمه‌ی «ورود به بازی» را دارند) تا وقتی
+    # بازی تمام شد بشود آن‌ها را به یک پنل «بازی جدید / منوی اصلی» تازه
+    # ویرایش کرد؛ رفعِ باگِ «دکمه‌ی ورود به بازیِ قدیمی برای همیشه در چت
+    # می‌ماند و به بخش شروع بازی جدید آپدیت نمی‌شود».
+    try:
+        accepter_msg_id = accepter_msg.message_id if accepter_msg else None
+        requester_msg_id = requester_msg.message_id if requester_msg else None
+        if uid == white_id:
+            white_msg_id, black_msg_id = accepter_msg_id, requester_msg_id
+        else:
+            white_msg_id, black_msg_id = requester_msg_id, accepter_msg_id
+        await db.set_chess_game_messages(token, white_msg_id, black_msg_id)
+    except Exception:
+        logger.exception("Failed to store chess game message ids for %s", token)
 
     await _announce_game_to_others(ctx, requester_id, uid, white_name, black_name, token)
 

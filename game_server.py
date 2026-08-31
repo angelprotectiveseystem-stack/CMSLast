@@ -16,6 +16,9 @@ from urllib.parse import parse_qsl
 
 import chess as pychess
 from aiohttp import web
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
+from telegram.error import TelegramError
 
 import database as db
 from config import BOT_TOKEN, WEBAPP_PORT, PISHVA_ID
@@ -23,6 +26,76 @@ from config import BOT_TOKEN, WEBAPP_PORT, PISHVA_ID
 logger = logging.getLogger(__name__)
 
 LIVE_CHESS_LOCKED_MSG = "شطرنج زنده در حال حاضر غیرفعال است."
+
+# ─── نمونه‌ی ربات برای اطلاع‌رسانیِ پایانِ بازی ───────────────────
+# این سرور aiohttp جدا از event handlerهای python-telegram-bot اجرا می‌شود
+# و به ctx.bot دسترسی ندارد؛ برای همین نمونه‌ی bot یک‌بار موقع بالاآمدنِ
+# سرور (در bot.py) اینجا ذخیره می‌شود تا بشود از داخل مسیرهای API هم پیام
+# فرستاد/ویرایش کرد.
+BOT = None
+
+
+def set_bot(bot):
+    global BOT
+    BOT = bot
+
+
+def _kb_after_game() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🆕 بازی جدید", callback_data="chess_menu")],
+        [InlineKeyboardButton("🏠 منوی اصلی", callback_data="back_main")],
+    ])
+
+
+_RESULT_LABELS = {
+    "checkmate": "با کیش و مات",
+    "draw": "با تساوی",
+    "resigned": "با تسلیم یکی از طرفین",
+    "timeout": "با اتمام زمان یکی از طرفین",
+}
+
+
+async def _notify_players_game_finished(game, status, winner_id):
+    """رفعِ باگِ «دکمه‌ی ورود به بازیِ قدیمی برای همیشه در چت می‌ماند»:
+    وقتی بازی (به هر دلیلی) تمام می‌شود، همان پیامی که دکمه‌ی «ورود به
+    بازی» را داشت به یک پنل «بازی جدید / منوی اصلی» ویرایش می‌شود. اگر
+    ویرایش ممکن نبود (پیام پاک شده/خیلی قدیمی)، به‌جایش یک پیام تازه
+    فرستاده می‌شود تا کاربر هرگز با یک دکمه‌ی مرده تنها نماند."""
+    if BOT is None:
+        return
+    label = _RESULT_LABELS.get(status, status)
+    pairs = ((game["white_id"], game["white_msg_id"]), (game["black_id"], game["black_msg_id"]))
+    for side_id, msg_id in pairs:
+        if not side_id:
+            continue
+        if winner_id is None:
+            result_line = f"🤝 بازی مساوی شد ({label})."
+        elif str(winner_id) == str(side_id):
+            result_line = f"🏆 شما بردید! ({label})"
+        else:
+            result_line = f"😔 این بازی را باختید ({label})."
+        text = (
+            f"{'♟️ بازی به پایان رسید'}\n\n{result_line}\n\n"
+            "می‌توانید یک بازی جدید شروع کنید یا به منوی اصلی برگردید."
+        )
+        edited = False
+        if msg_id:
+            try:
+                await BOT.edit_message_text(
+                    chat_id=side_id, message_id=msg_id, text=text,
+                    reply_markup=_kb_after_game(), parse_mode=ParseMode.MARKDOWN,
+                )
+                edited = True
+            except TelegramError:
+                edited = False
+        if not edited:
+            try:
+                await BOT.send_message(
+                    chat_id=side_id, text=text,
+                    reply_markup=_kb_after_game(), parse_mode=ParseMode.MARKDOWN,
+                )
+            except TelegramError:
+                logger.exception("Failed to notify %s about finished chess game", side_id)
 
 
 async def _game_locked_for_viewing(game) -> bool:
@@ -118,6 +191,10 @@ async def _finish_with_elo(token, status, game, winner_id):
     except Exception:
         logger.exception("Chess Elo update failed for game %s", token)
     await db.finish_chess_game(token, status, winner_id, chg_w, chg_b)
+    try:
+        await _notify_players_game_finished(game, status, winner_id)
+    except Exception:
+        logger.exception("Failed to send post-game panel for %s", token)
 
 
 def _apply_clock_decay(game):
@@ -434,7 +511,9 @@ def new_game_token():
     return uuid.uuid4().hex + secrets.token_hex(4)
 
 
-async def start_game_server():
+async def start_game_server(bot=None):
+    if bot is not None:
+        set_bot(bot)
     app = web.Application()
     app.add_routes(routes)
     runner = web.AppRunner(app)
