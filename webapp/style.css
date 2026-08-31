@@ -161,15 +161,18 @@ html,body{
 .square{ position:relative; display:flex; align-items:center; justify-content:center; }
 .square.light{ background: var(--light-sq); }
 .square.dark{ background: var(--dark-sq); }
+.square::before{
+  content:''; position:absolute; inset:0; opacity:0;
+  transition: opacity .18s ease; pointer-events:none;
+}
 .square.selected::before{
-  content:''; position:absolute; inset:0; background: var(--hi-sq);
+  background: var(--hi-sq); opacity:1;
 }
 .square.last-from::before, .square.last-to::before{
-  content:''; position:absolute; inset:0; background: rgba(240,185,63,.28);
+  background: rgba(240,185,63,.28); opacity:1;
 }
 .square.check::before{
-  content:''; position:absolute; inset:0;
-  background: radial-gradient(circle, rgba(240,84,110,.65) 0%, rgba(240,84,110,0) 72%);
+  background: radial-gradient(circle, rgba(240,84,110,.65) 0%, rgba(240,84,110,0) 72%); opacity:1;
 }
 .move-dot{
   position:absolute; width:26%; height:26%; border-radius:50%;

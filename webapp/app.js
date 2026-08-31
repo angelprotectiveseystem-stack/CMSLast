@@ -150,20 +150,18 @@ function renderPieces(animateFrom, animateTo){
       var dx = fromRect.left - toRect.left;
       var dy = fromRect.top - toRect.top;
       if(dx !== 0 || dy !== 0){
-        landedEl.style.transition = "none";
-        landedEl.style.transform = "translate(" + dx + "px," + dy + "px)";
-        // force reflow so the browser registers the start position
-        // before we animate to the resting position
-        landedEl.getBoundingClientRect();
-        requestAnimationFrame(function(){
-          landedEl.style.transition = "transform .2s cubic-bezier(.25,.8,.4,1)";
-          landedEl.style.transform = "translate(0,0)";
-          landedEl.addEventListener("transitionend", function te(){
-            landedEl.style.transition = "";
-            landedEl.style.transform = "";
-            landedEl.removeEventListener("transitionend", te);
-          });
-        });
+        // مدت‌زمان انیمیشن متناسب با فاصله‌ی واقعی حرکت است (نه یک عدد
+        // ثابت برای همه)، و یک بالارفتن/بزرگ‌شدن جزئی وسط مسیر به آن حس
+        // «برداشتن و گذاشتن» می‌دهد به‌جای فقط سرخوردن مسطح.
+        var dist = Math.sqrt(dx*dx + dy*dy);
+        var dur = Math.max(140, Math.min(320, dist * 0.55));
+        var lift = Math.min(10, dist * 0.06);
+        landedEl.style.transform = "translate(0,0)";
+        landedEl.animate([
+          { transform: "translate(" + dx + "px," + dy + "px) scale(1)" },
+          { transform: "translate(" + (dx*0.5) + "px," + (dy*0.5 - lift) + "px) scale(1.14)", offset: 0.55 },
+          { transform: "translate(0,0) scale(1)" }
+        ], { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)" });
       }
     }
   }
@@ -253,6 +251,7 @@ function askPromotion(cb){
 function doMove(from, to, promotion){
   var move = chess.move({ from: from, to: to, promotion: promotion || "q" });
   if(!move) return;
+  if(tg) tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light");
   state.selected = null;
   state.legalTargets = [];
   state.lastMove = { from: from, to: to };
