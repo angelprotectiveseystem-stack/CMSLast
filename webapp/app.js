@@ -345,7 +345,19 @@ function sendMove(move){
   apiPost("/api/move", { from: move.from, to: move.to, promotion: move.promotion })
     .then(function(res){
       if(!res.ok){
+        // سرور حرکت را رد کرد (مثلاً چون شطرنج زنده موقتاً قفل/غیرفعال شده)؛
+        // حرکت محلیِ خوش‌بینانه را برمی‌گردانیم تا صفحه با واقعیت هماهنگ بماند.
+        chess.undo();
+        if(state.moveList.length) state.moveList = state.moveList.slice(0, -1);
+        state.selected = null;
+        state.legalTargets = [];
+        state.lastMove = null;
+        renderPieces();
+        renderCaptured();
+        renderHistory();
+        updateTurnBanner();
         setConnStatus(false);
+        if(res.error) alert(res.error);
       } else {
         setConnStatus(true);
         applyServerState(res.state, false);
@@ -363,7 +375,19 @@ function setConnStatus(ok){
 
 function pollState(){
   apiGet("/api/state").then(function(res){
-    if(!res.ok){ setConnStatus(false); return; }
+    if(!res.ok){
+      setConnStatus(false);
+      if(res.error){
+        // یعنی سرور صراحتاً بازی را رد کرد (نه یک قطعی موقت شبکه) — مثلاً
+        // چون شطرنج زنده قفل/غیرفعال شده؛ همه‌چیز را متوقف می‌کنیم تا
+        // صفحه به‌جای ادامه‌ی بی‌نتیجه، پیام روشنی نشان بدهد.
+        clearInterval(state.pollTimer);
+        clearInterval(state.clockTimer);
+        clearInterval(state.chatTimer);
+        showError(res.error);
+      }
+      return;
+    }
     setConnStatus(true);
     applyServerState(res.state, true);
   }).catch(function(){ setConnStatus(false); });
