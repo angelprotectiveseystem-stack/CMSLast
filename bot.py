@@ -141,6 +141,7 @@ from reminders import (
     reminder_interval_menu, reminder_set_interval
 )
 from keyword_commands import handle_keyword_command, kw_announce_start, kw_news_start, panel_ownership_guard, open_panel_here
+from chess_challenge import chess_menu, chess_send_request, chess_accept, chess_decline
 from security import (
     security_panel, security_queue_list, security_queue_item,
     request_to_queue, queue_approve, queue_release, queue_block_ask,
@@ -173,6 +174,12 @@ async def post_init(application: Application) -> None:
         logger.info("Elo tables ready.")
     except Exception as e:
         logger.warning(f"Elo init failed: {e}")
+
+    try:
+        from game_server import start_game_server
+        application.bot_data["chess_server_runner"] = await start_game_server()
+    except Exception as e:
+        logger.warning(f"Chess mini-app server failed to start: {e}")
 
     # Set bot commands
     pishva_cmds = [
@@ -961,6 +968,12 @@ def build_application():
     app.add_handler(CallbackQueryHandler(auto_backup_set_interval, pattern="^abk_set_interval_"))
     app.add_handler(CallbackQueryHandler(auto_backup_fmt_toggle, pattern="^abk_fmt$"))
     app.add_handler(CallbackQueryHandler(auto_backup_period_toggle, pattern="^abk_period$"))
+
+    # شطرنج زنده (مینی‌اپ)
+    app.add_handler(CallbackQueryHandler(chess_menu, pattern="^chess_menu$"))
+    app.add_handler(CallbackQueryHandler(chess_send_request, pattern="^chess_req_"))
+    app.add_handler(CallbackQueryHandler(chess_accept, pattern="^chess_acc_"))
+    app.add_handler(CallbackQueryHandler(chess_decline, pattern="^chess_dec_"))
 
     # Teams
     app.add_handler(CallbackQueryHandler(teams_menu, pattern="^teams_menu$"))

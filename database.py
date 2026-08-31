@@ -216,6 +216,34 @@ async def init_db():
             sent_at TEXT,
             FOREIGN KEY(session_id) REFERENCES ai_chat_sessions(id)
         );
+        CREATE TABLE IF NOT EXISTS chess_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            requester_id INTEGER,
+            target_id INTEGER,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT,
+            responded_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS chess_games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT UNIQUE,
+            white_id INTEGER,
+            black_id INTEGER,
+            white_name TEXT,
+            black_name TEXT,
+            fen TEXT,
+            pgn TEXT DEFAULT '',
+            status TEXT DEFAULT 'active',
+            winner_id INTEGER,
+            last_move_from TEXT,
+            last_move_to TEXT,
+            white_time INTEGER DEFAULT 300,
+            black_time INTEGER DEFAULT 300,
+            last_move_at TEXT,
+            draw_offer_by INTEGER,
+            created_at TEXT,
+            finished_at TEXT
+        );
         """)
 
         # ─── Lightweight migrations (add columns if missing) ──────────
@@ -1448,3 +1476,100 @@ async def ai_get_messages(session_id: int, limit: int = 200):
             (session_id, limit)
         ) as cur:
             return await cur.fetchall()
+
+
+# ─── Chess mini-app ─────────────────────────────────────────────
+async def create_chess_request(requester_id: int, target_id: int):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "INSERT INTO chess_requests(requester_id,target_id,status,created_at) VALUES (?,?,?,?)",
+            (requester_id, target_id, "pending", now)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_chess_request(req_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM chess_requests WHERE id=?", (req_id,)) as cur:
+            return await cur.fetchone()
+
+
+async def set_chess_request_status(req_id: int, status: str):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE chess_requests SET status=?, responded_at=? WHERE id=?",
+            (status, now, req_id)
+        )
+        await db.commit()
+
+
+async def has_pending_chess_request(requester_id: int, target_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id FROM chess_requests WHERE requester_id=? AND target_id=? AND status='pending'",
+            (requester_id, target_id)
+        ) as cur:
+            row = await cur.fetchone()
+            return row is not None
+
+
+async def create_chess_game(token, white_id, black_id, white_name, black_name, fen):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            """INSERT INTO chess_games
+               (token, white_id, black_id, white_name, black_name, fen, status,
+                white_time, black_time, created_at, last_move_at)
+               VALUES (?,?,?,?,?,?,'active',300,300,?,?)""",
+            (token, white_id, black_id, white_name, black_name, fen, now, now)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_chess_game(token: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM chess_games WHERE token=?", (token,)) as cur:
+            return await cur.fetchone()
+
+
+async def get_active_chess_game_for(telegram_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM chess_games WHERE (white_id=? OR black_id=?) AND status='active' ORDER BY id DESC LIMIT 1",
+            (telegram_id, telegram_id)
+        ) as cur:
+            return await cur.fetchone()
+
+
+async def update_chess_game_move(token, fen, pgn, last_from, last_to, white_time, black_time):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """UPDATE chess_games SET fen=?, pgn=?, last_move_from=?, last_move_to=?,
+               white_time=?, black_time=?, last_move_at=?, draw_offer_by=NULL WHERE token=?""",
+            (fen, pgn, last_from, last_to, white_time, black_time, now, token)
+        )
+        await db.commit()
+
+
+async def finish_chess_game(token, status, winner_id):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE chess_games SET status=?, winner_id=?, finished_at=? WHERE token=?",
+            (status, winner_id, now, token)
+        )
+        await db.commit()
+
+
+async def set_chess_draw_offer(token, by_id):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE chess_games SET draw_offer_by=? WHERE token=?", (by_id, token))
+        await db.commit()

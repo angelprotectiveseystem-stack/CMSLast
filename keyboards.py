@@ -27,6 +27,7 @@ def kb_pishva_main():
         [InlineKeyboardButton("📊 داشبورد مدیر ارشد", callback_data="dashboard_pishva"),
         InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
         [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],
+        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
         [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open"),
         InlineKeyboardButton("🗂️ سوابق AI ادمین‌ها", callback_data="ai_admlog_menu")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
@@ -41,6 +42,7 @@ def kb_tournament_manager_main():
         InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms")],
         [InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks"),
         InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
+        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
         [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
@@ -54,6 +56,7 @@ def kb_security_manager_main():
         InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks")],
         [InlineKeyboardButton("❓ راهنما", callback_data="menu_help"),
         InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
+        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
         [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
     ])
 

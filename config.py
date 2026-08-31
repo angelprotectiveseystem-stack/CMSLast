@@ -15,6 +15,12 @@ NEW_YEAR_PASSWORD = os.environ.get("NEW_YEAR_PASSWORD", "998989")
 # ─── Database ─────────────────────────────────────────────────
 DB_PATH = os.environ.get("DB_PATH", "chess_bot.db")
 
+# ─── مینی‌اپ شطرنج زنده ─────────────────────────────────────────
+# آدرس عمومی (HTTPS) که مینی‌اپ روی آن سرو می‌شود، مثلا:
+# https://your-app.up.railway.app/webapp/
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "").rstrip("/")
+WEBAPP_PORT = int(os.environ.get("PORT", os.environ.get("WEBAPP_PORT", "8080")))
+
 # ─── System Status Codes ──────────────────────────────────────
 STATUS_NORMAL = "normal"
 STATUS_BAD = "bad"
