@@ -6,6 +6,7 @@ chess_challenge.py
 """
 
 import logging
+import random
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ParseMode
@@ -84,10 +85,71 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def chess_send_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+TIME_CONTROLS = [
+    (180, "۳ دقیقه"),
+    (300, "۵ دقیقه"),
+    (600, "۱۰ دقیقه"),
+    (900, "۱۵ دقیقه"),
+    (1800, "۳۰ دقیقه"),
+]
+COLOR_LABELS = {"w": "⚪ سفید", "b": "⚫ سیاه", "r": "🎲 تصادفی"}
+
+
+async def chess_pick_time(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """قدم اول بعد از انتخاب حریف: میزبان زمان بازی را انتخاب می‌کند."""
     query = update.callback_query
     uid = query.from_user.id
     target_id = int(query.data.split("_")[-1])
+
+    if target_id == uid:
+        await query.answer("نمی‌توانید به خودتان درخواست بدهید.", show_alert=True)
+        return
+    if await db.has_pending_chess_request(uid, target_id):
+        await query.answer("درخواست قبلی هنوز در انتظار پاسخ است.", show_alert=True)
+        return
+    active_game = await db.get_active_chess_game_for(uid)
+    if active_game:
+        await query.answer("شما یک بازی فعال دارید؛ ابتدا آن را تمام کنید.", show_alert=True)
+        return
+
+    await query.answer()
+    rows = [
+        [InlineKeyboardButton(label, callback_data=f"chess_time_{target_id}_{secs}")]
+        for secs, label in TIME_CONTROLS
+    ]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="chess_menu")])
+    await safe_edit_message_text(
+        query,
+        f"{box('♟️ شطرنج زنده')}\n\n⏱ زمان فکر هر طرف را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def chess_pick_color(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """قدم دوم: میزبان رنگ مهره‌های خودش را انتخاب می‌کند."""
+    query = update.callback_query
+    await query.answer()
+    _, _, target_id, secs = query.data.split("_")
+    rows = [
+        [InlineKeyboardButton(COLOR_LABELS[c], callback_data=f"chess_go_{target_id}_{secs}_{c}")]
+        for c in ("w", "b", "r")
+    ]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="chess_menu")])
+    await safe_edit_message_text(
+        query,
+        f"{box('♟️ شطرنج زنده')}\n\nبا کدام رنگ بازی می‌کنید؟",
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def chess_send_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    uid = query.from_user.id
+    _, _, target_id, secs, color = query.data.split("_")
+    target_id = int(target_id)
+    time_control = int(secs)
 
     if target_id == uid:
         await query.answer("نمی‌توانید به خودتان درخواست بدهید.", show_alert=True)
@@ -103,8 +165,9 @@ async def chess_send_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.answer("درخواست ارسال شد ✅")
-    req_id = await db.create_chess_request(uid, target_id)
+    req_id = await db.create_chess_request(uid, target_id, time_control, color)
     requester_name = await _display_name(uid)
+    time_label = next((lbl for s, lbl in TIME_CONTROLS if s == time_control), f"{time_control // 60} دقیقه")
 
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ قبول", callback_data=f"chess_acc_{req_id}"),
@@ -115,6 +178,7 @@ async def chess_send_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             chat_id=target_id,
             text=f"{box('♟️ درخواست بازی شطرنج')}\n\n"
                  f"{requester_name} از شما درخواست یک بازی شطرنج زنده دارد.\n"
+                 f"⏱ زمان: {time_label}\n"
                  f"آیا قبول می‌کنید؟",
             reply_markup=kb,
             parse_mode=ParseMode.MARKDOWN,
@@ -148,13 +212,25 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     requester_id = req["requester_id"]
     requester_name = await _display_name(requester_id)
     accepter_name = await _display_name(uid)
+    time_control = req["time_control"] or 300
+    req_color = req["requester_color"] or "random"
+    if req_color == "random":
+        req_color = random.choice(["w", "b"])
+    if req_color == "w":
+        white_id, black_id = requester_id, uid
+        white_name, black_name = requester_name, accepter_name
+    else:
+        white_id, black_id = uid, requester_id
+        white_name, black_name = accepter_name, requester_name
 
     token = new_game_token()
-    await db.create_chess_game(token, requester_id, uid, requester_name, accepter_name, START_FEN)
+    await db.create_chess_game(token, white_id, black_id, white_name, black_name, START_FEN, time_control)
 
+    requester_is_white = white_id == requester_id
     await safe_edit_message_text(
         query,
-        f"{box('♟️ بازی پذیرفته شد!')}\n\nبازی بین شما و {requester_name} آغاز شد.",
+        f"{box('♟️ بازی پذیرفته شد!')}\n\nبازی بین شما و {requester_name} آغاز شد. "
+        f"شما با مهره‌های {'سیاه' if requester_is_white else 'سفید'} بازی می‌کنید.",
         reply_markup=_kb_play(token),
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -162,7 +238,9 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await ctx.bot.send_message(
             chat_id=requester_id,
             text=f"{box('♟️ درخواست شما پذیرفته شد!')}\n\n"
-                 f"{accepter_name} درخواست بازی شما را قبول کرد. نوبت شماست (سفید).",
+                 f"{accepter_name} درخواست بازی شما را قبول کرد. "
+                 f"شما با مهره‌های {'سفید' if requester_is_white else 'سیاه'} بازی می‌کنید"
+                 f"{'، نوبت شماست.' if requester_is_white else '.'}",
             reply_markup=_kb_play(token),
             parse_mode=ParseMode.MARKDOWN,
         )

@@ -221,6 +221,8 @@ async def init_db():
             requester_id INTEGER,
             target_id INTEGER,
             status TEXT DEFAULT 'pending',
+            time_control INTEGER DEFAULT 300,
+            requester_color TEXT DEFAULT 'random',
             created_at TEXT,
             responded_at TEXT
         );
@@ -252,6 +254,8 @@ async def init_db():
         for stmt in (
             "ALTER TABLE matches ADD COLUMN claimed_by INTEGER",
             "ALTER TABLE matches ADD COLUMN claimed_at TEXT",
+            "ALTER TABLE chess_requests ADD COLUMN time_control INTEGER DEFAULT 300",
+            "ALTER TABLE chess_requests ADD COLUMN requester_color TEXT DEFAULT 'random'",
         ):
             try:
                 await db.execute(stmt)
@@ -1479,12 +1483,12 @@ async def ai_get_messages(session_id: int, limit: int = 200):
 
 
 # ─── Chess mini-app ─────────────────────────────────────────────
-async def create_chess_request(requester_id: int, target_id: int):
+async def create_chess_request(requester_id: int, target_id: int, time_control: int = 300, requester_color: str = "random"):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "INSERT INTO chess_requests(requester_id,target_id,status,created_at) VALUES (?,?,?,?)",
-            (requester_id, target_id, "pending", now)
+            "INSERT INTO chess_requests(requester_id,target_id,status,time_control,requester_color,created_at) VALUES (?,?,?,?,?,?)",
+            (requester_id, target_id, "pending", time_control, requester_color, now)
         )
         await db.commit()
         return cur.lastrowid
@@ -1517,15 +1521,15 @@ async def has_pending_chess_request(requester_id: int, target_id: int) -> bool:
             return row is not None
 
 
-async def create_chess_game(token, white_id, black_id, white_name, black_name, fen):
+async def create_chess_game(token, white_id, black_id, white_name, black_name, fen, time_control=300):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             """INSERT INTO chess_games
                (token, white_id, black_id, white_name, black_name, fen, status,
                 white_time, black_time, created_at, last_move_at)
-               VALUES (?,?,?,?,?,?,'active',300,300,?,?)""",
-            (token, white_id, black_id, white_name, black_name, fen, now, now)
+               VALUES (?,?,?,?,?,?,'active',?,?,?,?)""",
+            (token, white_id, black_id, white_name, black_name, fen, time_control, time_control, now, now)
         )
         await db.commit()
         return cur.lastrowid
