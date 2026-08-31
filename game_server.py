@@ -143,23 +143,84 @@ def _apply_clock_decay(game):
 
 routes = web.RouteTableDef()
 
+# ─── Cache-busting برای فایل‌های استاتیک وب‌اپ ───────────────────────
+# ریشه‌ی باگ «حرکت مهره‌ها بدون انیمیشن/سکته‌دار حتی بعد از فیکس شدن کد»:
+# app.js / chess.min.js / style.css همیشه با همان آدرس ثابت (بدون شماره‌
+# نسخه) درخواست می‌شدند و پاسخ سرور هم هیچ Cache-Control ای نداشت. نتیجه
+# این‌که WebView تلگرام (به‌خصوص روی اندروید) بعد از اولین بار باز کردن
+# مینی‌اپ، app.js را به‌صورت تهاجمی کش می‌کند و حتی بعد از دیپلوی نسخه‌ی
+# جدید و درست‌شده روی سرور، همچنان همان app.js قدیمیِ باگ‌دار را از کش خودش
+# اجرا می‌کند — یعنی کاربر هیچ‌وقت متوجه نمی‌شود که مشکل حل شده، چون کدی که
+# در دستگاهش اجرا می‌شود اصلاً به‌روز نمی‌شود.
+#
+# راه‌حل: هر بار که index.html سرو می‌شود، به src/href سه فایل اصلی یک
+# ?v=<زمان آخرین تغییرِ فایل‌ها> اضافه می‌کنیم. با هر دیپلویِ واقعی، این
+# زمان عوض می‌شود، آدرس فایل‌ها عوض می‌شود، و WebView مجبور است نسخه‌ی
+# تازه را واقعاً از سرور بگیرد (چون از نظرش این یک URL کاملاً جدید است، نه
+# همان URL قدیمی). خودِ index.html هم با Cache-Control: no-cache سرو می‌شود
+# تا این عدد نسخه هیچ‌وقت خودش کهنه نماند.
+def _asset_version():
+    try:
+        mtimes = [
+            os.path.getmtime(os.path.join(WEBAPP_DIR, f))
+            for f in ("app.js", "chess.min.js", "style.css")
+            if os.path.isfile(os.path.join(WEBAPP_DIR, f))
+        ]
+        return str(int(max(mtimes))) if mtimes else "0"
+    except Exception:
+        return "0"
+
+
+def _render_index_html():
+    path = os.path.join(WEBAPP_DIR, "index.html")
+    with open(path, "r", encoding="utf-8") as f:
+        html = f.read()
+    v = _asset_version()
+    html = html.replace('src="app.js"', f'src="app.js?v={v}"')
+    html = html.replace('src="chess.min.js"', f'src="chess.min.js?v={v}"')
+    html = html.replace('href="style.css"', f'href="style.css?v={v}"')
+    return html
+
+
+def _index_response():
+    return web.Response(
+        text=_render_index_html(),
+        content_type="text/html",
+        charset="utf-8",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
 
 @routes.get("/webapp/{tail:.*}")
 async def static_files(request):
     tail = request.match_info["tail"] or "index.html"
+    if tail == "index.html":
+        return _index_response()
     path = os.path.normpath(os.path.join(WEBAPP_DIR, tail))
     if not path.startswith(WEBAPP_DIR):
         raise web.HTTPForbidden()
     if os.path.isdir(path):
-        path = os.path.join(path, "index.html")
+        return _index_response()
     if not os.path.isfile(path):
         raise web.HTTPNotFound()
-    return web.FileResponse(path)
+    resp = web.FileResponse(path)
+    if "v" in request.query:
+        # آدرس نسخه‌دار است؛ محتوایش دیگر هرگز عوض نمی‌شود (هر تغییر واقعی،
+        # نسخه‌ی جدیدی می‌گیرد)، پس می‌تواند طولانی‌مدت و بی‌نیاز از بازبینی
+        # کش شود — سریع‌تر لود می‌شود و دیگر مشکل کش‌شدنِ نسخه‌ی قدیمی هم رخ
+        # نمی‌دهد.
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        # درخواست بدون شماره‌نسخه (مثلاً یک WebView که هنوز خودِ HTML قدیمی
+        # را کش کرده و لینک بدون ?v می‌فرستد) — این حالت را کش نمی‌کنیم تا
+        # حداقل با یک بازبینی، به نسخه‌ی درست برسد.
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
 
 
 @routes.get("/webapp")
 async def webapp_root(request):
-    return web.FileResponse(os.path.join(WEBAPP_DIR, "index.html"))
+    return _index_response()
 
 
 @routes.get("/api/state")
