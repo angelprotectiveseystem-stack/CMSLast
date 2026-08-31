@@ -42,7 +42,7 @@ var state = {
   drawOfferBy: null,
   drawModalShown: false,
   animating: false,
-  pendingRender: null
+  activeAnims: []
 };
 
 // ─── Board sizing ───────────────────────────────────────────
@@ -138,51 +138,50 @@ function buildBoard(){
   }
 }
 
-function squareToRowCol(sq){
-  // مختصات شبکه‌ی خانه (row, col) را از روی موقعیت واقعی‌اش در DOM
-  // برمی‌گرداند — این با توجه به state.boardEls (که با رعایت چرخش
-  // صفحه/flip ساخته شده) محاسبه می‌شود، پس چه بازیکن سفید باشد چه
-  // سیاه، جهت حرکت درست است.
-  var el = state.boardEls[sq];
-  if(!el || !el.parentNode) return null;
-  var idx = Array.prototype.indexOf.call(el.parentNode.children, el);
-  return { row: Math.floor(idx / 8), col: idx % 8 };
+// ─── Piece movement / animation engine (rewritten from scratch) ─────
+//
+// این پیاده‌سازی قبلی جهت جابه‌جایی را از روی «اندیس ستون/ردیف در DOM»
+// حساب می‌کرد (col/row * اندازه‌ی فرضی خانه). چون صفحه dir="rtl" است،
+// در CSS Grid محور افقی (ستون‌ها) از راست به چپ چیده می‌شود، ولی
+// transform: translateX یک آفست فیزیکی (بدون توجه به direction) است.
+// نتیجه: برای هر حرکتی که مولفه‌ی افقی داشت (همه‌ی حرکات به‌جز حرکت
+// روی یک ستون ثابت)، مهره در مسیر اشتباه (آینه‌شده) حرکت می‌کرد و فقط
+// در فریم پایانی به‌خانه‌ی درست می‌پرید — همان «حرکت برعکس» که گزارش
+// شده بود. علاوه بر این، رندر جدیدی که حین یک انیمیشن می‌رسید (مثلاً
+// poll که هر ۱.۵ ثانیه بررسی می‌کند) به‌جای اعمال فوری، در صف
+// (pendingRender) نگه داشته می‌شد؛ این تاخیر دقیقاً همان «سکته»/جهش
+// وسط حرکت بود، و چون paintHighlights در پایان renderPieces دوباره
+// اجرا می‌شد، نقطه‌های حرکت (move-dot) هم دوباره ساخته و انیمیشن
+// dotpop‌شان از نو پخش می‌شد — همان سکته‌ی «نقطه‌ها بعد از کلیک».
+//
+// راه‌حل ریشه‌ای (به‌جای رفع مورد به مورد):
+// ۱) مسافت جابه‌جایی از روی مختصات واقعی پیکسلی صفحه
+//    (getBoundingClientRect) محاسبه می‌شود، نه اندیس ستون/ردیف. این
+//    مقدار فیزیکی و مستقل از rtl/ltr، چرخش تخته (flip)، و هر گونه
+//    گرد شدن اعشاری در اندازه‌ی خانه‌هاست — پس امکان «برعکس رفتن»
+//    اصولاً وجود ندارد.
+// ۲) هیچ رندری هرگز به تعویق نمی‌افتد. اگر انیمیشنی در حال اجراست و
+//    رندر جدیدی لازم شد، انیمیشن‌های فعلی فوراً (بدون پرش بصری، چون
+//    Animation.finish() دقیقاً کی‌فریم پایانی را اعمال می‌کند) به
+//    پایان می‌رسند و بلافاصله رندر جدید روی وضعیت واقعی انجام می‌شود.
+//    یعنی همیشه حداکثر یک انیمیشن روی هر مهره در جریان است و رندرها
+//    هرگز صف نمی‌شوند — سکته‌ی ناشی از تاخیر یا هم‌پوشانی دو انیمیشن
+//    از ریشه حذف می‌شود.
+function settleActiveAnimations(){
+  var anims = state.activeAnims;
+  state.activeAnims = [];
+  anims.forEach(function(a){
+    a.onfinish = null;
+    a.oncancel = null;
+    try{ a.finish(); }catch(e){}
+  });
+  state.animating = false;
 }
 
 function renderPieces(animateFrom, animateTo){
-  // پیاده‌سازی FLIP سبک chess.com: مهره‌ی واقعی در DOM به خانه‌ی
-  // مقصدش منتقل می‌شود و بلافاصله با transform به مکان قبلی‌اش
-  // برگردانده می‌شود (بدون هیچ پرش/تغییر سایز)، سپس با یک انیمیشن
-  // خطی و کوتاه (فقط translate، بدون scale یا lift) به سمت صفر
-  // حرکت می‌کند — دقیقاً حسی که در chess.com هست: یک سُر خوردن صاف
-  // و سریع، بدون تاب خوردن یا بالا/پایین پریدن.
-  //
-  // فاصله بر اساس تعداد خانه‌ها (row/col delta) محاسبه می‌شود، نه
-  // pixel واقعی از getBoundingClientRect. این باعث می‌شود انیمیشن
-  // کاملاً مستقل از نوسانات لحظه‌ای layout (که منبع اصلی ناهمواری
-  // بود) و همیشه دقیقاً به اندازه‌ی N خانه جابه‌جا شود.
-  //
-  // نکته‌ی حیاتی درباره‌ی «سکته»: هر ۱.۵ ثانیه pollState با سرور چک
-  // می‌کند و اگر FEN تغییر کرده باشد renderPieces را دوباره صدا
-  // می‌زند. وقتی خودمان یک حرکت انجام می‌دهیم، انیمیشن محلی شروع
-  // می‌شود (چند صد میلی‌ثانیه)، ولی معمولاً خیلی زودتر از این مدت
-  // پاسخ سرور برای همان حرکت می‌رسد و poll بعدی renderPieces را دوباره
-  // صدا می‌زند — درست وسط انیمیشن قبلی، روی همان المان مهره. دو
-  // انیمیشن هم‌زمان روی یک المان دقیقاً همان بریدگی/سکته‌ای بود که
-  // مشاهده شد.
-  //
-  // راه‌حل: اگر همین الان انیمیشنی در جریان است، این فراخوانی را اجرا
-  // نمی‌کنیم — فقط آخرین animateFrom/animateTo درخواستی را ذخیره
-  // می‌کنیم و صبر می‌کنیم انیمیشن فعلی طبیعی تمام شود؛ همان لحظه که
-  // تمام شد (در animDone) یک‌بار renderPieces با آخرین آرگومان‌های
-  // ذخیره‌شده دوباره صدا زده می‌شود. چون FEN همیشه از chess.board()
-  // خوانده می‌شود (نه از یک snapshot قدیمی)، این تأخیر کوتاه هرگز
-  // باعث از دست رفتن حرکتی نمی‌شود — فقط رندرش را به زمان مناسب موکول
-  // می‌کند.
-  if(state.animating){
-    state.pendingRender = { from: animateFrom, to: animateTo };
-    return;
-  }
+  // هر رندر جدید، هر انیمیشن قبلی را فوراً (بدون پرش) می‌بندد؛ هرگز
+  // به تعویق نمی‌افتد — این خودِ تضمینِ نبودِ سکته/هم‌پوشانی است.
+  settleActiveAnimations();
   var boardState = chess.board();
   var desired = {};
   for(var r=0;r<8;r++){
@@ -214,9 +213,10 @@ function renderPieces(animateFrom, animateTo){
 
   if(!vacated.length && !arrived.length){ paintHighlights(); return; }
 
-  // موقعیت شبکه‌ای (row/col) هر مهره‌ی جابه‌جاشونده را قبل از هر
-  // تغییری در DOM ثبت می‌کنیم.
-  vacated.forEach(function(v){ v.grid = squareToRowCol(v.sq); });
+  // موقعیت واقعی پیکسلی (getBoundingClientRect) هر مهره‌ی جابه‌جاشونده
+  // را قبل از هر تغییری در DOM ثبت می‌کنیم — این مقدار فیزیکی صفحه
+  // است، مستقل از rtl/ltr و چرخش تخته.
+  vacated.forEach(function(v){ v.rect = v.el.getBoundingClientRect(); });
 
   function takeVacated(sq){
     for(var i=0;i<vacated.length;i++) if(vacated[i].sq === sq) return vacated.splice(i,1)[0];
@@ -237,7 +237,7 @@ function renderPieces(animateFrom, animateTo){
     var v0 = takeVacated(animateFrom);
     if(v0){
       var a0 = takeArrived(animateTo);
-      if(a0) moves.push({ el: v0.el, toSq: a0.sq, toType: a0.type, fromGrid: v0.grid });
+      if(a0) moves.push({ el: v0.el, toSq: a0.sq, toType: a0.type, fromRect: v0.rect });
       else vacated.push(v0); // مقصد تغییر نکرده؛ احتمالاً همگام‌سازی عجیب — بگذار به مرحله‌ی بعد برود
     }
   }
@@ -247,14 +247,12 @@ function renderPieces(animateFrom, animateTo){
     var a = takeArrivedByType(v.type, v.color);
     if(a){
       takeVacated(v.sq);
-      moves.push({ el: v.el, toSq: a.sq, toType: a.type, fromGrid: v.grid });
+      moves.push({ el: v.el, toSq: a.sq, toType: a.type, fromRect: v.rect });
     }
   });
 
   // LAST — همان المان مهره را فیزیکی به خانه‌ی مقصد منتقل می‌کنیم
   moves.forEach(function(m){
-    var toGrid = squareToRowCol(m.toSq);
-    m.toGrid = toGrid;
     state.boardEls[m.toSq].appendChild(m.el);
     if(m.el.dataset.ptype !== m.toType){ // ترفیع: نوع مهره عوض شده
       m.el.textContent = PIECE_GLYPH[m.toType];
@@ -281,59 +279,27 @@ function renderPieces(animateFrom, animateTo){
     state.boardEls[a.sq].appendChild(span);
   });
 
-  // PLAY — بر اساس اختلاف row/col (نه pixel واقعی) مهره را به‌اندازه‌ی
-  // دقیق N خانه جابه‌جا می‌کنیم. چون سایز هر خانه از روی خودِ board-size
-  // متغیر CSS محاسبه می‌شود، این کار مستقل از هرگونه نوسان لحظه‌ای در
-  // layout بیرونی است.
-  //
-  // از Web Animations API (element.animate) استفاده می‌کنیم، نه
-  // دستکاری دستی style.transform/transition. دلیل: با دستکاری دستی
-  // (ست‌کردن transform به مقدار جهش‌خورده، فورس‌کردن reflow، بعد ست
-  // کردن transition، بعد در rAF برگرداندن به صفر) بین نوشتن استایل‌ها
-  // race condition پیش می‌آمد — روی برخی وب‌ویوها (به‌خصوص WebView
-  // تلگرام) مرورگر فریم شروع را می‌بلعد و مستقیم می‌پرد به مقدار نهایی،
-  // پس هیچ انیمیشنی دیده نمی‌شد. Web Animations API این مشکل را ندارد
-  // چون هر دو کی‌فریم (شروع و پایان) در یک فراخوانی به مرورگر داده
-  // می‌شود و خود مرورگر تضمین می‌کند اولین فریم واقعاً رندر شود.
+  // PLAY — مسافت جابه‌جایی از روی مختصات واقعیِ پیکسلی صفحه محاسبه
+  // می‌شود (rect مبدا که پیش از جابه‌جایی گرفتیم، در برابر rect مقصد
+  // که همین الان بعد از appendChild گرفته می‌شود). این عدد فیزیکی است
+  // و به rtl/ltr، چرخش تخته، یا گرد شدن اعشاری اندازه‌ی خانه‌ها کاری
+  // ندارد؛ پس مهره همیشه دقیقاً در مسیر واقعی‌اش حرکت می‌کند.
   if(moves.length){
     state.animating = true;
-    var pendingAnims = moves.length;
-    var animDone = function(){
-      pendingAnims--;
-      if(pendingAnims <= 0){
-        state.animating = false;
-        sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
-        // اگر در حین انیمیشن یک به‌روزرسانی دیگر (مثلاً از pollState)
-        // درخواست شده بود، همین الان که تخته آزاد است اجرایش می‌کنیم.
-        if(state.pendingRender){
-          var pending = state.pendingRender;
-          state.pendingRender = null;
-          renderPieces(pending.from, pending.to);
-        }
-      }
-    };
-    var boardEl = $("board");
-    var squarePx = boardEl.clientWidth / 8;
     moves.forEach(function(m){
-      if(!m.fromGrid || !m.toGrid){ animDone(); return; }
-      var dCol = m.fromGrid.col - m.toGrid.col;
-      var dRow = m.fromGrid.row - m.toGrid.row;
-      if(!dCol && !dRow){ animDone(); return; }
-      var dx = dCol * squarePx;
-      var dy = dRow * squarePx;
+      var toRect = state.boardEls[m.toSq].getBoundingClientRect();
+      if(!m.fromRect) return;
+      var dx = m.fromRect.left - toRect.left;
+      var dy = m.fromRect.top - toRect.top;
+      if(!dx && !dy) return;
       var dist = Math.sqrt(dx*dx + dy*dy);
       // مدت‌زمان بلندتر و ثابت‌تر، شبیه chess.com: حرکت یک‌خانه‌ای هم
       // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند، نه
       // یک ومضه‌ی چندفریمی که روی موبایل/WebView به‌نظر لگ می‌رسد.
-      // فاصله‌های بلندتر (مثل حرکت وزیر از یک سر تخته به سر دیگر) کمی
-      // بیشتر طول می‌کشند تا سرعت حسی طبیعی بماند.
       var dur = Math.max(260, Math.min(420, 220 + dist * 0.35));
       m.el.style.zIndex = "5";
       if(typeof m.el.animate !== "function"){
-        // مرورگر/وب‌ویوی خیلی قدیمی که Web Animations API ندارد —
-        // بدون انیمیشن مستقیم جابه‌جا می‌شود (بهتر از throw خطا).
         m.el.style.zIndex = "";
-        animDone();
         return;
       }
       var anim = m.el.animate(
@@ -341,43 +307,22 @@ function renderPieces(animateFrom, animateTo){
           { transform: "translate(" + dx + "px," + dy + "px)" },
           { transform: "translate(0px,0px)" }
         ],
-        // easing از نوع ease-out ملایم: شروع کمی سریع‌تر، پایان نرم و
-        // بدون توقف ناگهانی — هیچ jank بصری در وسط راه ایجاد نمی‌کند
-        // چون خودِ مرورگر (نه جاوااسکریپت) هر فریم را محاسبه می‌کند.
         { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)", fill: "forwards" }
       );
-      var settled = false;
-      // finish() موقعیت را دقیقاً روی کی‌فریم پایانی قفل می‌کند (بدون
-      // پرش) و سپس style موقت را پاک می‌کنیم. از cancel() اینجا استفاده
-      // نمی‌کنیم چون cancel وسط انیمیشن باعث پرش آنی به موقعیت نهایی
-      // می‌شد — دقیقاً همان «سکته» که در تست دیده شد. finish فقط وقتی
-      // معنی دارد که انیمیشن واقعاً به پایان طبیعی‌اش رسیده باشد.
-      var settle = function(){
-        if(settled) return;
-        settled = true;
-        try{ anim.finish(); }catch(e){}
-        // بعد از finish، effect را از استک انیمیشن پاک می‌کنیم تا در
-        // رندرهای بعدی (مثلاً اگر همین مهره دوباره حرکت کند) هیچ اثر
-        // باقی‌مانده‌ای تداخل ایجاد نکند. چون finish() از قبل مقدار
-        // نهایی (0,0) را قفل کرده، این cancel هیچ پرش بصری‌ای ایجاد
-        // نمی‌کند.
-        try{ anim.cancel(); }catch(e){}
+      state.activeAnims.push(anim);
+      var done = function(){
+        var i = state.activeAnims.indexOf(anim);
+        if(i >= 0) state.activeAnims.splice(i, 1);
         m.el.style.zIndex = "";
-        animDone();
+        if(!state.activeAnims.length){
+          state.animating = false;
+          sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
+        }
       };
-      anim.onfinish = settle;
-      anim.oncancel = function(){
-        if(settled) return;
-        settled = true;
-        m.el.style.zIndex = "";
-        animDone();
-      };
-      // شبکه‌ی ایمنی: اگر به هر دلیلی onfinish هرگز فایر نشود (مثلاً
-      // تب در پس‌زمینه رفت)، با تأخیر قابل‌توجه (نه نزدیک به dur واقعی)
-      // یک‌بار settle را صدا می‌زنیم تا هرگز گیر نکنیم، بدون این‌که با
-      // پایان طبیعی انیمیشن رقابت کند.
-      setTimeout(settle, dur + 400);
+      anim.onfinish = done;
+      anim.oncancel = done;
     });
+    if(!state.activeAnims.length) state.animating = false;
   }
 
   paintHighlights();
