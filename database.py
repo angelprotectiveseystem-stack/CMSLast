@@ -264,6 +264,8 @@ async def init_db():
             "ALTER TABLE matches ADD COLUMN claimed_at TEXT",
             "ALTER TABLE chess_requests ADD COLUMN time_control INTEGER DEFAULT 300",
             "ALTER TABLE chess_requests ADD COLUMN requester_color TEXT DEFAULT 'random'",
+            "ALTER TABLE chess_games ADD COLUMN white_elo_change INTEGER",
+            "ALTER TABLE chess_games ADD COLUMN black_elo_change INTEGER",
         ):
             try:
                 await db.execute(stmt)
@@ -1571,12 +1573,13 @@ async def update_chess_game_move(token, fen, pgn, last_from, last_to, white_time
         await db.commit()
 
 
-async def finish_chess_game(token, status, winner_id):
+async def finish_chess_game(token, status, winner_id, white_elo_change=None, black_elo_change=None):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "UPDATE chess_games SET status=?, winner_id=?, finished_at=? WHERE token=?",
-            (status, winner_id, now, token)
+            """UPDATE chess_games SET status=?, winner_id=?, finished_at=?,
+               white_elo_change=?, black_elo_change=?, draw_offer_by=NULL WHERE token=?""",
+            (status, winner_id, now, white_elo_change, black_elo_change, token)
         )
         await db.commit()
 
@@ -1584,6 +1587,12 @@ async def finish_chess_game(token, status, winner_id):
 async def set_chess_draw_offer(token, by_id):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE chess_games SET draw_offer_by=? WHERE token=?", (by_id, token))
+        await db.commit()
+
+
+async def clear_chess_draw_offer(token):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE chess_games SET draw_offer_by=NULL WHERE token=?", (token,))
         await db.commit()
 
 

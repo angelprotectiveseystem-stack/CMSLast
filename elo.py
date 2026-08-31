@@ -247,6 +247,128 @@ async def get_elo_leaderboard(limit: int = 10) -> list:
             return await cur.fetchall()
 
 
+# ─── سیستم Elo مخصوص شطرنج زنده (جدول جدا) ────────────────────
+async def ensure_chess_elo_table():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS chess_elo (
+                player_id INTEGER PRIMARY KEY,
+                display_name TEXT,
+                rating REAL DEFAULT 1200,
+                peak_rating REAL DEFAULT 1200,
+                games_played INTEGER DEFAULT 0,
+                wins INTEGER DEFAULT 0,
+                losses INTEGER DEFAULT 0,
+                draws INTEGER DEFAULT 0,
+                last_updated TEXT
+            )
+        """)
+        await db.commit()
+
+
+async def get_chess_player_elo(player_id: int) -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM chess_elo WHERE player_id=?", (player_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            if row:
+                return dict(row)
+            return {
+                "player_id": player_id,
+                "rating": ELO_DEFAULT,
+                "peak_rating": ELO_DEFAULT,
+                "games_played": 0,
+                "wins": 0,
+                "losses": 0,
+                "draws": 0,
+            }
+
+
+async def update_chess_elo_after_game(
+    white_id: int, white_name: str, black_id: int, black_name: str, result: str
+):
+    """محاسبه و ذخیره‌ی Elo بعد از پایان یک بازی شطرنج زنده.
+    خروجی: (new_white_rating, new_black_rating, change_white, change_black)"""
+    from datetime import datetime
+    now = datetime.now().isoformat()
+
+    white_elo = await get_chess_player_elo(white_id)
+    black_elo = await get_chess_player_elo(black_id)
+
+    new_w, new_b, chg_w, chg_b = calculate_new_ratings(
+        white_elo["rating"], black_elo["rating"],
+        white_elo["games_played"], black_elo["games_played"],
+        result
+    )
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO chess_elo(player_id, display_name, rating, peak_rating, games_played,
+                wins, losses, draws, last_updated)
+            VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+            ON CONFLICT(player_id) DO UPDATE SET
+                display_name=?,
+                rating=?,
+                peak_rating=MAX(peak_rating, ?),
+                games_played=games_played+1,
+                wins=wins+?,
+                losses=losses+?,
+                draws=draws+?,
+                last_updated=?
+        """, (
+            white_id, white_name, new_w, new_w,
+            1 if result == "white" else 0,
+            1 if result == "black" else 0,
+            1 if result == "draw" else 0,
+            now,
+            white_name, new_w, new_w,
+            1 if result == "white" else 0,
+            1 if result == "black" else 0,
+            1 if result == "draw" else 0,
+            now
+        ))
+
+        await db.execute("""
+            INSERT INTO chess_elo(player_id, display_name, rating, peak_rating, games_played,
+                wins, losses, draws, last_updated)
+            VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+            ON CONFLICT(player_id) DO UPDATE SET
+                display_name=?,
+                rating=?,
+                peak_rating=MAX(peak_rating, ?),
+                games_played=games_played+1,
+                wins=wins+?,
+                losses=losses+?,
+                draws=draws+?,
+                last_updated=?
+        """, (
+            black_id, black_name, new_b, new_b,
+            1 if result == "black" else 0,
+            1 if result == "white" else 0,
+            1 if result == "draw" else 0,
+            now,
+            black_name, new_b, new_b,
+            1 if result == "black" else 0,
+            1 if result == "white" else 0,
+            1 if result == "draw" else 0,
+            now
+        ))
+        await db.commit()
+
+    return new_w, new_b, chg_w, chg_b
+
+
+async def get_chess_elo_leaderboard(limit: int = 10) -> list:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM chess_elo ORDER BY rating DESC LIMIT ?", (limit,)
+        ) as cur:
+            return await cur.fetchall()
+
+
 async def get_player_elo_history(player_id: int, limit: int = 10) -> list:
     """تاریخچه تغییرات Elo یک بازیکن"""
     async with aiosqlite.connect(DB_PATH) as db:
