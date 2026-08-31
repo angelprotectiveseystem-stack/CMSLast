@@ -107,11 +107,11 @@ html,body{
 .icon-btn{
   position:relative;
   background: var(--surface); border:1px solid var(--border); color: var(--text-1);
-  width:40px; height:40px; border-radius:10px;
+  width:44px; height:44px; border-radius:10px;
   display:flex; align-items:center; justify-content:center;
   transition: transform .15s ease, background .2s ease;
 }
-.icon-btn svg{ width:20px; height:20px; }
+.icon-btn svg{ width:22px; height:22px; }
 .icon-btn:active{ transform: scale(.9); background: var(--bg-2); }
 .chat-badge{
   position:absolute; top:-4px; left:-4px; min-width:16px; height:16px; padding:0 3px;
@@ -126,28 +126,29 @@ html,body{
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 8px 12px;
+  min-height: 58px;
 }
 .avatar{
-  width:42px; height:42px; border-radius:50%;
+  width:46px; height:46px; border-radius:50%;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   display:flex; align-items:center; justify-content:center;
-  font-size:16px; font-weight:700; color:#fff; flex-shrink:0;
+  font-size:17px; font-weight:700; color:#fff; flex-shrink:0;
 }
 .player-info{ flex:1; min-width:0; }
-.player-name{ font-size:15px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.player-name{ font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .captured-row{ display:flex; gap:1px; font-size:16px; min-height:19px; color: var(--text-2); letter-spacing:-2px; }
 .clock{
-  font-family: 'SF Mono', ui-monospace, monospace; font-size:17px; font-weight:700;
-  background: var(--bg-1); border-radius:8px; padding:6px 12px;
-  min-width:72px; text-align:center; color: var(--text-2);
+  font-family: 'SF Mono', ui-monospace, monospace; font-size:18px; font-weight:700;
+  background: var(--bg-1); border-radius:8px; padding:7px 13px;
+  min-width:76px; text-align:center; color: var(--text-2);
   transition: color .2s ease, background .2s ease;
 }
 .clock.active{ color:#fff; background: var(--accent); box-shadow: 0 0 14px rgba(91,124,250,.5); }
 .clock.low{ color:#fff; background: var(--danger); animation: pulse 1s ease-in-out infinite; }
 
-.board-wrap{ position:relative; flex: 1; display:flex; align-items:center; justify-content:center; min-height:0; width:100%; }
+.board-wrap{ position:relative; flex: 1; display:flex; align-items:center; justify-content:center; min-height:0; width:100%; contain: layout size; }
 .board{
-  width: var(--board-size, min(92vw, 480px));
+  width: var(--board-size, min(96vw, 560px));
   aspect-ratio:1;
   display:grid;
   grid-template-columns: repeat(8,1fr);
@@ -156,6 +157,7 @@ html,body{
   overflow:hidden;
   border: 1px solid var(--border);
   box-shadow: 0 20px 60px rgba(0,0,0,.45);
+  flex-shrink: 0;
 }
 
 .square{ position:relative; display:flex; align-items:center; justify-content:center; }
@@ -186,9 +188,10 @@ html,body{
 @keyframes dotpop{ from{ transform: scale(0);} to{ transform: scale(1);} }
 
 .piece{
-  width:82%; height:82%;
+  width:92%; height:92%;
   display:flex; align-items:center; justify-content:center;
-  font-size: calc(var(--board-size, 320px) / 8 * 0.62);
+  font-size: calc(var(--board-size, 320px) / 8 * 0.8);
+  line-height: 1;
   cursor:grab;
   position:absolute; inset:0; margin:auto; z-index:2;
   transition: filter .15s ease;

@@ -40,7 +40,8 @@ var state = {
   pendingChat: [],       // پیام‌های خودم که هنوز از سرور تایید نشده‌اند (برای نمایش آنی بدون تاخیر)
   moveList: [],          // تاریخچه‌ی حرکات (SAN) — همیشه از سرور می‌آید، نه از chess.js
   drawOfferBy: null,
-  drawModalShown: false
+  drawModalShown: false,
+  animating: false
 };
 
 // ─── Board sizing ───────────────────────────────────────────
@@ -49,15 +50,43 @@ var state = {
 // شدن کیبورد/تغییر UI تلگرام هماهنگ نبودند) روی خود تخته اعمال می‌کنیم.
 // همین متغیر برای اندازه‌ی مهره‌ها هم استفاده می‌شود تا همیشه دقیقاً
 // اندازه‌ی خانه‌ها باشند و جا نمانند یا اندازه‌شان نامتناسب نشود.
+//
+// نکته‌ی مهم برای رفع باگ «تغییر سایز تخته حین حرکت مهره»:
+// اندازه‌گیری از روی .board-wrap با flex:1 انجام می‌شد؛ ارتفاع این
+// عنصر به محتوای بالا/پایینش (کارت بازیکن‌ها، ردیف مهره‌های گرفته‌شده که
+// طولش با هر حرکت عوض می‌شود) وابسته بود. با هر رندر/انیمیشن، مرورگر
+// یک reflow می‌داد، عرض/ارتفاع board-wrap یک پیکسل نوسان می‌کرد، و چون
+// sizeBoard روی رویداد window "resize" هم صدا زده می‌شد (که در برخی
+// وب‌ویوها با تغییرات layout داخلی هم فایر می‌شود)، --board-size وسط
+// انیمیشن عوض می‌شد و خانه‌ها/مهره‌ها یک لحظه پرش می‌کردند.
+// راه‌حل: به‌جای اندازه‌گیری مکرر و واکنش به هر تغییر layout داخلی،
+// یک ResizeObserver فقط روی #app (که ارتفاعش با viewport تعیین می‌شود،
+// نه با محتوای متغیر) می‌گذاریم و اندازه را فقط وقتی واقعاً کانتینر
+// اصلی عوض شده به‌روزرسانی می‌کنیم؛ و در حین جابه‌جایی فعال مهره (پرچم
+// state.animating) هیچ به‌روزرسانی‌ای انجام نمی‌دهیم تا در وسط انیمیشن
+// دست به --board-size زده نشود.
+var boardSizeRAF = null;
 function sizeBoard(){
+  if(state.animating) return; // در حین حرکت مهره اندازه را دست نزن
   var wrap = document.querySelector(".board-wrap");
-  if(!wrap) return;
-  var w = wrap.clientWidth;
-  var h = wrap.clientHeight;
-  var size = Math.floor(Math.min(w, h));
-  if(size > 40){
-    document.documentElement.style.setProperty("--board-size", size + "px");
-  }
+  var appEl = document.getElementById("app");
+  if(!wrap || !appEl) return;
+  if(boardSizeRAF) cancelAnimationFrame(boardSizeRAF);
+  boardSizeRAF = requestAnimationFrame(function(){
+    boardSizeRAF = null;
+    var w = wrap.clientWidth;
+    var h = wrap.clientHeight;
+    var size = Math.floor(Math.min(w, h));
+    if(size > 40){
+      var current = getComputedStyle(document.documentElement).getPropertyValue("--board-size");
+      var currentPx = parseFloat(current) || 0;
+      // فقط وقتی تغییر واقعی و محسوس است (بیش از ۱px) اعمال کن تا از
+      // نوسان‌های زیرپیکسلی حین ری‌فلوهای موقتی جلوگیری شود.
+      if(Math.abs(currentPx - size) >= 1){
+        document.documentElement.style.setProperty("--board-size", size + "px");
+      }
+    }
+  });
 }
 window.addEventListener("resize", sizeBoard);
 window.addEventListener("orientationchange", function(){ setTimeout(sizeBoard, 50); });
@@ -66,6 +95,15 @@ if(window.visualViewport){
 }
 if(tg && tg.onEvent){
   try{ tg.onEvent("viewportChanged", sizeBoard); }catch(e){}
+}
+if(window.ResizeObserver){
+  try{
+    var appResizeObserver = new ResizeObserver(function(){ sizeBoard(); });
+    document.addEventListener("DOMContentLoaded", function(){
+      var appEl = document.getElementById("app");
+      if(appEl) appResizeObserver.observe(appEl);
+    });
+  }catch(e){}
 }
 
 function $(id){ return document.getElementById(id); }
@@ -209,12 +247,21 @@ function renderPieces(animateFrom, animateTo){
   // شود (بدون فورس‌کردن reflow هم‌زمان)، بعد هر مهره را از موقعیت قبلی‌اش
   // با ترنسفورم به موقعیت جدید «سر می‌دهیم».
   if(moves.length){
+    state.animating = true;
+    var pendingAnims = moves.length;
+    function animDone(){
+      pendingAnims--;
+      if(pendingAnims <= 0){
+        state.animating = false;
+        sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
+      }
+    }
     requestAnimationFrame(function(){
       moves.forEach(function(m){
         var toRect = m.el.getBoundingClientRect();
         var dx = m.fromRect.left - toRect.left;
         var dy = m.fromRect.top - toRect.top;
-        if(!dx && !dy) return;
+        if(!dx && !dy){ animDone(); return; }
         var dist = Math.sqrt(dx*dx + dy*dy);
         var dur = Math.max(140, Math.min(320, dist * 0.55));
         var lift = Math.min(10, dist * 0.06);
@@ -225,7 +272,7 @@ function renderPieces(animateFrom, animateTo){
           { transform: "translate(" + (dx*0.5) + "px," + (dy*0.5 - lift) + "px) scale(1.14)", offset: 0.55 },
           { transform: "translate(0,0) scale(1)" }
         ], { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)" });
-        anim.onfinish = anim.oncancel = function(){ m.el.style.willChange = ""; m.el.style.zIndex = ""; };
+        anim.onfinish = anim.oncancel = function(){ m.el.style.willChange = ""; m.el.style.zIndex = ""; animDone(); };
       });
     });
   }
