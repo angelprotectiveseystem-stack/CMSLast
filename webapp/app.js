@@ -4,6 +4,11 @@
 var tg = window.Telegram ? window.Telegram.WebApp : null;
 if(tg){ tg.ready(); tg.expand(); try{ tg.disableVerticalSwipes(); }catch(e){} }
 
+try{
+  var savedTheme = localStorage.getItem("chess_theme");
+  if(savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+}catch(e){}
+
 var params = new URLSearchParams(window.location.search);
 var TOKEN = params.get("token") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param);
 var INIT_DATA = tg ? tg.initData : "";
@@ -26,7 +31,11 @@ var state = {
   myId: null, oppId: null,
   myName: "شما", oppName: "حریف",
   gameOverShown: false,
-  boardEls: {}
+  boardEls: {},
+  chatTimer: null,
+  lastChatId: 0,
+  chatOpen: false,
+  chatUnread: 0
 };
 
 function $(id){ return document.getElementById(id); }
@@ -63,6 +72,14 @@ function buildBoard(){
 function renderPieces(animateFrom, animateTo){
   var boardState = chess.board();
   var flip = state.myColor === "b";
+  // FLIP prep: capture where the moving piece currently sits on screen
+  // (its square before this re-render) so we can slide it into place
+  // instead of having it teleport.
+  var fromRect = null;
+  if(animateFrom && state.boardEls[animateFrom]){
+    var fromPieceEl = state.boardEls[animateFrom].querySelector(".piece");
+    if(fromPieceEl) fromRect = fromPieceEl.getBoundingClientRect();
+  }
   Object.keys(state.boardEls).forEach(function(sq){
     var el = state.boardEls[sq];
     var existing = el.querySelector(".piece");
@@ -78,8 +95,32 @@ function renderPieces(animateFrom, animateTo){
       var span = document.createElement("div");
       span.className = "piece " + (p.color==="w" ? "white-p" : "black-p");
       span.textContent = PIECE_GLYPH[p.type];
-      if(sq === animateTo) span.classList.add("landed");
+      if(sq === animateTo && !fromRect) span.classList.add("landed");
       el.appendChild(span);
+    }
+  }
+  if(animateTo && fromRect && state.boardEls[animateTo]){
+    var landedEl = state.boardEls[animateTo].querySelector(".piece");
+    if(landedEl){
+      var toRect = landedEl.getBoundingClientRect();
+      var dx = fromRect.left - toRect.left;
+      var dy = fromRect.top - toRect.top;
+      if(dx !== 0 || dy !== 0){
+        landedEl.style.transition = "none";
+        landedEl.style.transform = "translate(" + dx + "px," + dy + "px)";
+        // force reflow so the browser registers the start position
+        // before we animate to the resting position
+        landedEl.getBoundingClientRect();
+        requestAnimationFrame(function(){
+          landedEl.style.transition = "transform .2s cubic-bezier(.25,.8,.4,1)";
+          landedEl.style.transform = "translate(0,0)";
+          landedEl.addEventListener("transitionend", function te(){
+            landedEl.style.transition = "";
+            landedEl.style.transform = "";
+            landedEl.removeEventListener("transitionend", te);
+          });
+        });
+      }
     }
   }
   paintHighlights();
@@ -217,10 +258,24 @@ function pollState(){
   }).catch(function(){ setConnStatus(false); });
 }
 
+function fenPly(fen){
+  var parts = (fen || "").split(" ");
+  var turn = parts[1];
+  var fullmove = parseInt(parts[5], 10) || 1;
+  return (fullmove - 1) * 2 + (turn === "b" ? 1 : 0);
+}
+
 function applyServerState(s, fromPoll){
   if(!s) return;
   var incomingFen = s.fen;
   if(incomingFen && incomingFen !== chess.fen()){
+    if(fenPly(incomingFen) < fenPly(chess.fen())){
+      // This response is older than what we already have locally — it's a
+      // poll that raced with our own move and read the DB before it was
+      // written. Applying it would yank the piece back for a moment, so
+      // we just drop it; the next poll will bring the correct position.
+      return;
+    }
     var prevLast = state.lastMove;
     chess.load(incomingFen);
     state.lastMove = s.last_move || prevLast;
@@ -372,6 +427,99 @@ function launchConfetti(){
   requestAnimationFrame(frame);
 }
 
+// ─── Theme ──────────────────────────────────────────────────
+function applyTheme(name){
+  document.documentElement.setAttribute("data-theme", name);
+  try{ localStorage.setItem("chess_theme", name); }catch(e){}
+  document.querySelectorAll(".theme-opt").forEach(function(btn){
+    btn.classList.toggle("active", btn.dataset.theme === name);
+  });
+}
+document.querySelectorAll(".theme-opt").forEach(function(btn){
+  btn.addEventListener("click", function(){ applyTheme(btn.dataset.theme); });
+});
+(function initThemeHighlight(){
+  var current = document.documentElement.getAttribute("data-theme") || "dark";
+  document.querySelectorAll(".theme-opt").forEach(function(btn){
+    btn.classList.toggle("active", btn.dataset.theme === current);
+  });
+})();
+
+// ─── Chat ───────────────────────────────────────────────────
+function renderChatMessage(m){
+  var list = $("chat-list");
+  var empty = list.querySelector(".chat-empty");
+  if(empty) empty.remove();
+  var mine = String(m.sender_id) === String(state.myId);
+  var bubble = document.createElement("div");
+  bubble.className = "chat-bubble" + (mine ? " mine" : "");
+  var senderSpan = document.createElement("span");
+  senderSpan.className = "chat-sender";
+  senderSpan.textContent = mine ? "شما" : (m.sender_name || state.oppName);
+  var textDiv = document.createElement("div");
+  textDiv.textContent = m.text;
+  bubble.appendChild(senderSpan);
+  bubble.appendChild(textDiv);
+  list.appendChild(bubble);
+  list.scrollTop = list.scrollHeight;
+}
+
+function pollChat(){
+  if(!TOKEN) return;
+  fetch(API + "/api/chat?token=" + encodeURIComponent(TOKEN) + "&after=" + state.lastChatId)
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if(!res.ok || !res.messages || !res.messages.length) return;
+      res.messages.forEach(function(m){
+        state.lastChatId = Math.max(state.lastChatId, m.id);
+        renderChatMessage(m);
+        if(!state.chatOpen && String(m.sender_id) !== String(state.myId)){
+          state.chatUnread++;
+          updateChatBadge();
+        }
+      });
+    })
+    .catch(function(){});
+}
+
+function updateChatBadge(){
+  var badge = $("chat-badge");
+  if(state.chatUnread > 0){
+    badge.textContent = state.chatUnread > 9 ? "9+" : String(state.chatUnread);
+    badge.classList.remove("hidden");
+  } else {
+    badge.classList.add("hidden");
+  }
+}
+
+function sendChatMessage(){
+  var input = $("chat-input");
+  var text = input.value.trim();
+  if(!text) return;
+  input.value = "";
+  apiPost("/api/chat", { text: text }).then(function(res){
+    if(!res.ok && res.error){ input.value = text; }
+  });
+}
+
+$("btn-chat").addEventListener("click", function(){
+  state.chatOpen = true;
+  state.chatUnread = 0;
+  updateChatBadge();
+  $("chat-panel").classList.add("open");
+  setTimeout(function(){ $("chat-input").focus(); }, 250);
+});
+$("btn-close-chat").addEventListener("click", function(){
+  state.chatOpen = false;
+  $("chat-panel").classList.remove("open");
+});
+$("btn-chat-send").addEventListener("click", sendChatMessage);
+$("chat-input").addEventListener("keydown", function(e){
+  if(e.key === "Enter"){ e.preventDefault(); sendChatMessage(); }
+});
+$("btn-theme").addEventListener("click", function(){ $("theme-panel").classList.add("open"); });
+$("btn-close-theme").addEventListener("click", function(){ $("theme-panel").classList.remove("open"); });
+
 // ─── Actions ────────────────────────────────────────────────
 $("btn-resign").addEventListener("click", function(){
   if(state.status !== "active") return;
@@ -421,6 +569,8 @@ function init(){
     showScreen("screen-game");
     state.pollTimer = setInterval(pollState, 1500);
     state.clockTimer = setInterval(tickClocks, 1000);
+    state.chatTimer = setInterval(pollChat, 2000);
+    pollChat();
     if(s.status !== "active"){ showGameOver(s.status, s.winner_id); }
   }).catch(function(){
     showError("اتصال به سرور برقرار نشد.");
