@@ -43,6 +43,42 @@ def set_bot(bot):
     BOT = bot
 
 
+# ─── آدرسِ عکسِ پروفایلِ تلگرامیِ بازیکن‌ها ──────────────────────
+# فقط با شیِ BOT می‌شود این را گرفت (نیاز به یک درخواستِ get_user_profile_photos
+# + یک get_file دارد)، پس سمتِ سرور محاسبه و لینکِ مستقیمِ فایل به کلاینت
+# فرستاده می‌شود (نه این‌که وب‌اپ خودش بخواهد به تلگرام وصل شود — از آن‌جا
+# اصلاً به initData/بات دسترسی ندارد). چون این دو درخواست به تلگرام هر بار
+# کمی طول می‌کشند و عکسِ پروفایلِ افراد در حدِ چند دقیقه تغییر نمی‌کند، با
+# یک کشِ ساده‌ی حافظه‌ای (TTL) از زدنِ درخواستِ تکراری در هر poll جلوگیری
+# می‌شود.
+_avatar_cache = {}  # user_id -> (url_or_None, monotonic_expiry)
+_AVATAR_CACHE_TTL = 300  # ثانیه
+
+
+async def _resolve_avatar_url(user_id):
+    if not user_id or BOT is None:
+        return None
+    cached = _avatar_cache.get(user_id)
+    if cached and cached[1] > time.monotonic():
+        return cached[0]
+    url = None
+    try:
+        photos = await BOT.get_user_profile_photos(user_id, limit=1)
+        if photos and photos.photos:
+            # کوچک‌ترین سایزِ موجود کافی است چون آواتار در وب‌اپ خیلی کوچک
+            # نمایش داده می‌شود؛ حجمِ کمتر یعنی دانلودِ سریع‌تر روی موبایل.
+            file_id = photos.photos[0][0].file_id
+            tg_file = await BOT.get_file(file_id)
+            url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file.file_path}"
+    except TelegramError:
+        url = None
+    except Exception:
+        logger.exception("Failed to resolve avatar for user %s", user_id)
+        url = None
+    _avatar_cache[user_id] = (url, time.monotonic() + _AVATAR_CACHE_TTL)
+    return url
+
+
 def _kb_after_game() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🆕 بازی جدید", callback_data="chess_menu")],
@@ -53,9 +89,37 @@ def _kb_after_game() -> InlineKeyboardMarkup:
 _RESULT_LABELS = {
     "checkmate": "با کیش و مات",
     "draw": "با تساوی",
+    "draw_agreement": "با توافق دو طرف بر تساوی",
+    "stalemate": "با تساوی (پات — بازیکنِ نوبت‌دار هیچ حرکتِ مجازی نداشت)",
+    "insufficient_material": "با تساوی (مهره‌های باقی‌مانده برای مات‌کردن کافی نبود)",
+    "draw_75moves": "با تساوی (۷۵ حرکت بدون پیشروی پیاده یا گرفتنِ مهره)",
+    "draw_repetition": "با تساوی (تکرارِ سه‌باره‌ی یک موقعیت)",
     "resigned": "با تسلیم یکی از طرفین",
     "timeout": "با اتمام زمان یکی از طرفین",
 }
+
+# مجموعه‌ی همه‌ی وضعیت‌هایی که از دیدِ منطقِ بازی «تساوی» محسوب می‌شوند —
+# برای این‌که هر جای دیگری از کد که قبلاً فقط status == "draw" چک می‌کرد
+# (مثلاً محاسبه‌ی Elo که مساوی را winner_id=None می‌داند) با انواعِ جدیدِ
+# دقیق‌ترِ تساوی هم درست کار کند.
+DRAW_STATUSES = {"draw", "draw_agreement", "stalemate", "insufficient_material", "draw_75moves", "draw_repetition"}
+
+
+def _classify_draw_reason(board) -> str:
+    """علتِ دقیقِ تساوی را از رویِ Board برمی‌گرداند. ترتیبِ چک‌ها مهم است:
+    is_stalemate و is_insufficient_material دو حالتِ جداگانه‌اند، ولی
+    ۷۵-حرکت و تکرارِ سه‌بار می‌توانند هم‌زمان با یکدیگر (یا با پات) درست
+    باشند؛ در آن صورت دلیلِ «قانونیِ اولیه‌تر» (پات/کمبودِ مهره) در اولویت
+    است چون علیّ‌تر و قابلِ‌فهم‌تر برای بازیکن است."""
+    if board.is_stalemate():
+        return "stalemate"
+    if board.is_insufficient_material():
+        return "insufficient_material"
+    if board.is_seventyfive_moves():
+        return "draw_75moves"
+    if board.is_repetition(3):
+        return "draw_repetition"
+    return "draw"
 
 
 async def _notify_players_game_finished(game, status, winner_id):
@@ -67,6 +131,17 @@ async def _notify_players_game_finished(game, status, winner_id):
     if BOT is None:
         return
     label = _RESULT_LABELS.get(status, status)
+    # برای تسلیم، «یکی از طرفین» کافی نیست — دقیقاً بگوییم چه کسی تسلیم شد
+    # (بازنده = کسی که winner_id نیست)، چون خودِ گیرنده‌ی پیام هم می‌تواند
+    # برنده یا بازنده باشد و نباید حدس بزند.
+    if status == "resigned" and winner_id:
+        loser_id = game["black_id"] if str(winner_id) == str(game["white_id"]) else game["white_id"]
+        loser_name = game["black_name"] if loser_id == game["black_id"] else game["white_name"]
+        label = f"با تسلیمِ {loser_name}"
+    elif status == "timeout" and winner_id:
+        loser_id = game["black_id"] if str(winner_id) == str(game["white_id"]) else game["white_id"]
+        loser_name = game["black_name"] if loser_id == game["black_id"] else game["white_name"]
+        label = f"با اتمامِ زمانِ {loser_name}"
     pairs = ((game["white_id"], game["white_msg_id"]), (game["black_id"], game["black_msg_id"]))
     for side_id, msg_id in pairs:
         if not side_id or side_id == AI_ID:
@@ -155,8 +230,15 @@ async def _resolve_user_id(request_json):
     return None, None
 
 
-def _game_to_state(game, viewer_id):
+async def _game_to_state(game, viewer_id):
     pgn = game["pgn"] or ""
+    # هر دو عکسِ پروفایل موازی گرفته می‌شوند (نه پشتِ‌سرِهم) تا تاخیرِ
+    # اضافه‌شده به هر درخواستِ /api/state حداکثر برابرِ یکی از این دو
+    # فراخوانی باشد، نه مجموعِ هر دو.
+    white_avatar, black_avatar = await asyncio.gather(
+        _resolve_avatar_url(game["white_id"]),
+        _resolve_avatar_url(game["black_id"]),
+    )
     return {
         "fen": game["fen"],
         "status": game["status"],
@@ -164,6 +246,8 @@ def _game_to_state(game, viewer_id):
         "black_id": game["black_id"],
         "white_name": game["white_name"],
         "black_name": game["black_name"],
+        "white_avatar": white_avatar,
+        "black_avatar": black_avatar,
         "white_time": game["white_time"],
         "black_time": game["black_time"],
         "winner_id": game["winner_id"],
@@ -415,7 +499,7 @@ async def api_state(request):
             game["status"] = "timeout"
             game["winner_id"] = winner
             await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": _game_to_state(game, viewer_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(game, viewer_id)})
 
 
 @routes.post("/api/move")
@@ -461,7 +545,7 @@ async def api_move(request):
         status = "checkmate"
         winner = user_id
     elif board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_repetition(3):
-        status = "draw"
+        status = _classify_draw_reason(board)
 
     # باگِ «تاریخچه ناقص»: قبلاً فقط سانِ همین یک حرکت (san) به‌عنوانِ pgn
     # ذخیره می‌شد، یعنی هر حرکتِ جدید کل تاریخچه‌ی قبلی را توی دیتابیس پاک
@@ -484,7 +568,7 @@ async def api_move(request):
 
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id)})
 
 
 @routes.post("/api/resign")
@@ -503,7 +587,7 @@ async def api_resign(request):
     await _finish_with_elo(token, "resigned", game, winner)
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id)})
 
 
 @routes.post("/api/draw_offer")
@@ -527,7 +611,7 @@ async def api_draw_offer(request):
         score = evaluate_fen(game["fen"])
         ai_score = score if ai_is_white else -score
         if ai_score < -150:
-            await _finish_with_elo(token, "draw", game, None)
+            await _finish_with_elo(token, "draw_agreement", game, None)
         else:
             await db.clear_chess_draw_offer(token)
             ai_name = game["white_name"] if ai_is_white else game["black_name"]
@@ -538,7 +622,7 @@ async def api_draw_offer(request):
 
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id)})
 
 
 @routes.post("/api/draw_response")
@@ -561,12 +645,12 @@ async def api_draw_response(request):
         return web.json_response({"ok": False, "error": "پیشنهاد تساوی معتبری برای پاسخ وجود ندارد."})
 
     if accept:
-        await _finish_with_elo(token, "draw", game, None)
+        await _finish_with_elo(token, "draw_agreement", game, None)
     else:
         await db.clear_chess_draw_offer(token)
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id)})
 
 
 @routes.post("/api/game_over")
@@ -670,7 +754,7 @@ async def maybe_play_ai_move(token: str):
         status = "checkmate"
         winner = AI_ID
     elif board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_repetition(3):
-        status = "draw"
+        status = _classify_draw_reason(board)
 
     prev_pgn = game.get("pgn") or ""
     new_pgn = (prev_pgn + "," + san) if prev_pgn else san
