@@ -321,7 +321,7 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_text(text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
     else:
-        await update.callback_safe_edit_message_text(query, text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
+        await safe_edit_message_text(update.callback_query, text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
     return ConversationHandler.END
 
 
@@ -362,7 +362,7 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
     if update.message:
         await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
     else:
-        await update.callback_safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
+        await safe_edit_message_text(update.callback_query, text, reply_markup=markup, parse_mode="Markdown")
     return ConversationHandler.END
 
 

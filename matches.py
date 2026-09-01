@@ -179,7 +179,7 @@ async def _finalize_match(update, ctx, via_query: bool):
     if not white_id or not black_id:
         msg = "❌ خطا. دوباره از ابتدا شروع کنید."
         if via_query:
-            await update.callback_safe_edit_message_text(query, msg)
+            await safe_edit_message_text(query, msg)
         else:
             await update.message.reply_text(msg)
         return ConversationHandler.END
@@ -204,7 +204,7 @@ async def _finalize_match(update, ctx, via_query: bool):
         InlineKeyboardButton("✅ بازگشت", callback_data="back_matches")],
     ])
     if via_query:
-        await update.callback_safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
+        await safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
     else:
         await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
     return ConversationHandler.END
