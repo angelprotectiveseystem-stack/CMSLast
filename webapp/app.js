@@ -44,7 +44,8 @@ var state = {
   animating: false,
   activeAnims: [],
   pendingAnimFrame: null,
-  historyRenderedCount: 0
+  historyRenderedCount: 0,
+  liveSocket: null
 };
 
 // ─── Board sizing ───────────────────────────────────────────
@@ -177,8 +178,6 @@ function settleActiveAnimations(){
   var anims = state.activeAnims;
   state.activeAnims = [];
   anims.forEach(function(a){
-    a.onfinish = null;
-    a.oncancel = null;
     try{ a.finish(); }catch(e){}
   });
   state.animating = false;
@@ -291,15 +290,26 @@ function renderPieces(animateFrom, animateTo){
   // و به rtl/ltr، چرخش تخته، یا گرد شدن اعشاری اندازه‌ی خانه‌ها کاری
   // ندارد؛ پس مهره همیشه دقیقاً در مسیر واقعی‌اش حرکت می‌کند.
   //
-  // شروعِ خودِ انیمیشن (اندازه‌گیری rect + فراخوانی animate) را به
-  // یک requestAnimationFrame تازه موکول می‌کنیم. تا این نقطه، همین
-  // تابع رندر (که ممکن است پشت‌سرش renderCaptured/renderHistory و
-  // شروع درخواست شبکه هم صدا زده شوند — همه در یک تسک synchronous)
-  // مقداری کار روی ترد اصلی انجام داده؛ اگر animate() درست وسط همین
-  // تسک صدا زده شود، مرورگر گاهی اولین فریم(های) حرکت را از دست
-  // می‌دهد و نتیجه دقیقاً همان «تیکه‌تیکه پخش شدن» است. با موکول‌کردن
-  // به rAF، انیمیشن درست سر مرز فریم بعدی و با یک صفحه‌ی تازه شروع
-  // می‌شود.
+  // رویکرد عوض شد: به‌جای Web Animations API (`el.animate()` با چند
+  // keyframe و یک offset میانی)، از یک CSS transition ساده‌ی دو-نقطه‌ای
+  // روی transform استفاده می‌شود. دلیل تعویض: `el.animate()` با
+  // keyframeهای دارای offset (مثل ۰٫۸۲ این‌جا) روی برخی WebViewهای
+  // اندرویدِ قدیمی/داخل تلگرام به‌صورت غیریکنواخت تفسیر می‌شود — بعضی
+  // نسخه‌ها بین دو keyframe درون‌یابی نرم انجام نمی‌دهند و رسماً می‌پرند،
+  // که خودش یک نوع «سکته» است که نمی‌شود از کدِ سطح بالا حدس زد چون در
+  // مرورگرهای دسکتاپ دیده نمی‌شود. CSS transition روی transform قدیمی‌ترین
+  // و پایدارترین قابلیتِ انیمیشنِ شتاب‌گرفته‌با-GPU در وب است و در همه‌ی
+  // نسخه‌های WebView (از اندروید ۴ به بعد) یکسان و بدون‌جهش کار می‌کند.
+  //
+  // ترفند دو-مرحله‌ای برای اجرای درست: ۱) مهره فوراً (بدون transition) به
+  // موقعیت قبلی‌اش منتقل می‌شود (یعنی چون appendChild همین الان آن را در
+  // خانه‌ی مقصد نشانده، این‌جا transform معکوسِ فاصله اعمال می‌شود تا
+  // دوباره سرِ جای قبلی‌اش دیده شود) ۲) با یک reflow اجباری (خواندن
+  // offsetWidth) این حالت را «قفل» می‌کنیم تا مرورگر مطمئن این را یک
+  // فریم واقعی رسم‌شده بداند، نه چیزی که می‌شود با نوشتنِ بعدی ادغامش کرد
+  // ۳) بعد transition را وصل و مقصد را روی صفر می‌گذاریم — همین یک
+  // تغییر است که مرورگر بین دو مقدار transform به‌طور تضمینی و یکنواخت
+  // میان‌یابی می‌کند.
   if(moves.length){
     state.animating = true;
     moves.forEach(function(m){ m.el.classList.add("moving"); });
@@ -313,36 +323,40 @@ function renderPieces(animateFrom, animateTo){
         if(!dx && !dy){ m.el.classList.remove("moving"); return; }
         var dist = Math.sqrt(dx*dx + dy*dy);
         // مدت‌زمان بلندتر و ثابت‌تر، شبیه chess.com: حرکت یک‌خانه‌ای هم
-        // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند، نه
-        // یک ومضه‌ی چندفریمی که روی موبایل/WebView به‌نظر لگ می‌رسد.
-        // مقادیر کمی افزایش داده شده + منحنی easing نرم‌تر (expo-out) +
-        // یک «بلندشدن» ظریف وسط مسیر تا کل حرکت خیلی روان‌تر و باکیفیت‌تر
-        // به‌نظر برسد (شبیه اپ‌های حرفه‌ای شطرنج).
-        var dur = Math.max(300, Math.min(480, 250 + dist * 0.4));
-        if(typeof m.el.animate !== "function"){
-          m.el.classList.remove("moving");
-          return;
-        }
-        var anim = m.el.animate(
-          [
-            { transform: "translate(" + dx + "px," + dy + "px) scale(1.05)" },
-            { transform: "translate(" + (dx*0.12) + "px," + (dy*0.12) + "px) scale(1.05)", offset: 0.82 },
-            { transform: "translate(0px,0px) scale(1)" }
-          ],
-          { duration: dur, easing: "cubic-bezier(.19,1,.22,1)", fill: "forwards" }
-        );
-        state.activeAnims.push(anim);
-        var done = function(){
-          var i = state.activeAnims.indexOf(anim);
+        // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند.
+        var dur = Math.max(220, Math.min(420, 180 + dist * 0.35));
+        var el = m.el;
+        el.style.transition = "none";
+        el.style.transform = "translate(" + dx + "px," + dy + "px) scale(1.05)";
+        void el.offsetWidth; // reflow اجباری — نقطه‌ی شروع را قفل می‌کند
+        el.style.transition = "transform " + dur + "ms cubic-bezier(.19,1,.22,1)";
+        el.style.transform = "translate(0px,0px) scale(1)";
+
+        var entry = { el: el, done: false };
+        var finish = function(){
+          if(entry.done) return;
+          entry.done = true;
+          el.removeEventListener("transitionend", onEnd);
+          clearTimeout(fallbackTimer);
+          el.style.transition = "";
+          el.style.transform = "";
+          el.classList.remove("moving");
+          var i = state.activeAnims.indexOf(entry);
           if(i >= 0) state.activeAnims.splice(i, 1);
-          m.el.classList.remove("moving");
           if(!state.activeAnims.length){
             state.animating = false;
             sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
           }
         };
-        anim.onfinish = done;
-        anim.oncancel = done;
+        function onEnd(ev){ if(ev.target === el && ev.propertyName === "transform") finish(); }
+        el.addEventListener("transitionend", onEnd);
+        // محافظ: اگر به هر دلیلی (مثل قطع‌شدن transition وسط راه توسط
+        // یک رندر جدید که خودش settleActiveAnimations را صدا می‌زند)
+        // transitionend هرگز نرسد، حداکثر کمی بعد از پایانِ مدتِ مورد
+        // انتظار خودمان finish را صدا می‌زنیم تا مهره هیچ‌وقت گیر نکند.
+        var fallbackTimer = setTimeout(finish, dur + 100);
+        entry.finish = finish;
+        state.activeAnims.push(entry);
       });
       if(!state.activeAnims.length) state.animating = false;
     });
@@ -517,6 +531,41 @@ function pollState(){
     setConnStatus(true);
     applyServerState(res.state, true);
   }).catch(function(){ setConnStatus(false); });
+}
+
+// ─── Real-time push (WebSocket) ────────────────────────────────
+// رفع ریشه‌ای حسِ «لگ»: قبلاً تنها راهِ دیدنِ حرکتِ حریف poll هر ۱.۵ ثانیه
+// بود، یعنی صرف‌نظر از روانیِ خودِ انیمیشن، تا ۱.۵ ثانیه + رفت‌وبرگشتِ
+// شبکه طول می‌کشید تا اصلاً چیزی برای انیمیت‌کردن برسد. حالا سرور همان
+// لحظه‌ی ثبتِ حرکت یک پیامِ کوچک از طریق WebSocket پوش می‌کند و این تابع
+// بلافاصله pollState را صدا می‌زند — بدون صبر برای دورِ بعدیِ تایمر.
+// اگر WebSocket به هر دلیلی (فیلترینگ، افتادن اتصال) قطع شود، خودش با
+// backoff دوباره وصل می‌شود و در همین حین تایمرِ ۴ ثانیه‌ایِ poll به‌عنوان
+// شبکه‌ی ایمنی همچنان کار می‌کند — یعنی بدترین حالت هم عقب‌گرد به همان
+// رفتار قبلی است، نه از کار افتادن کامل.
+function connectLiveSocket(){
+  if(!TOKEN || typeof WebSocket !== "function") return;
+  var proto = location.protocol === "https:" ? "wss:" : "ws:";
+  var url = proto + "//" + location.host + "/ws/" + encodeURIComponent(TOKEN);
+  var retryDelay = 1000;
+  function open(){
+    var ws;
+    try{ ws = new WebSocket(url); }catch(e){ scheduleRetry(); return; }
+    state.liveSocket = ws;
+    ws.onopen = function(){
+      retryDelay = 1000;
+      pollState(); // هر چیزی که در فاصله‌ی قطعی جا مانده را بلافاصله بگیر
+    };
+    ws.onmessage = function(){ pollState(); };
+    ws.onclose = scheduleRetry;
+    ws.onerror = function(){ try{ ws.close(); }catch(e){} };
+  }
+  function scheduleRetry(){
+    state.liveSocket = null;
+    setTimeout(open, retryDelay);
+    retryDelay = Math.min(retryDelay * 1.6, 15000);
+  }
+  open();
 }
 
 function fenPly(fen){
@@ -1056,7 +1105,10 @@ function init(){
     showScreen("screen-game");
     sizeBoard();
     setTimeout(sizeBoard, 100); // اجرای دوباره بعد از استقرار کامل layout (رفع باگ سایز اشتباه در بار اول)
-    state.pollTimer = setInterval(pollState, 1500);
+    // ۱.۵ ثانیه‌ای فقط شبکه‌ی ایمنی است (اگر WebSocket وصل نشد/قطع شد)؛
+    // مسیر اصلی و بی‌تاخیرِ کشفِ حرکت حریف، connectLiveSocket پایین‌تر است.
+    state.pollTimer = setInterval(pollState, 4000);
+    connectLiveSocket();
     state.clockTimer = setInterval(tickClocks, 1000);
     state.chatTimer = setInterval(pollChat, 2000);
     pollChat();
