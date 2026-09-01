@@ -114,6 +114,13 @@ html,body{
 }
 .icon-btn svg{ width:22px; height:22px; transition: transform .25s cubic-bezier(.34,1.56,.64,1); }
 .icon-btn:active{ transform: scale(.88); background: var(--bg-2); }
+/* دکمه‌ی بستنِ پنل‌ها (تاریخچه/تم/چت): به‌جای مربعِ کوچکِ آیکونیِ عمومی،
+   یک کپسولِ کشیده‌تر با کمی عرضِ اضافه — هم راحت‌تر لمس می‌شود، هم در
+   کنارِ عنوانِ پنل بی‌قواره به‌نظر نمی‌رسد. */
+.icon-btn-close{
+  width:64px; border-radius:12px;
+  font-size:14px; font-weight:700; letter-spacing:.5px;
+}
 .chat-badge{
   position:absolute; top:-4px; left:-4px; min-width:16px; height:16px; padding:0 3px;
   border-radius:8px; background: var(--danger); color:#fff; font-size:10px; font-weight:700;
@@ -199,6 +206,7 @@ html,body{
   position:absolute; width:26%; height:26%; border-radius:50%;
   background: var(--move-dot); pointer-events:none;
   animation: dotpop .26s cubic-bezier(.34,1.56,.64,1);
+  will-change: transform;
 }
 .move-dot.capture{
   width:82%; height:82%; background:transparent;
@@ -213,8 +221,14 @@ html,body{
   line-height: 1;
   cursor:grab;
   position:absolute; inset:0; margin:auto; z-index:2;
-  transition: text-shadow .2s ease, filter .2s ease;
+  transition: text-shadow .2s ease;
   text-shadow: 0 2px 3px rgba(0,0,0,.5);
+  /* لایه‌ی ترکیبِ خودش را از قبل (نه فقط در لحظه‌ی شروعِ انیمیشن) دارد،
+     چون هر مهره ممکن است هر لحظه انتخاب/جابه‌جا شود؛ promote دیرهنگامِ
+     لایه (که فقط با will-change روی .moving/.piece-selected اتفاق
+     می‌افتد) خودش یک فریمِ افتاده تولید می‌کند. */
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 .piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }
 .piece.black-p{ color: var(--piece-black); -webkit-text-stroke: .5px var(--piece-black-stroke); }
@@ -225,13 +239,19 @@ html,body{
    انیمیشنِ حرکتی در جریان نیست (paintHighlights بعد از پایانِ moving صدا
    زده می‌شود)، پس این افکت و انیمیشنِ جابه‌جاییِ transform هرگز هم‌زمان
    روی یک مهره فعال نیستند. */
+/* رفعِ افتِ فریم‌ریت: drop-shadow روی هر فریمِ انیمیشن باید از نو
+   محاسبه شود (مثلِ همان مشکلی که در .moving مستند شده) و روی
+   WebViewهای موبایل مخصوصاً وقتی هم‌زمان با انیمیشنِ حرکتِ مهره یا
+   move-dotها اجرا می‌شود، فریم افت می‌کند. text-shadow (که خودِ .piece
+   همین الان هم دارد) بدونِ نیاز به لایه‌ی جداگانه compositable است، پس
+   به‌جای filter از یک text-shadow قوی‌تر برای حسِ درخشش استفاده شده. */
 .piece.piece-selected{
-  transform: scale(1.1);
-  filter: drop-shadow(0 0 7px var(--accent));
-  transition: transform .22s cubic-bezier(.34,1.56,.64,1), filter .22s cubic-bezier(.4,0,.2,1);
+  transform: translateZ(0) scale(1.1);
+  text-shadow: 0 0 6px var(--accent), 0 0 12px var(--accent), 0 2px 3px rgba(0,0,0,.5);
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1), text-shadow .22s ease;
 }
-.piece.dragging{ transform: scale(1.18); z-index:20; cursor:grabbing; filter: drop-shadow(0 8px 10px rgba(0,0,0,.35)); }
-.piece.moving{ z-index:15; will-change: transform; }
+.piece.dragging{ transform: translateZ(0) scale(1.18); z-index:20; cursor:grabbing; text-shadow: 0 4px 6px rgba(0,0,0,.45); }
+.piece.moving{ z-index:15; will-change: transform; transform: translateZ(0); }
 /* توجه: عمداً هیچ filter/drop-shadow روی .moving گذاشته نشد. drop-shadow
    برخلاف box-shadow روی خیلی از WebViewهای موبایل (به‌خصوص اندرویدِ
    داخلِ تلگرام) قابلِ compositing ارزان نیست و باید هر فریم از نو

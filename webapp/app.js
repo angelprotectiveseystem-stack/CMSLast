@@ -242,8 +242,22 @@ function setAvatar(el, name, url){
   img.className = "avatar-img";
   img.alt = "";
   img.referrerPolicy = "no-referrer";
+  var retried = false;
   img.addEventListener("load", function(){ img.classList.add("loaded"); });
-  img.addEventListener("error", function(){ img.remove(); });
+  img.addEventListener("error", function(){
+    // یک باگِ رایج در WebViewِ موبایل: اولین تلاشِ لودِ عکس گاهی به‌خاطرِ
+    // یک قطعیِ خیلی کوتاهِ شبکه (نه چون عکس واقعاً وجود ندارد) شکست
+    // می‌خورد. قبل از این‌که کامل رها شود و به حرفِ fallback برگردد، یک
+    // بار دیگر امتحان می‌شود؛ اگر بازهم شکست خورد (لینک واقعاً منقضی/۴۰۴
+    // شده)، به‌آرامی حذف می‌شود تا حرفِ زیرش دیده شود.
+    if(!retried){
+      retried = true;
+      setTimeout(function(){ img.src = url; }, 600);
+      return;
+    }
+    console.warn("Avatar image failed to load:", url);
+    img.remove();
+  });
   img.src = url;
   el.appendChild(img);
 }
