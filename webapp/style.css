@@ -206,9 +206,13 @@ html,body{
 .piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }
 .piece.black-p{ color: var(--piece-black); -webkit-text-stroke: .5px var(--piece-black-stroke); }
 .piece.dragging{ transform: scale(1.18); z-index:20; cursor:grabbing; filter: drop-shadow(0 8px 10px rgba(0,0,0,.35)); }
-.piece.moving{ z-index:15; will-change: transform; filter: drop-shadow(0 3px 6px rgba(0,0,0,.28)); }
-/* سایه‌ی نرم موقع حرکت — دقیقاً همان افکتی که chess.com هنگام سُر خوردن
-   مهره روی صفحه اضافه می‌کند تا حسِ «بلند شدن از سطح تخته» بدهد. */
+.piece.moving{ z-index:15; will-change: transform; }
+/* توجه: عمداً هیچ filter/drop-shadow روی .moving گذاشته نشد. drop-shadow
+   برخلاف box-shadow روی خیلی از WebViewهای موبایل (به‌خصوص اندرویدِ
+   داخلِ تلگرام) قابلِ compositing ارزان نیست و باید هر فریم از نو
+   محاسبه شود — درست همان چیزی که باعثِ افتِ نرخِ فریم و «سکته»ایِ شدنِ
+   انیمیشنِ حرکت شد. سایه‌ی زیرِ مهره در حینِ حرکت حذف شد تا حرکت به
+   روانیِ نسخه‌ی قبل (که این افکت را نداشت) برگردد. */
 
 .piece.captured-anim{
   animation: capturepop .22s cubic-bezier(.4,0,1,1) forwards;
