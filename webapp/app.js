@@ -87,7 +87,9 @@ var Sound = (function(){
     promote: function(){ tone(523, 0.1, "sine", 0.16); tone(659, 0.1, "sine", 0.15, 0.08); tone(784, 0.14, "sine", 0.14, 0.16); },
     win: function(){ tone(523, 0.13, "sine", 0.18); tone(659, 0.13, "sine", 0.18, 0.11); tone(784, 0.2, "sine", 0.18, 0.22); },
     lose: function(){ tone(392, 0.16, "sine", 0.16); tone(311, 0.22, "sine", 0.15, 0.13); },
-    draw: function(){ tone(440, 0.14, "sine", 0.15); tone(440, 0.14, "sine", 0.15, 0.16); }
+    draw: function(){ tone(440, 0.14, "sine", 0.15); tone(440, 0.14, "sine", 0.15, 0.16); },
+    chatSend: function(){ tone(700, 0.06, "sine", 0.12); tone(1000, 0.05, "sine", 0.09, 0.045); },
+    chatReceive: function(){ tone(500, 0.07, "sine", 0.13); tone(760, 0.08, "sine", 0.12, 0.05); }
   };
 })();
 
@@ -1135,6 +1137,9 @@ function pollChat(){
           }
         }
         renderChatMessage(m);
+        if(String(m.sender_id) !== String(state.myId)){
+          Sound.chatReceive(); Haptics.light();
+        }
         if(!state.chatOpen && String(m.sender_id) !== String(state.myId)){
           state.chatUnread++;
           updateChatBadge();
@@ -1164,6 +1169,7 @@ function sendChatMessage(){
   // «در حال ارسال» برداشته می‌شود.
   var bubble = renderChatMessage({ sender_id: state.myId, sender_name: "شما", text: text }, true);
   state.pendingChat.push({ text: text, el: bubble });
+  Sound.chatSend(); Haptics.light();
   apiPost("/api/chat", { text: text }).then(function(res){
     if(!res.ok){
       bubble.classList.remove("sending");
