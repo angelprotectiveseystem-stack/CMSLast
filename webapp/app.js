@@ -450,7 +450,19 @@ function renderPieces(animateFrom, animateTo, silent){
     state.pendingAnimFrame = requestAnimationFrame(function(){
       state.pendingAnimFrame = null;
       moves.forEach(function(m){
-        var toRect = state.boardEls[m.toSq].getBoundingClientRect();
+        // باگِ «تکونِ عجیب هنگام نشستن روی خانه‌ی مقصد»: اینجا قبلاً rect خودِ
+        // خانه‌ی مقصد (state.boardEls[m.toSq]) اندازه‌گیری می‌شد، نه rect خودِ
+        // مهره. چون .piece داخل خانه‌اش width:92%/height:92%/margin:auto دارد
+        // (برای وسط‌چین‌شدن)، rect مهره‌ی نشسته همیشه حدود ۴٪ اندازه‌ی خانه از
+        // rect خودِ خانه کوچک‌تر و به‌سمتِ داخل offset دارد. در نتیجه dx/dy
+        // یک خطای ثابتِ کوچک داشت: کل مسیرِ انیمیشن با همین آفستِ ثابت جابه‌جا
+        // انیمیت می‌شد، و درست در لحظه‌ی پایان — وقتی transform پاک می‌شد و
+        // مرورگر به موقعیتِ واقعیِ CSS (وسط‌چینِ خانه) برمی‌گشت — مهره یک
+        // پرشِ کوچکِ ناگهانی می‌کرد که حسِ «تکون/سکته» می‌داد. m.el همین الان
+        // (چند خط بالاتر) با appendChild داخل خانه‌ی مقصد قرار گرفته، پس
+        // گرفتنِ rect مستقیماً از خودِ m.el (نه از خانه) دقیقاً همان موقعیتِ
+        // واقعیِ نهایی‌اش را می‌دهد و این خطا را کاملاً حذف می‌کند.
+        var toRect = m.el.getBoundingClientRect();
         if(!m.fromRect){ m.el.classList.remove("moving"); return; }
         var dx = m.fromRect.left - toRect.left;
         var dy = m.fromRect.top - toRect.top;
@@ -860,8 +872,13 @@ function renderCaptured(){
   var order = { p:1,n:3,b:3,r:5,q:9,k:0 };
   captured.w.sort(function(a,b){ return order[a]-order[b]; });
   captured.b.sort(function(a,b){ return order[a]-order[b]; });
-  $("captured-top").textContent = (topIsWhite ? captured.w : captured.b).map(function(t){ return PIECE_GLYPH[t]; }).join("");
-  $("captured-bottom").textContent = (topIsWhite ? captured.b : captured.w).map(function(t){ return PIECE_GLYPH[t]; }).join("");
+  // باگِ «مهره‌های گرفته‌شده توی لیستِ اشتباه»: captured.w یعنی مهره‌های
+  // *خودِ سفید* که از بین رفته‌اند (یعنی سیاه آن‌ها را گرفته)، نه مهره‌هایی
+  // که سفید گرفته. ردیفِ هر بازیکن باید تروفیِ خودش را نشان بدهد — یعنی
+  // مهره‌های *حریف* که گرفته — پس برای ردیفِ سفید باید captured.b نشان داده
+  // شود (چیزی که سفید از سیاه گرفته)، نه captured.w. قبلاً برعکس بود.
+  $("captured-top").textContent = (topIsWhite ? captured.b : captured.w).map(function(t){ return PIECE_GLYPH[t]; }).join("");
+  $("captured-bottom").textContent = (topIsWhite ? captured.w : captured.b).map(function(t){ return PIECE_GLYPH[t]; }).join("");
 }
 
 function renderHistory(){
