@@ -220,6 +220,52 @@ def _apply_clock_decay(game):
 
 routes = web.RouteTableDef()
 
+# ─── Real-time push برای رفعِ ریشه‌ای «لگ» (نه سکته‌ی انیمیشن، خودِ تاخیر) ──
+# تا این‌جا حرکت حریف فقط با poll هر ۱.۵ ثانیه‌ی کلاینت کشف می‌شد؛ یعنی
+# صرف‌نظر از این‌که خودِ انیمیشن چقدر روان باشد، حریف حرکتش را می‌بیند اما
+# تا ۱.۵ ثانیه + رفت‌وبرگشتِ شبکه طول می‌کشید تا شما اصلاً شروعِ حرکت را
+# ببینید — این خودِ حسِ «لگ» است، نه سکته‌ی تصویری. راه‌حل ریشه‌ای: سرور با
+# WebSocket به هر دو طرفِ یک بازی وصل می‌ماند و همان لحظه‌ای که حرکت/تسلیم/
+# پیشنهاد تساوی در دیتابیس ثبت می‌شود، یک پیام کوچک به هر دو کلاینت پوش
+# می‌کند تا بلافاصله (بدون صبر برای دور بعدیِ poll) وضعیت تازه را بگیرند.
+# poll دوره‌ای همچنان به‌عنوان شبکه‌ی ایمنی (اگر WebSocket قطع/مسدود بود)
+# نگه داشته می‌شود، فقط دیگر تنها راه نیست.
+_ws_clients = {}  # token -> set(WebSocketResponse)
+
+
+async def _notify_state_changed(token):
+    clients = _ws_clients.get(token)
+    if not clients:
+        return
+    dead = []
+    for ws in list(clients):
+        try:
+            await ws.send_str("update")
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        clients.discard(ws)
+    if not clients:
+        _ws_clients.pop(token, None)
+
+
+@routes.get("/ws/{token}")
+async def ws_handler(request):
+    token = request.match_info["token"]
+    ws = web.WebSocketResponse(heartbeat=25)
+    await ws.prepare(request)
+    _ws_clients.setdefault(token, set()).add(ws)
+    try:
+        async for _msg in ws:
+            pass  # کلاینت پیامی نمی‌فرستد؛ این حلقه فقط اتصال را زنده نگه می‌دارد
+    finally:
+        clients = _ws_clients.get(token)
+        if clients:
+            clients.discard(ws)
+            if not clients:
+                _ws_clients.pop(token, None)
+    return ws
+
 # ─── Cache-busting برای فایل‌های استاتیک وب‌اپ ───────────────────────
 # ریشه‌ی باگ «حرکت مهره‌ها بدون انیمیشن/سکته‌دار حتی بعد از فیکس شدن کد»:
 # app.js / chess.min.js / style.css همیشه با همان آدرس ثابت (بدون شماره‌
@@ -320,6 +366,7 @@ async def api_state(request):
             await _finish_with_elo(token, "timeout", game, winner)
             game["status"] = "timeout"
             game["winner_id"] = winner
+            await _notify_state_changed(token)
     return web.json_response({"ok": True, "state": _game_to_state(game, viewer_id)})
 
 
@@ -373,6 +420,7 @@ async def api_move(request):
         await _finish_with_elo(token, status, game, winner)
 
     fresh = await db.get_chess_game(token)
+    await _notify_state_changed(token)
     return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
 
 
@@ -391,6 +439,7 @@ async def api_resign(request):
     winner = game["black_id"] if user_id == game["white_id"] else game["white_id"]
     await _finish_with_elo(token, "resigned", game, winner)
     fresh = await db.get_chess_game(token)
+    await _notify_state_changed(token)
     return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
 
 
@@ -408,6 +457,7 @@ async def api_draw_offer(request):
         return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
     await db.set_chess_draw_offer(token, user_id)
     fresh = await db.get_chess_game(token)
+    await _notify_state_changed(token)
     return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
 
 
@@ -435,6 +485,7 @@ async def api_draw_response(request):
     else:
         await db.clear_chess_draw_offer(token)
     fresh = await db.get_chess_game(token)
+    await _notify_state_changed(token)
     return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
 
 
