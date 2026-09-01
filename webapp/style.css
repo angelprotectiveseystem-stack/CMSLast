@@ -227,7 +227,16 @@ html,body{
 .piece.landed{ animation: land .28s cubic-bezier(.34,1.56,.64,1); }
 @keyframes land{ 0%{ transform: scale(1.22);} 60%{ transform: scale(.96);} 100%{ transform: scale(1);} }
 
-.piece.just-arrived{ animation: settle .18s cubic-bezier(.34,1.56,.64,1); }
+.piece.just-arrived{ animation: settle .18s cubic-bezier(.34,1.56,.64,1); will-change: transform; }
+/* will-change اینجا عمداً تکرار شد (همان مقداری که .piece.moving دارد):
+   قبلاً وقتی finish() کلاسِ moving را برمی‌داشت و بلافاصله just-arrived
+   را اضافه می‌کرد، مرورگر لایه‌ی GPU مهره را دقیقاً در همان فریم دموت
+   (چون moving رفت) و دوباره پروموت (چون انیمیشنِ settle شروع شد)
+   می‌کرد؛ این دموت/پروموتِ پیاپی خودش یک پرشِ کوچکِ قابل‌مشاهده در
+   ترکیب‌بندی (compositing) ایجاد می‌کرد که به‌صورتِ لرزش دیده می‌شد. با
+   یکسان‌نگه‌داشتنِ will-change روی هر دو کلاس، لایه هرگز واقعاً دموت
+   نمی‌شود و انتقالِ moving → just-arrived کاملاً روی همان لایه‌ی
+   ازقبل-موجود ادامه پیدا می‌کند. */
 @keyframes settle{ 0%{ transform: scale(1.08);} 100%{ transform: scale(1);} }
 /* پالسِ خیلی کوچک و ظریف وقتی مهره‌ای که سُر خورده سرِ خانه‌ی مقصد
    می‌نشیند — دقیقاً همان «ته‌نشین‌شدنِ نرم» chess.com، نه پاپِ بزرگِ
