@@ -227,6 +227,27 @@ function showError(msg){
   showScreen("screen-error");
 }
 
+// ─── Avatars ────────────────────────────────────────────────
+// حرفِ اولِ اسم همیشه به‌عنوانِ fallback در متنِ خودِ .avatar می‌ماند؛
+// اگر url موجود بود، یک <img> روی آن (absolute) اضافه می‌شود که با یک
+// فِیدِ نرم روی حرف ظاهر می‌شود، تا هم قبل از لودشدنِ عکس و هم در صورتِ
+// خطا (کاربر عکسِ پروفایل ندارد/۴۰۴) صفحه هیچ‌وقت جای خالی نداشته باشد.
+function setAvatar(el, name, url){
+  el.textContent = (name || "؟").slice(0, 1);
+  el.dataset.avatarUrl = url || "";
+  var existing = el.querySelector(".avatar-img");
+  if(existing) existing.remove();
+  if(!url) return;
+  var img = document.createElement("img");
+  img.className = "avatar-img";
+  img.alt = "";
+  img.referrerPolicy = "no-referrer";
+  img.addEventListener("load", function(){ img.classList.add("loaded"); });
+  img.addEventListener("error", function(){ img.remove(); });
+  img.src = url;
+  el.appendChild(img);
+}
+
 // ─── Board build ────────────────────────────────────────────
 function buildBoard(){
   var board = $("board");
@@ -577,18 +598,36 @@ function paintHighlights(){
     el.classList.remove("selected","last-from","last-to","check");
     var dots = el.querySelectorAll(".move-dot");
     dots.forEach(function(d){ d.remove(); });
+    // پیکِ انتخابِ خودِ مهره (نه فقط خانه) هم اینجا پاک می‌شود تا اگر
+    // انتخاب عوض/لغو شد، مهره‌ی قبلی بزرگ‌شده نماند.
+    var pieceEl = el.querySelector(".piece");
+    if(pieceEl) pieceEl.classList.remove("piece-selected");
   });
   if(state.lastMove){
     if(state.boardEls[state.lastMove.from]) state.boardEls[state.lastMove.from].classList.add("last-from");
     if(state.boardEls[state.lastMove.to]) state.boardEls[state.lastMove.to].classList.add("last-to");
   }
   if(state.selected){
-    state.boardEls[state.selected].classList.add("selected");
+    var selEl = state.boardEls[state.selected];
+    selEl.classList.add("selected");
+    var selPiece = selEl.querySelector(".piece");
+    if(selPiece) selPiece.classList.add("piece-selected");
+    // یک تاخیرِ خیلی کوچک و پلکانی (بر اساسِ فاصله‌ی هر مقصد تا خانه‌ی
+    // انتخاب‌شده) باعث می‌شود نقطه‌ها به‌جای این‌که همه یک‌دفعه با هم
+    // ظاهر شوند، مثلِ یک موجِ نرم از مهره به بیرون پخش شوند — حسِ
+    // «آماده‌سازیِ اهداف» را زنده‌تر می‌کند بدونِ این‌که کندی محسوسی
+    // اضافه کند (حداکثر تاخیر برای دورترین خانه چند ده میلی‌ثانیه است).
+    var fromFile = FILES.indexOf(state.selected[0]);
+    var fromRank = parseInt(state.selected[1], 10);
     state.legalTargets.forEach(function(m){
       var el = state.boardEls[m.to];
       if(!el) return;
       var dot = document.createElement("div");
       dot.className = "move-dot" + (m.captured || m.flags.indexOf("e")>=0 ? " capture" : "");
+      var toFile = FILES.indexOf(m.to[0]);
+      var toRank = parseInt(m.to[1], 10);
+      var dist = Math.max(Math.abs(toFile - fromFile), Math.abs(toRank - fromRank));
+      dot.style.animationDelay = (dist * 18) + "ms";
       el.appendChild(dot);
     });
   }
@@ -803,6 +842,12 @@ function applyServerState(s, fromPoll){
     if(s.moves) syncHistory(s.moves);
   }
   state.turn = chess.turn();
+  // آواتار فقط وقتی واقعاً عوض شده به‌روزرسانی می‌شود (نه هر poll) تا
+  // تصویرِ در حالِ نمایش هر بار دوباره از سرور fetch/فِید نشود.
+  var newMyAvatar = state.myColor === "w" ? s.white_avatar : s.black_avatar;
+  var newOppAvatar = state.myColor === "w" ? s.black_avatar : s.white_avatar;
+  if($("avatar-bottom").dataset.avatarUrl !== (newMyAvatar || "")) setAvatar($("avatar-bottom"), state.myName, newMyAvatar);
+  if($("avatar-top").dataset.avatarUrl !== (newOppAvatar || "")) setAvatar($("avatar-top"), state.oppName, newOppAvatar);
   if(fromPoll){
     // قبلاً هر ۱.۵ ثانیه زمان محلی (که هر ثانیه تیک می‌خورد) با مقدار
     // سرور جایگزین می‌شد، حتی وقتی اختلافشان فقط چند صدم ثانیه بود؛
@@ -1044,31 +1089,56 @@ function showGameOver(status, winnerId, whiteEloChange, blackEloChange){
   setTimeout(function(){ _showGameOverModal(status, winnerId, whiteEloChange, blackEloChange); }, mateDelay);
 }
 
+// ─── متنِ دقیقِ علتِ پایانِ بازی ────────────────────────────────
+// این‌جا دقیقاً همان انواعِ status ای که سرور (game_server.py) برمی‌گرداند
+// پوشش داده می‌شوند تا کاربر همیشه بداند دقیقاً چرا بازی تمام شده — نه
+// فقط «مساوی شد»، بلکه پات بود یا کمبود مهره یا تکرار یا ۷۵ حرکت؛ و برای
+// تسلیم/اتمام‌وقت هم دقیقاً اسمِ طرفی که تسلیم شد/وقتش تمام شد.
+var DRAW_REASON_TEXT = {
+  "draw": "یک بازی خوب و برابر بود.",
+  "stalemate": "پات شد — بازیکنِ نوبت‌دار در کیش نبود ولی هیچ حرکتِ مجازی نداشت.",
+  "insufficient_material": "مهره‌های باقی‌مانده‌ی روی صفحه برای مات‌کردن کافی نبود.",
+  "draw_75moves": "۷۵ حرکت بدون حرکتِ پیاده یا گرفتنِ مهره انجام شد.",
+  "draw_repetition": "یک موقعیت روی صفحه سه بار تکرار شد.",
+  "draw_agreement": "دو طرف روی تساوی توافق کردند."
+};
+var DRAW_STATUSES = ["draw","stalemate","insufficient_material","draw_75moves","draw_repetition","draw_agreement"];
+
 function _showGameOverModal(status, winnerId, whiteEloChange, blackEloChange){
   var icon = $("modal-icon"), title = $("modal-title"), sub = $("modal-sub"), eloEl = $("modal-elo");
   var iWon = winnerId && String(winnerId) === String(state.myId);
-  var isDraw = status === "draw" || status === "stalemate";
+  var isDraw = DRAW_STATUSES.indexOf(status) >= 0;
+  // نامِ طرفِ بازنده (برای تسلیم/اتمامِ‌وقت) — از رویِ winnerId و رنگ‌ها
+  // محاسبه می‌شود، نه فقط «شما»/«حریف»، چون بیننده (spectator) اصلاً
+  // «شما»یی ندارد و باید اسمِ واقعیِ طرفِ بازنده را ببیند.
+  var winnerName = winnerId ? (String(winnerId) === String(state.myId) ? state.myName : state.oppName) : null;
+  var loserName = winnerId ? (String(winnerId) === String(state.myId) ? state.oppName : state.myName) : null;
+  if(state.isSpectator && winnerId){
+    // در حالتِ بیننده myName/oppName به سفید/سیاه نگاشت شده‌اند (نه به
+    // خودِ کاربر)، پس winnerName/loserName بر همان مبنا از قبل درست است.
+  }
+
   if(isDraw){
     icon.textContent = "🤝"; title.textContent = "بازی مساوی شد";
-    sub.textContent = "یک بازی خوب و برابر بود.";
+    sub.textContent = DRAW_REASON_TEXT[status] || DRAW_REASON_TEXT["draw"];
   } else if(status === "resigned"){
     icon.textContent = iWon ? "🏆" : "🏳️";
     title.textContent = iWon ? "حریف تسلیم شد!" : "شما تسلیم شدید";
-    sub.textContent = iWon ? "بازی به نفع شما تمام شد." : "";
+    sub.textContent = loserName ? (loserName + " تسلیم شد.") : "";
   } else if(status === "timeout"){
     icon.textContent = iWon ? "🏆" : "⏱";
     title.textContent = iWon ? "بردید! وقت حریف تمام شد" : "زمان شما تمام شد";
-    sub.textContent = "";
+    sub.textContent = loserName ? ("زمانِ " + loserName + " به پایان رسید.") : "";
   } else {
     icon.textContent = iWon ? "🏆" : "♚";
     title.textContent = iWon ? "کیش و مات! بردید" : "کیش و مات، باختید";
     sub.textContent = iWon ? "بازی عالی بود!" : "دفعه بعد بهتر می‌شود.";
   }
   if(state.isSpectator){
-    if(isDraw){ title.textContent = "بازی مساوی شد"; sub.textContent = "یک بازی خوب و برابر بود."; }
-    else if(status === "resigned"){ title.textContent = "یکی از طرفین تسلیم شد"; sub.textContent = ""; }
-    else if(status === "timeout"){ title.textContent = "زمان یکی از طرفین تمام شد"; sub.textContent = ""; }
-    else { title.textContent = "کیش و مات!"; sub.textContent = "بازی به پایان رسید."; }
+    if(isDraw){ title.textContent = "بازی مساوی شد"; sub.textContent = DRAW_REASON_TEXT[status] || DRAW_REASON_TEXT["draw"]; }
+    else if(status === "resigned"){ title.textContent = "یکی از طرفین تسلیم شد"; sub.textContent = loserName ? (loserName + " تسلیم شد.") : ""; }
+    else if(status === "timeout"){ title.textContent = "زمان یکی از طرفین تمام شد"; sub.textContent = loserName ? ("زمانِ " + loserName + " به پایان رسید.") : ""; }
+    else { title.textContent = "کیش و مات!"; sub.textContent = winnerName ? (winnerName + " برنده شد.") : "بازی به پایان رسید."; }
     icon.textContent = isDraw ? "🤝" : (status === "resigned" ? "🏳️" : (status === "timeout" ? "⏱" : "♚"));
   }
   eloEl.textContent = "";
@@ -1346,8 +1416,10 @@ function init(){
     }
     $("name-top").textContent = state.oppName;
     $("name-bottom").textContent = state.myName;
-    $("avatar-top").textContent = (state.oppName||"?").slice(0,1);
-    $("avatar-bottom").textContent = (state.myName||"?").slice(0,1);
+    var myAvatarUrl = state.myColor === "w" ? s.white_avatar : s.black_avatar;
+    var oppAvatarUrl = state.myColor === "w" ? s.black_avatar : s.white_avatar;
+    setAvatar($("avatar-top"), state.oppName, oppAvatarUrl);
+    setAvatar($("avatar-bottom"), state.myName, myAvatarUrl);
     if(s.fen) chess.load(s.fen);
     state.lastMove = s.last_move || null;
     state.moveList = s.moves || [];

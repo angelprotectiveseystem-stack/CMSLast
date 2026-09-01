@@ -134,7 +134,18 @@ html,body{
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   display:flex; align-items:center; justify-content:center;
   font-size:17px; font-weight:700; color:#fff; flex-shrink:0;
+  position: relative; overflow:hidden;
 }
+/* عکسِ پروفایلِ تلگرام: به‌صورتِ absolute روی حرفِ fallback قرار می‌گیرد
+   (نه جایگزینِ innerHTML) تا اگر لود نشد/۴۰۴ داد، همان دایره‌ی رنگیِ حرفِ
+   اول بدونِ هیچ پرش/جای‌خالیِ بصری زیرش باقی بماند — عکس با یک فِیدِ نرم
+   روی آن ظاهر می‌شود، نه این‌که یک‌دفعه جایگزین شود. */
+.avatar-img{
+  position:absolute; inset:0; width:100%; height:100%;
+  object-fit:cover; border-radius:50%;
+  opacity:0; transition: opacity .25s ease;
+}
+.avatar-img.loaded{ opacity:1; }
 .player-info{ flex:1; min-width:0; }
 .player-name{ font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .captured-row{ display:flex; gap:1px; font-size:16px; min-height:19px; color: var(--text-2); letter-spacing:-2px; }
@@ -166,10 +177,12 @@ html,body{
 .square.dark{ background: var(--dark-sq); }
 .square::before{
   content:''; position:absolute; inset:0; opacity:0;
-  transition: opacity .26s cubic-bezier(.4,0,.2,1); pointer-events:none;
+  transform: scale(.82);
+  transition: opacity .22s cubic-bezier(.4,0,.2,1), transform .22s cubic-bezier(.34,1.56,.64,1);
+  pointer-events:none;
 }
 .square.selected::before{
-  background: var(--hi-sq); opacity:1;
+  background: var(--hi-sq); opacity:1; transform: scale(1);
 }
 .square.last-from::before, .square.last-to::before{
   background: rgba(240,185,63,.28); opacity:1;
@@ -205,6 +218,18 @@ html,body{
 }
 .piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }
 .piece.black-p{ color: var(--piece-black); -webkit-text-stroke: .5px var(--piece-black-stroke); }
+/* پیکِ نرمِ خودِ مهره در لحظه‌ی انتخاب — علاوه بر هایلایتِ زیرِ خانه
+   (square.selected)، خودِ مهره هم کمی بزرگ‌تر و با یک سایه‌ی درخشانِ ملایم
+   نشان داده می‌شود تا واضح باشد این مهره همان چیزی است که برای حرکت
+   انتخاب شده، نه فقط خانه‌اش. selected فقط زمانی ست می‌شود که هیچ
+   انیمیشنِ حرکتی در جریان نیست (paintHighlights بعد از پایانِ moving صدا
+   زده می‌شود)، پس این افکت و انیمیشنِ جابه‌جاییِ transform هرگز هم‌زمان
+   روی یک مهره فعال نیستند. */
+.piece.piece-selected{
+  transform: scale(1.1);
+  filter: drop-shadow(0 0 7px var(--accent));
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1), filter .22s cubic-bezier(.4,0,.2,1);
+}
 .piece.dragging{ transform: scale(1.18); z-index:20; cursor:grabbing; filter: drop-shadow(0 8px 10px rgba(0,0,0,.35)); }
 .piece.moving{ z-index:15; will-change: transform; }
 /* توجه: عمداً هیچ filter/drop-shadow روی .moving گذاشته نشد. drop-shadow
