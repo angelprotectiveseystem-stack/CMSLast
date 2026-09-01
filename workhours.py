@@ -199,7 +199,7 @@ async def workhour_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if is_command:
             await update.message.reply_text(text, parse_mode="Markdown")
         else:
-            await update.callback_safe_edit_message_text(query, text, parse_mode="Markdown")
+            await safe_edit_message_text(update.callback_query, text, parse_mode="Markdown")
         return ST_WORKHOURS_AUTOEND_MINUTES
 
     ts, extra = await _do_start(ctx.bot, ctx.job_queue)
@@ -207,7 +207,7 @@ async def workhour_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if is_command:
         await update.message.reply_text(reply_text, parse_mode="Markdown")
     else:
-        await update.callback_safe_edit_message_text(query, reply_text, reply_markup=kb.kb_back("pishva_panel"), parse_mode="Markdown")
+        await safe_edit_message_text(update.callback_query, reply_text, reply_markup=kb.kb_back("pishva_panel"), parse_mode="Markdown")
     return ConversationHandler.END
 
 
@@ -247,7 +247,7 @@ async def workhour_end(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if is_command:
         await update.message.reply_text(reply_text, parse_mode="Markdown")
     else:
-        await update.callback_safe_edit_message_text(query, reply_text, reply_markup=kb.kb_back("pishva_panel"), parse_mode="Markdown")
+        await safe_edit_message_text(update.callback_query, reply_text, reply_markup=kb.kb_back("pishva_panel"), parse_mode="Markdown")
 
 
 # ─── Auto-end toggle ─────────────────────────────────────────
