@@ -17,6 +17,111 @@ var API = ""; // same-origin
 var PIECE_GLYPH = { p:"♟", n:"♞", b:"♝", r:"♜", q:"♛", k:"♚" };
 var FILES = ["a","b","c","d","e","f","g","h"];
 
+// ─── افکت صوتی + هپتیک ──────────────────────────────────────
+// همه‌ی صداها با WebAudio به‌صورت سینتتیک (بدون فایل صوتی خارجی)
+// تولید می‌شوند تا وابسته به دانلود/کش asset نباشند و روی هر WebView
+// فوراً و بدون تاخیر پخش شوند. AudioContext تا اولین ژست/تعامل کاربر
+// (کلیک) در حالت suspended می‌ماند — این یک محدودیت استاندارد مرورگرهاست
+// (از جمله WebView تلگرام)، پس در اولین touchstart/pointerdown صفحه آن
+// را resume می‌کنیم.
+var Sound = (function(){
+  var ctx = null;
+  var enabled = true;
+  var unlocked = false;
+
+  try{
+    var savedPref = localStorage.getItem("chess_sound_enabled");
+    if(savedPref === "0") enabled = false;
+  }catch(e){}
+
+  function getCtx(){
+    if(!ctx){
+      var Ctor = window.AudioContext || window.webkitAudioContext;
+      if(!Ctor) return null;
+      ctx = new Ctor();
+    }
+    return ctx;
+  }
+
+  function unlock(){
+    if(unlocked) return;
+    unlocked = true;
+    var c = getCtx();
+    if(c && c.state === "suspended") c.resume().catch(function(){});
+  }
+  ["touchstart","pointerdown","mousedown"].forEach(function(ev){
+    document.addEventListener(ev, unlock, { once: true, passive: true });
+  });
+
+  // یک نتِ ساده با envelope نرم (attack سریع، decay نمایی) — برای هر
+  // افکت با فرکانس/مدت/موج متفاوت صدا زده می‌شود.
+  function tone(freq, dur, type, gainPeak, delay){
+    if(!enabled) return;
+    var c = getCtx();
+    if(!c) return;
+    if(c.state === "suspended") c.resume().catch(function(){});
+    var t0 = c.currentTime + (delay || 0);
+    var osc = c.createOscillator();
+    var gain = c.createGain();
+    osc.type = type || "sine";
+    osc.frequency.setValueAtTime(freq, t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(gainPeak || 0.18, t0 + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(c.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+
+  return {
+    setEnabled: function(v){
+      enabled = v;
+      try{ localStorage.setItem("chess_sound_enabled", v ? "1" : "0"); }catch(e){}
+    },
+    isEnabled: function(){ return enabled; },
+    move: function(){ tone(392, 0.09, "triangle", 0.16); },
+    capture: function(){ tone(220, 0.11, "square", 0.14); tone(150, 0.14, "square", 0.10, 0.03); },
+    check: function(){ tone(880, 0.12, "sine", 0.18); tone(660, 0.16, "sine", 0.14, 0.07); },
+    castle: function(){ tone(392, 0.08, "triangle", 0.15); tone(494, 0.1, "triangle", 0.13, 0.06); },
+    promote: function(){ tone(523, 0.1, "sine", 0.16); tone(659, 0.1, "sine", 0.15, 0.08); tone(784, 0.14, "sine", 0.14, 0.16); },
+    win: function(){ tone(523, 0.13, "sine", 0.18); tone(659, 0.13, "sine", 0.18, 0.11); tone(784, 0.2, "sine", 0.18, 0.22); },
+    lose: function(){ tone(392, 0.16, "sine", 0.16); tone(311, 0.22, "sine", 0.15, 0.13); },
+    draw: function(){ tone(440, 0.14, "sine", 0.15); tone(440, 0.14, "sine", 0.15, 0.16); }
+  };
+})();
+
+// ─── هپتیک (Telegram HapticFeedback) با fallback به Vibration API ─────
+// روی موبایل خارج از تلگرام (مثلاً مرورگر معمولی PWA) تلگرام در دسترس
+// نیست؛ در آن حالت از navigator.vibrate استاندارد استفاده می‌شود تا
+// هپتیک همیشه کار کند، نه فقط داخل اپ تلگرام.
+var Haptics = {
+  light: function(){
+    if(tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+    else if(navigator.vibrate) navigator.vibrate(10);
+  },
+  medium: function(){
+    if(tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+    else if(navigator.vibrate) navigator.vibrate(20);
+  },
+  rigid: function(){
+    if(tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("rigid");
+    else if(navigator.vibrate) navigator.vibrate([15, 30, 15]);
+  },
+  warning: function(){
+    if(tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("warning");
+    else if(navigator.vibrate) navigator.vibrate([20, 40, 20]);
+  },
+  success: function(){
+    if(tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    else if(navigator.vibrate) navigator.vibrate([15, 30, 15, 30, 15]);
+  },
+  error: function(){
+    if(tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+    else if(navigator.vibrate) navigator.vibrate([40, 30, 40]);
+  }
+};
+
 var chess = new Chess();
 var state = {
   myColor: null,       // 'w' | 'b'
@@ -183,7 +288,7 @@ function settleActiveAnimations(){
   state.animating = false;
 }
 
-function renderPieces(animateFrom, animateTo){
+function renderPieces(animateFrom, animateTo, silent){
   // هر رندر جدید، هر انیمیشن قبلی را فوراً (بدون پرش) می‌بندد؛ هرگز
   // به تعویق نمی‌افتد — این خودِ تضمینِ نبودِ سکته/هم‌پوشانی است.
   settleActiveAnimations();
@@ -257,21 +362,26 @@ function renderPieces(animateFrom, animateTo){
   });
 
   // LAST — همان المان مهره را فیزیکی به خانه‌ی مقصد منتقل می‌کنیم
+  var didPromote = false;
   moves.forEach(function(m){
     state.boardEls[m.toSq].appendChild(m.el);
     if(m.el.dataset.ptype !== m.toType){ // ترفیع: نوع مهره عوض شده
       m.el.textContent = PIECE_GLYPH[m.toType];
       m.el.dataset.ptype = m.toType;
+      didPromote = true;
     }
   });
 
   // باقی‌مانده‌ی vacated یعنی واقعاً «گرفته‌شده‌اند» — فقط این‌ها محو/کوچک می‌شوند
+  var didCapture = vacated.length > 0;
   vacated.forEach(function(v){
     v.el.classList.add("captured-anim");
     (function(elToRemove){
       setTimeout(function(){ if(elToRemove.parentNode) elToRemove.remove(); }, 200);
     })(v.el);
   });
+  // قلعه: دو مهره با هم جابه‌جا شدند (شاه + رخ) بدون گرفته‌شدنِ هیچ‌کدام
+  var didCastle = !didCapture && moves.length === 2;
   // باقی‌مانده‌ی arrived یعنی مهره‌ی کاملاً تازه (بار اول لود صفحه، یا
   // ترفیعی که جفتش پیدا نشد) — با یک پاپ کوچک ظاهر می‌شود
   arrived.forEach(function(a){
@@ -373,6 +483,20 @@ function renderPieces(animateFrom, animateTo){
   }
 
   paintHighlights();
+
+  // افکت صوتی/هپتیکِ خودِ حرکت — بر اساس دیفِ واقعی صفحه تعیین می‌شود
+  // (didCapture/didCastle/didPromote)، نه بر اساس san یا flags، چون این
+  // دیف هم برای حرکات محلی و هم حرکات هم‌گام‌سازی‌شده از سرور یکسان و
+  // قابل‌اعتماد است. کیش با اولویتِ بالاتر از حرکت/گرفتنِ ساده پخش
+  // می‌شود چون معنادارتر است.
+  if(!silent){
+    var isCheckNow = chess.in_check ? chess.in_check() : chess.inCheck();
+    if(didPromote){ Sound.promote(); Haptics.medium(); }
+    else if(isCheckNow){ Sound.check(); Haptics.rigid(); }
+    else if(didCastle){ Sound.castle(); Haptics.light(); }
+    else if(didCapture){ Sound.capture(); Haptics.medium(); }
+    else { Sound.move(); Haptics.light(); }
+  }
 }
 
 function paintHighlights(){
@@ -458,7 +582,10 @@ function askPromotion(cb){
 function doMove(from, to, promotion){
   var move = chess.move({ from: from, to: to, promotion: promotion || "q" });
   if(!move) return;
-  if(tg) tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light");
+  // صدا/هپتیکِ خودِ حرکت اینجا دیگر پخش نمی‌شود — renderPieces (که چند
+  // خط پایین‌تر صدا زده می‌شود) بر اساس دیفِ واقعیِ صفحه (گرفتن/قلعه/
+  // ترفیع/کیش) این کار را انجام می‌دهد، هم برای حرکات خودم و هم حرکات
+  // حریف، تا هیچ اتفاقی دوبار صدا/لرزش نگیرد.
   state.selected = null;
   state.legalTargets = [];
   state.lastMove = { from: from, to: to };
@@ -502,7 +629,7 @@ function sendMove(move){
         state.selected = null;
         state.legalTargets = [];
         state.lastMove = null;
-        renderPieces();
+        renderPieces(null, null, true); // silent: این یک حرکتِ واقعی نیست، فقط بازگردانیِ optimistic-update رد‌شده است
         renderCaptured();
         syncHistory(revertedMoves);
         updateTurnBanner();
@@ -855,7 +982,11 @@ function showGameOver(status, winnerId, whiteEloChange, blackEloChange){
   }
   $("modal-overlay").classList.remove("hidden");
   if(iWon) launchConfetti();
-  if(tg) tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(iWon ? "success" : (isDraw ? "warning" : "error"));
+  // برای بیننده (spectator) نه بردی هست نه باختی — صدای خنثی پایانِ بازی
+  if(state.isSpectator){ Sound.draw(); Haptics.warning(); }
+  else if(isDraw){ Sound.draw(); Haptics.warning(); }
+  else if(iWon){ Sound.win(); Haptics.success(); }
+  else { Sound.lose(); Haptics.error(); }
 }
 
 function launchConfetti(){
@@ -948,6 +1079,20 @@ document.querySelectorAll(".theme-opt").forEach(function(btn){
   document.querySelectorAll(".theme-opt").forEach(function(btn){
     btn.classList.toggle("active", btn.dataset.theme === current);
   });
+})();
+
+// ─── تنظیمِ روشن/خاموشِ صدا ───────────────────────────────────
+(function initSoundToggle(){
+  var onBtn = $("btn-sound-on"), offBtn = $("btn-sound-off");
+  if(!onBtn || !offBtn) return;
+  function refresh(){
+    var on = Sound.isEnabled();
+    onBtn.classList.toggle("active", on);
+    offBtn.classList.toggle("active", !on);
+  }
+  onBtn.addEventListener("click", function(){ Sound.setEnabled(true); refresh(); Haptics.light(); });
+  offBtn.addEventListener("click", function(){ Sound.setEnabled(false); refresh(); });
+  refresh();
 })();
 
 // ─── Chat ───────────────────────────────────────────────────
@@ -1106,7 +1251,7 @@ function init(){
     state.whiteTime = s.white_time; state.blackTime = s.black_time;
     state.status = s.status;
     buildBoard();
-    renderPieces();
+    renderPieces(null, null, true); // silent: بارگذاریِ اولیه‌ی صفحه، نه یک حرکتِ واقعی
     renderCaptured();
     renderHistory();
     updateTurnBanner();
