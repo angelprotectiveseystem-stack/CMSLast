@@ -374,13 +374,35 @@ function renderPieces(animateFrom, animateTo, silent){
     }
   });
 
-  // باقی‌مانده‌ی vacated یعنی واقعاً «گرفته‌شده‌اند» — فقط این‌ها محو/کوچک می‌شوند
+  // باقی‌مانده‌ی vacated یعنی واقعاً «گرفته‌شده‌اند». برخلاف قبل، محوشدن
+  // این مهره فوری شروع نمی‌شود — باید تقریباً هم‌زمان با لحظه‌ای اتفاق
+  // بیفتد که مهره‌ی مهاجم واقعاً به همان خانه می‌رسد (دقیقاً مثل
+  // chess.com: مهاجم می‌رسد و در همان لحظه مهره‌ی گرفته‌شده ناپدید
+  // می‌شود، نه این‌که قبل از رسیدنِ مهاجم محو شود). چون مدت‌زمانِ
+  // واقعیِ حرکتِ مهاجم (dur) کمی پایین‌تر، داخل همین moves.forEach محاسبه
+  // می‌شود، اینجا فقط یک تابعِ کمکی می‌سازیم که آن حلقه صدایش بزند —
+  // با مسافتی که خودِ مهاجم طی می‌کند هماهنگ است، نه یک عددِ ثابتِ حدسی.
   var didCapture = vacated.length > 0;
-  vacated.forEach(function(v){
-    v.el.classList.add("captured-anim");
-    (function(elToRemove){
-      setTimeout(function(){ if(elToRemove.parentNode) elToRemove.remove(); }, 200);
-    })(v.el);
+  var captureFinishers = vacated.map(function(v){
+    var removed = false;
+    return function(){
+      if(removed) return;
+      removed = true;
+      v.el.classList.add("captured-anim");
+      setTimeout(function(){ if(v.el.parentNode) v.el.remove(); }, 220);
+    };
+  });
+  // اگر به هر دلیلی هیچ moves‌ای برای هم‌زمان‌سازی وجود نداشت (نادر —
+  // مثلاً یک سینک عجیب از سرور)، فوراً محو می‌شوند تا مهره‌ی گرفته‌شده
+  // برای همیشه روی صفحه گیر نکند.
+  if(!moves.length) captureFinishers.forEach(function(fn){ fn(); });
+  // نگاشتِ خانه‌ی مقصد → توابعِ محوکردنِ مهره‌ی گرفته‌شده در همان خانه؛
+  // moves.forEach پایین‌تر با toSq این نگاشت را چک می‌کند تا محوشدن را
+  // دقیقاً هم‌زمان با رسیدنِ مهاجم به آن خانه صدا بزند.
+  var captureFinishersBySquare = {};
+  vacated.forEach(function(v, i){
+    if(!captureFinishersBySquare[v.sq]) captureFinishersBySquare[v.sq] = [];
+    captureFinishersBySquare[v.sq].push(captureFinishers[i]);
   });
   // قلعه: دو مهره با هم جابه‌جا شدند (شاه + رخ) بدون گرفته‌شدنِ هیچ‌کدام
   var didCastle = !didCapture && moves.length === 2;
@@ -434,12 +456,18 @@ function renderPieces(animateFrom, animateTo, silent){
         var dy = m.fromRect.top - toRect.top;
         if(!dx && !dy){ m.el.classList.remove("moving"); return; }
         var dist = Math.sqrt(dx*dx + dy*dy);
-        // مدت‌زمان بلندتر و ثابت‌تر، شبیه chess.com: حرکت یک‌خانه‌ای هم
-        // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند.
-        var dur = Math.max(220, Math.min(420, 180 + dist * 0.35));
+        // مدت‌زمانِ حرکت: chess.com از یک مدتِ نسبتاً کوتاه و تقریباً ثابت
+        // استفاده می‌کند (حسِ «سریع و قاطع»، نه «آهسته و رویایی») که فقط
+        // برای فاصله‌های خیلی بلند (مثل قلعه یا حرکتِ وزیر سرتاسرِ صفحه)
+        // کمی بلندتر می‌شود. عدد پایه و سقف نسبت به قبل کاهش یافت.
+        var dur = Math.max(160, Math.min(260, 130 + dist * 0.22));
         var el = m.el;
         el.style.transition = "none";
-        el.style.transform = "translate(" + dx + "px," + dy + "px) scale(1.05)";
+        // نکته: برخلاف نسخه‌ی قبلی، اینجا هیچ scale-ای در حینِ حرکت اعمال
+        // نمی‌شود — فقط translate خالص. chess.com مهره را در طول حرکت
+        // بزرگ/کوچک نمی‌کند؛ فقط با یک سایه‌ی نرم (که در CSS اضافه شد)
+        // حسِ «بلندشدن از سطح تخته» را می‌دهد، و اندازه ثابت می‌ماند.
+        el.style.transform = "translate(" + dx + "px," + dy + "px)";
         void el.offsetWidth; // reflow اجباری — نقطه‌ی شروع را قفل می‌کند
         // یک requestAnimationFrame دوم و تودرتو لازم است: reflow فقط
         // layout را محاسبه می‌کند، نه اینکه تضمین کند مرورگر واقعاً یک
@@ -450,8 +478,10 @@ function renderPieces(animateFrom, animateTo, silent){
         // می‌پرد. با این rAF دوم، موقعیتِ شروع تضمین می‌شود که واقعاً
         // رسم شده باشد، و فقط بعد از آن transition وصل و مقصد نوشته شود.
         requestAnimationFrame(function(){
-          el.style.transition = "transform " + dur + "ms cubic-bezier(.19,1,.22,1)";
-          el.style.transform = "translate(0px,0px) scale(1)";
+          // ease-out قاطع: شروعِ نسبتاً سریع، فرود بسیار نرم — دقیقاً حسِ
+          // حرکتِ مهره‌ی chess.com، بدون هیچ overshoot/بانسی در مسیر.
+          el.style.transition = "transform " + dur + "ms cubic-bezier(.22,.61,.36,1)";
+          el.style.transform = "translate(0px,0px)";
         });
 
         var entry = { el: el, done: false };
@@ -463,6 +493,18 @@ function renderPieces(animateFrom, animateTo, silent){
           el.style.transition = "";
           el.style.transform = "";
           el.classList.remove("moving");
+          // پالسِ نرمِ «نشستن» درست در لحظه‌ای که مهره واقعاً به مقصد
+          // می‌رسد — نه در لحظه‌ی شروعِ appendChild — تا این ظرافت با
+          // خودِ لحظه‌ی برخورد هم‌زمان باشد.
+          el.classList.add("just-arrived");
+          el.addEventListener("animationend", function onSettleEnd(){
+            el.removeEventListener("animationend", onSettleEnd);
+            el.classList.remove("just-arrived");
+          });
+          // اگر این خانه محلِ گرفتنِ یک مهره بود، همین الان (لحظه‌ی واقعیِ
+          // رسیدنِ مهاجم) مهره‌ی گرفته‌شده را محو کن — نه زودتر.
+          var capFns = captureFinishersBySquare[m.toSq];
+          if(capFns) capFns.forEach(function(fn){ fn(); });
           var i = state.activeAnims.indexOf(entry);
           if(i >= 0) state.activeAnims.splice(i, 1);
           if(!state.activeAnims.length){
@@ -481,6 +523,13 @@ function renderPieces(animateFrom, animateTo, silent){
         state.activeAnims.push(entry);
       });
       if(!state.activeAnims.length) state.animating = false;
+      // شبکه‌ی ایمنیِ نهایی: هر مهره‌ی گرفته‌شده‌ای که هنوز محو نشده
+      // (مثلاً en passant — جایی که مهره‌ی گرفته‌شده در toSq مهاجم
+      // نیست، بلکه یک خانه‌ی کناری است) با تأخیرِ کوتاهی همراستا با
+      // مدت‌زمانِ متوسطِ حرکت محو می‌شود تا هیچ‌وقت روی صفحه گیر نکند.
+      setTimeout(function(){
+        captureFinishers.forEach(function(fn){ fn(); });
+      }, 260);
     });
   }
 
@@ -948,6 +997,28 @@ function showGameOver(status, winnerId, whiteEloChange, blackEloChange){
   state.gameOverShown = true;
   clearInterval(state.clockTimer);
   $("draw-modal-overlay").classList.add("hidden");
+  // افکتِ سقوطِ شاهِ مات‌شده — قبل از باز شدنِ مودالِ پایانِ بازی، چون
+  // بعد از باز شدنِ مودال صفحه دیده نمی‌شود. شاهِ رنگِ «بازنده» (یعنی
+  // رنگی که الان نوبتش بوده و دیگر حرکتی نداشته) پیدا و علامت‌گذاری
+  // می‌شود. مودال با یک تأخیرِ کوتاه باز می‌شود تا کاربر خودِ لحظه‌ی
+  // سقوط را ببیند — دقیقاً همان افکتِ امضادارِ chess.com.
+  var mateDelay = 0;
+  if(status === "checkmate"){
+    var losingColor = chess.turn(); // طرفی که الان نوبتش است و مات شده
+    var boardState = chess.board();
+    for(var r=0;r<8;r++) for(var c=0;c<8;c++){
+      var p = boardState[r][c];
+      if(p && p.type==="k" && p.color===losingColor){
+        var sq = FILES[c] + (8-r);
+        var kingEl = state.boardEls[sq] && state.boardEls[sq].querySelector(".piece");
+        if(kingEl){ kingEl.classList.add("mated-king"); mateDelay = 550; }
+      }
+    }
+  }
+  setTimeout(function(){ _showGameOverModal(status, winnerId, whiteEloChange, blackEloChange); }, mateDelay);
+}
+
+function _showGameOverModal(status, winnerId, whiteEloChange, blackEloChange){
   var icon = $("modal-icon"), title = $("modal-title"), sub = $("modal-sub"), eloEl = $("modal-elo");
   var iWon = winnerId && String(winnerId) === String(state.myId);
   var isDraw = status === "draw" || status === "stalemate";

@@ -176,6 +176,11 @@ html,body{
 }
 .square.check::before{
   background: radial-gradient(circle, rgba(240,84,110,.65) 0%, rgba(240,84,110,0) 72%); opacity:1;
+  animation: checkpulse 1s ease-in-out infinite;
+}
+@keyframes checkpulse{
+  0%,100%{ opacity:.55; }
+  50%{ opacity:1; }
 }
 .move-dot{
   position:absolute; width:26%; height:26%; border-radius:50%;
@@ -201,11 +206,37 @@ html,body{
 .piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }
 .piece.black-p{ color: var(--piece-black); -webkit-text-stroke: .5px var(--piece-black-stroke); }
 .piece.dragging{ transform: scale(1.18); z-index:20; cursor:grabbing; filter: drop-shadow(0 8px 10px rgba(0,0,0,.35)); }
-.piece.moving{ z-index:15; will-change: transform; }
-.piece.captured-anim{ animation: capturepop .32s cubic-bezier(.4,0,1,1) forwards; }
-@keyframes capturepop{ to{ transform: scale(0) rotate(25deg); opacity:0; } }
-.piece.landed{ animation: land .32s cubic-bezier(.34,1.56,.64,1); }
-@keyframes land{ 0%{ transform: scale(1.3);} 60%{ transform: scale(.95);} 100%{ transform: scale(1);} }
+.piece.moving{ z-index:15; will-change: transform; filter: drop-shadow(0 3px 6px rgba(0,0,0,.28)); }
+/* سایه‌ی نرم موقع حرکت — دقیقاً همان افکتی که chess.com هنگام سُر خوردن
+   مهره روی صفحه اضافه می‌کند تا حسِ «بلند شدن از سطح تخته» بدهد. */
+
+.piece.captured-anim{
+  animation: capturepop .22s cubic-bezier(.4,0,1,1) forwards;
+  z-index: 1; /* زیر مهره‌ی مهاجمی که دارد وارد همان خانه می‌شود می‌ماند */
+}
+@keyframes capturepop{ to{ transform: scale(.35); opacity:0; } }
+/* مدت‌زمان این افکت عمداً کوتاه‌تر از قبل شد (بود ۰٫۳۲s) تا محوشدنِ
+   مهره‌ی گرفته‌شده تقریباً هم‌زمان با رسیدنِ مهره‌ی مهاجم به همان خانه
+   تمام شود — دقیقاً شبیه chess.com، نه اینکه مهاجم برسد و مهره‌ی گرفته‌شده
+   هنوز چند فریمِ دیگر روی صفحه بماند. */
+
+.piece.landed{ animation: land .28s cubic-bezier(.34,1.56,.64,1); }
+@keyframes land{ 0%{ transform: scale(1.22);} 60%{ transform: scale(.96);} 100%{ transform: scale(1);} }
+
+.piece.just-arrived{ animation: settle .18s cubic-bezier(.34,1.56,.64,1); }
+@keyframes settle{ 0%{ transform: scale(1.08);} 100%{ transform: scale(1);} }
+/* پالسِ خیلی کوچک و ظریف وقتی مهره‌ای که سُر خورده سرِ خانه‌ی مقصد
+   می‌نشیند — دقیقاً همان «ته‌نشین‌شدنِ نرم» chess.com، نه پاپِ بزرگِ
+   .landed که مخصوصِ ظاهرشدنِ کاملاً تازه‌ی یک مهره (بار اول لود صفحه) است. */
+
+.piece.mated-king{ animation: kingfall .6s cubic-bezier(.55,0,.55,1) .15s forwards; transform-origin: 50% 85%; }
+@keyframes kingfall{
+  0%{ transform: rotate(0deg) scale(1); }
+  100%{ transform: rotate(88deg) scale(.92) translateY(6%); opacity:.85; }
+}
+/* افکتِ امضادارِ chess.com در لحظه‌ی کیش‌ومات: شاهِ بازنده روی صفحه
+   می‌افتد/کج می‌شود. جهتِ سقوط (مثبت/منفی) در جاوااسکریپت بر اساس
+   رنگِ خانه انتخاب می‌شود تا شاه همیشه به‌سمتِ «بیرونِ صفحه» بیفتد. */
 
 .turn-banner{
   text-align:center; font-size:15px; font-weight:700;
