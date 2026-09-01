@@ -166,6 +166,87 @@ async def show_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except BadRequest:
         await safe_edit_message_text(query, text, reply_markup=kb.kb_logs_filter())
 
+# ─── پیگیری بازی‌های شطرنج مدیران ──────────────────────────────
+# دلیلِ پایانِ هر بازی (status توی جدول chess_games) یکی از این‌هاست:
+# checkmate (کیش‌ومات) / resigned (تسلیم) / timeout (اتمام وقت) / draw
+# (مساوی، شامل پات و بی‌حرکتی و تکرار). این دیکشنری برای نمایشِ فارسیِ
+# «دلیل» توی لیست استفاده می‌شود.
+CHESS_REASON_LABEL = {
+    "checkmate": "🏆 کیش و مات",
+    "resigned":  "🏳️ تسلیم",
+    "timeout":   "⏱ اتمام وقت",
+    "draw":      "🤝 مساوی",
+}
+
+async def pishva_chess_games(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    await safe_edit_message_text(query,
+        f"{box('♟️ بازی‌های مدیران')}\n\n📌 بازه زمانی را انتخاب کنید:",
+        reply_markup=kb.kb_chess_games_filter(),
+        parse_mode="Markdown"
+    )
+
+async def show_chess_games(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    period = query.data.split("_")[-1]
+    games = await db.get_chess_games_log(period)
+    if not games:
+        await safe_edit_message_text(query, "❗ هیچ بازیِ تمام‌شده‌ای در این بازه ثبت نشده.",
+            reply_markup=kb.kb_chess_games_filter())
+        return
+    pname = await pishva_display()
+    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
+
+    def name_of(uid):
+        if uid == PISHVA_ID:
+            return pname
+        return admins.get(uid, str(uid)) if uid else "؟"
+
+    lines = []
+    # مرتب: از get_chess_games_log از قبل بر اساس finished_at نزولی (جدیدترین اول) آمده.
+    for g in games[:30]:
+        white = escape_md_legacy(g["white_name"] or name_of(g["white_id"]))
+        black = escape_md_legacy(g["black_name"] or name_of(g["black_id"]))
+        reason = CHESS_REASON_LABEL.get(g["status"], g["status"])
+        if g["status"] == "draw":
+            result = "مساوی"
+        elif g["winner_id"]:
+            winner_name = escape_md_legacy(name_of(g["winner_id"]))
+            result = f"برد {winner_name}"
+        else:
+            result = "—"
+        t = str(g["finished_at"] or g["created_at"] or "")[:16]
+        elo_bits = []
+        if g["white_elo_change"] is not None:
+            sign = "+" if g["white_elo_change"] > 0 else ""
+            elo_bits.append(f"{white} {sign}{g['white_elo_change']}")
+        if g["black_elo_change"] is not None:
+            sign = "+" if g["black_elo_change"] > 0 else ""
+            elo_bits.append(f"{black} {sign}{g['black_elo_change']}")
+        elo_txt = f" | 📊 {' / '.join(elo_bits)}" if elo_bits else ""
+        lines.append(
+            f"⏱️ `{t}` | ♟️ {white} 🆚 {black}\n"
+            f"   نتیجه: {result} — دلیل: {reason}{elo_txt}"
+        )
+    header = f"{box('♟️ بازی‌های مدیران')}\n\n🔢 {len(games)} بازی در این بازه\n\n"
+    text = header + "\n\n".join(lines)
+    # محدودیتِ تلگرام روی طول پیام (۴۰۹۶ کاراکتر) — اگر لیست خیلی بلند شد،
+    # آن‌قدر از آخر (قدیمی‌ترین‌های نمایش‌داده‌شده) کم می‌کنیم تا جا شود،
+    # به‌جای این‌که تلگرام کل پیام را با خطا رد کند.
+    if len(text) > 3900:
+        while lines and len(header + "\n\n".join(lines)) > 3800:
+            lines.pop()
+        text = header + "\n\n".join(lines) + f"\n\n… و {len(games) - len(lines)} بازیِ دیگر (برای دیدن بقیه، بازه را کوتاه‌تر کنید)"
+    try:
+        await safe_edit_message_text(query, text, reply_markup=kb.kb_chess_games_filter(), parse_mode="Markdown")
+    except BadRequest:
+        await safe_edit_message_text(query, text, reply_markup=kb.kb_chess_games_filter())
+
 # ─── Access Requests ─────────────────────────────────────────
 async def pishva_requests(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

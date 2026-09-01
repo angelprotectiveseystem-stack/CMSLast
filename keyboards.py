@@ -271,20 +271,21 @@ def kb_pishva_panel():
         InlineKeyboardButton("⚙️ تنظیمات ربات", callback_data="pishva_settings")],
         [InlineKeyboardButton("🔍 پیگیری اقدامات", callback_data="pishva_logs"),
         InlineKeyboardButton("📥 درخواست‌های دسترسی", callback_data="pishva_requests")],
-        [InlineKeyboardButton("💾 دریافت بکاپ", callback_data="pishva_backup"),
-        InlineKeyboardButton("🕐 ساعت کاری", callback_data="pishva_workhours")],
-        [InlineKeyboardButton("🔧 حالت تعمیر", callback_data="pishva_repair"),
-        InlineKeyboardButton("🏦 خزانه مدیر ارشد", callback_data="pishva_vault")],
-        [InlineKeyboardButton("🪪 تغییر هویت", callback_data="pishva_identity"),
-        InlineKeyboardButton("🎓 سال تحصیلی جدید", callback_data="pishva_newyear")],
-        [InlineKeyboardButton("🔄 آپدیت ربات", callback_data="pishva_update"),
-        InlineKeyboardButton("📡 گروه اعلانات", callback_data="pishva_group")],
-        [InlineKeyboardButton("⏰ یادآورها", callback_data="pishva_reminders"),
+        [InlineKeyboardButton("♟️ بازی‌های مدیران", callback_data="pishva_chess_games"),
+        InlineKeyboardButton("💾 دریافت بکاپ", callback_data="pishva_backup")],
+        [InlineKeyboardButton("🕐 ساعت کاری", callback_data="pishva_workhours"),
+        InlineKeyboardButton("🔧 حالت تعمیر", callback_data="pishva_repair")],
+        [InlineKeyboardButton("🏦 خزانه مدیر ارشد", callback_data="pishva_vault"),
+        InlineKeyboardButton("🪪 تغییر هویت", callback_data="pishva_identity")],
+        [InlineKeyboardButton("🎓 سال تحصیلی جدید", callback_data="pishva_newyear"),
+        InlineKeyboardButton("🔄 آپدیت ربات", callback_data="pishva_update")],
+        [InlineKeyboardButton("📡 گروه اعلانات", callback_data="pishva_group"),
         InlineKeyboardButton("📢 افزودن به کانال", url=f"https://t.me/{BOT_USERNAME}?startchannel&admin=post_messages")],
         [InlineKeyboardButton("🆔 تنظیم کانال اعلانات", callback_data="pishva_channel"),
         InlineKeyboardButton("📡 پخش خودکار", callback_data="pishva_broadcast")],
         [InlineKeyboardButton("🛡️ پنل امنیتی APS", callback_data="security_panel"),
         InlineKeyboardButton("🗂️ سوابق AI ادمین‌ها", callback_data="ai_admlog_menu")],
+        [InlineKeyboardButton("⏰ یادآورها", callback_data="pishva_reminders")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")],
     ])
 
@@ -385,6 +386,15 @@ def kb_logs_filter():
         InlineKeyboardButton("📆 این هفته", callback_data="logs_week")],
         [InlineKeyboardButton("🗓️ این ماه", callback_data="logs_month"),
         InlineKeyboardButton("📚 کل اقدامات", callback_data="logs_all")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
+    ])
+
+def kb_chess_games_filter():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 امروز", callback_data="chessgames_today"),
+        InlineKeyboardButton("📆 این هفته", callback_data="chessgames_week")],
+        [InlineKeyboardButton("🗓️ این ماه", callback_data="chessgames_month"),
+        InlineKeyboardButton("📚 کل بازی‌ها", callback_data="chessgames_all")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
 

@@ -160,6 +160,7 @@ PANEL_MAP = {
     "pishva_main":    ("👑 پنل مدیر ارشد", "menu_pishva", [ROLE_PISHVA]),
     "settings":       ("⚙️ تنظیمات ربات", "pishva_settings", [ROLE_PISHVA]),
     "logs":           ("🔍 پیگیری اقدامات", "pishva_logs", [ROLE_PISHVA]),
+    "chess_games_log": ("♟️ بازی‌های مدیران", "pishva_chess_games", [ROLE_PISHVA]),
     "requests":       ("📥 درخواست‌های دسترسی", "pishva_requests", [ROLE_PISHVA]),
     "backup":         ("💾 بکاپ", "pishva_backup", [ROLE_PISHVA]),
     "workhours":      ("🕐 ساعت کاری", "pishva_workhours", [ROLE_PISHVA]),

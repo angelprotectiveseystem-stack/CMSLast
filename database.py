@@ -1688,6 +1688,35 @@ async def finish_chess_game(token, status, winner_id, white_elo_change=None, bla
         await db.commit()
 
 
+async def get_chess_games_log(period="all", limit=100):
+    """لیستِ بازی‌های شطرنج زنده‌ی *تمام‌شده‌ی* مدیران، برای پنل «پیگیری
+    بازی‌های مدیران» در پنل مدیر ارشد. period مثل get_action_logs عمل
+    می‌کند (today/week/month/all) و بر اساس finished_at فیلتر می‌شود —
+    نه created_at — چون تاریخِ «اتفاق افتادنِ نتیجه» مهم است، نه شروع بازی.
+    فقط بازی‌های status != 'active' برمی‌گردند (یعنی واقعاً یک نتیجه/دلیل
+    پایان دارند)؛ بازی‌های در حال انجام اینجا جایی ندارند.
+    مرتب‌سازی: جدیدترین (بر اساس finished_at) اول."""
+    from datetime import timedelta
+    now = datetime.now()
+    conditions = ["status != 'active'"]
+    if period == "today":
+        d = now.strftime("%Y-%m-%d")
+        conditions.append(f"finished_at LIKE '{d}%'")
+    elif period == "week":
+        d = (now - timedelta(days=7)).isoformat()
+        conditions.append(f"finished_at >= '{d}'")
+    elif period == "month":
+        d = (now - timedelta(days=30)).isoformat()
+        conditions.append(f"finished_at >= '{d}'")
+    where = "WHERE " + " AND ".join(conditions)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"SELECT * FROM chess_games {where} ORDER BY finished_at DESC LIMIT ?", (limit,)
+        ) as cur:
+            return await cur.fetchall()
+
+
 async def set_chess_draw_offer(token, by_id):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE chess_games SET draw_offer_by=? WHERE token=?", (by_id, token))

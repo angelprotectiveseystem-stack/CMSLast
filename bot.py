@@ -81,6 +81,7 @@ from pishva import (
     pishva_status, set_status, pishva_settings, toggle_setting,
     pishva_dbstatus, dbstatus_on, dbstatus_off,
     pishva_logs, show_logs, pishva_requests, pishva_backup,
+    pishva_chess_games, show_chess_games,
     backup_period_select, backup_format_select,
     pishva_repair, repair_on, repair_off,
     repair_reason_start, repair_reason_save, pishva_identity,
@@ -880,6 +881,8 @@ def build_application():
     app.add_handler(CallbackQueryHandler(toggle_setting, pattern="^setting_"))
     app.add_handler(CallbackQueryHandler(pishva_logs, pattern="^pishva_logs$"))
     app.add_handler(CallbackQueryHandler(show_logs, pattern="^logs_(today|week|month|all)$"))
+    app.add_handler(CallbackQueryHandler(pishva_chess_games, pattern="^pishva_chess_games$"))
+    app.add_handler(CallbackQueryHandler(show_chess_games, pattern="^chessgames_(today|week|month|all)$"))
     app.add_handler(CallbackQueryHandler(pishva_requests, pattern="^pishva_requests$"))
     app.add_handler(CallbackQueryHandler(pishva_backup, pattern="^pishva_backup$"))
     app.add_handler(CallbackQueryHandler(backup_period_select,pattern="^backup_period_"))
