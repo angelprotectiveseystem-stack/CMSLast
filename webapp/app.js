@@ -43,7 +43,8 @@ var state = {
   drawModalShown: false,
   animating: false,
   activeAnims: [],
-  pendingAnimFrame: null
+  pendingAnimFrame: null,
+  historyRenderedCount: 0
 };
 
 // ─── Board sizing ───────────────────────────────────────────
@@ -437,13 +438,21 @@ function doMove(from, to, promotion){
   state.selected = null;
   state.legalTargets = [];
   state.lastMove = { from: from, to: to };
-  state.moveList = state.moveList.concat([move.san]);
   renderPieces(from, to);
   renderCaptured();
-  renderHistory();
+  syncHistory(state.moveList.concat([move.san]));
   updateTurnBanner();
-  sendMove(move);
-  checkLocalGameOver();
+  // ارسال به سرور و چک پایان‌بازی (که خودش یک تولید کامل حرکات مجاز در
+  // chess.js است) عمداً یک تیک بعد اجرا می‌شوند — نه چون خودشان کند
+  // هستند، بلکه چون همین‌جا، در همان تسکِ همزمانی که renderPieces() شروعِ
+  // انیمیشن را به یک requestAnimationFrame موکول کرده، هر کارِ اضافه‌ی
+  // synchronous مستقیماً به بودجه‌ی زمانیِ همان فریم اضافه می‌شود. با
+  // setTimeout(...,0) این کارها بعد از این‌که مرورگر فرصت رسم فریم اول
+  // انیمیشن را داشت اجرا می‌شوند.
+  setTimeout(function(){
+    sendMove(move);
+    checkLocalGameOver();
+  }, 0);
 }
 
 // ─── Networking ─────────────────────────────────────────────
@@ -465,20 +474,20 @@ function sendMove(move){
         // سرور حرکت را رد کرد (مثلاً چون شطرنج زنده موقتاً قفل/غیرفعال شده)؛
         // حرکت محلیِ خوش‌بینانه را برمی‌گردانیم تا صفحه با واقعیت هماهنگ بماند.
         chess.undo();
-        if(state.moveList.length) state.moveList = state.moveList.slice(0, -1);
+        var revertedMoves = state.moveList.length ? state.moveList.slice(0, -1) : state.moveList;
         state.selected = null;
         state.legalTargets = [];
         state.lastMove = null;
         renderPieces();
         renderCaptured();
-        renderHistory();
+        syncHistory(revertedMoves);
         updateTurnBanner();
         setConnStatus(false);
         if(res.error) alert(res.error);
       } else {
         setConnStatus(true);
         applyServerState(res.state, false);
-        if(res.state.moves){ state.moveList = res.state.moves; renderHistory(); }
+        if(res.state.moves){ syncHistory(res.state.moves); }
       }
     })
     .catch(function(){ setConnStatus(false); });
@@ -531,10 +540,9 @@ function applyServerState(s, fromPoll){
     var prevLast = state.lastMove;
     chess.load(incomingFen);
     state.lastMove = s.last_move || prevLast;
-    if(s.moves) state.moveList = s.moves;
     renderPieces(state.lastMove && state.lastMove.from, state.lastMove && state.lastMove.to);
     renderCaptured();
-    renderHistory();
+    if(s.moves) syncHistory(s.moves);
   }
   state.turn = chess.turn();
   if(fromPoll){
@@ -631,6 +639,7 @@ function renderHistory(){
     empty.className = "chat-empty";
     empty.textContent = "هنوز حرکتی ثبت نشده";
     list.appendChild(empty);
+    state.historyRenderedCount = 0;
     return;
   }
   for(var i=0;i<moves.length;i+=2){
@@ -640,6 +649,63 @@ function renderHistory(){
     list.appendChild(row);
   }
   list.scrollTop = list.scrollHeight;
+  state.historyRenderedCount = moves.length;
+}
+
+// یک ردیف/خانه‌ی جدید تاریخچه را بدون بازسازی کل لیست اضافه می‌کند.
+// فقط برای حالتی امن است که دقیقاً یک حرکت به انتهای moveList اضافه شده باشد
+// (چک آن در syncHistory انجام می‌شود).
+function appendHistoryMove(san){
+  var list = $("history-list");
+  var empty = list.querySelector(".chat-empty");
+  if(empty) empty.remove();
+  var idx = state.moveList.length - 1;
+  if(idx % 2 === 0){
+    var row = document.createElement("div");
+    row.className = "history-row";
+    row.innerHTML = '<span class="history-num">' + (idx/2+1) + '.</span><span class="history-move">' + san + '</span><span class="history-move"></span>';
+    list.appendChild(row);
+  } else {
+    var rows = list.querySelectorAll(".history-row");
+    var lastRow = rows[rows.length-1];
+    if(!lastRow){ renderHistory(); return; }
+    var spans = lastRow.querySelectorAll(".history-move");
+    if(spans[1]) spans[1].textContent = san; else { renderHistory(); return; }
+  }
+  list.scrollTop = list.scrollHeight;
+  state.historyRenderedCount = state.moveList.length;
+}
+
+// رفع باگ ریشه‌ای «سکته‌ی» انیمیشن حرکت مهره: renderHistory() قبلاً با
+// innerHTML="" کل لیست تاریخچه را (که در یک بازی طولانی می‌تواند ده‌ها
+// ردیف DOM باشد) روی *هر* حرکت — هم حرکت خودم (در doMove) و هم هر حرکت
+// حریف که هر ۱.۵ ثانیه از poll می‌رسید (در applyServerState) — از نو
+// می‌ساخت. این کار، همراه با رندر تکراری بعد از تایید سرور در sendMove،
+// دقیقاً همان تسکِ سینک روی ترد اصلی بود که renderPieces() سعی داشت با
+// موکول‌کردن شروعِ خودِ انیمیشن به requestAnimationFrame از آن دور بماند؛
+// چون آن رندرها هم در همان تسکِ همزمان (قبل از رسیدن به رویداد بعدی حلقه)
+// اجرا می‌شدند، حجمشان مستقیماً به بودجه‌ی زمانیِ فریم اضافه می‌شد و روی
+// گوشی‌های ضعیف‌تر باعث جاماندن فریم اول انیمیشن (= همان سکته) می‌شد.
+// syncHistory به‌جای بازسازی کامل، فقط وقتی که واقعاً دقیقاً یک حرکت به
+// انتها اضافه شده (رایج‌ترین حالت) یک عنصر DOM اضافه می‌کند؛ و وقتی
+// چیزی واقعاً تغییر نکرده (مثلاً تاییدیه‌ی سرور بعد از حرکت خودم که قبلاً
+// محلی رندر شده) هیچ کاری انجام نمی‌دهد. فقط در حالت‌های نادر و واقعی
+// (ری‌ست/آندو/چند حرکت هم‌زمان بعد از قطعی/بارگذاری اول) به رندر کامل
+// برمی‌گردد.
+function syncHistory(newMoves){
+  newMoves = newMoves || [];
+  var oldLen = state.moveList.length;
+  if(newMoves.length === oldLen){
+    state.moveList = newMoves;
+    return;
+  }
+  if(newMoves.length === oldLen + 1 && state.historyRenderedCount === oldLen){
+    state.moveList = newMoves;
+    appendHistoryMove(newMoves[newMoves.length-1]);
+    return;
+  }
+  state.moveList = newMoves;
+  renderHistory();
 }
 
 function updateTurnBanner(){
