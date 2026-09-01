@@ -415,11 +415,19 @@ async def api_move(request):
     if board.is_checkmate():
         status = "checkmate"
         winner = user_id
-    elif board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_fivefold_repetition():
+    elif board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_repetition(3):
         status = "draw"
 
+    # باگِ «تاریخچه ناقص»: قبلاً فقط سانِ همین یک حرکت (san) به‌عنوانِ pgn
+    # ذخیره می‌شد، یعنی هر حرکتِ جدید کل تاریخچه‌ی قبلی را توی دیتابیس پاک
+    # می‌کرد. اینجا سانِ جدید را به رشته‌ی pgn موجود (کاما-جدا) اضافه می‌کنیم
+    # تا کل تاریخچه انباشته بماند — همان چیزی که _game_to_state با pgn.split(",")
+    # می‌خواند و به کلاینت می‌فرستد.
+    prev_pgn = game.get("pgn") or ""
+    new_pgn = (prev_pgn + "," + san) if prev_pgn else san
+
     await db.update_chess_game_move(
-        token, board.fen(), san, frm, to,
+        token, board.fen(), new_pgn, frm, to,
         game["white_time"], game["black_time"]
     )
     if status != "active":
@@ -614,11 +622,14 @@ async def maybe_play_ai_move(token: str):
     if board.is_checkmate():
         status = "checkmate"
         winner = AI_ID
-    elif board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_fivefold_repetition():
+    elif board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_repetition(3):
         status = "draw"
 
+    prev_pgn = game.get("pgn") or ""
+    new_pgn = (prev_pgn + "," + san) if prev_pgn else san
+
     await db.update_chess_game_move(
-        token, board.fen(), san, frm, to, game["white_time"], game["black_time"]
+        token, board.fen(), new_pgn, frm, to, game["white_time"], game["black_time"]
     )
     if status != "active":
         fresh = await db.get_chess_game(token)
