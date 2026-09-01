@@ -203,11 +203,53 @@ async def _finish_with_elo(token, status, game, winner_id):
         logger.exception("Failed to send post-game panel for %s", token)
 
 
+def _load_board(game):
+    """بازسازیِ کاملِ Board از رویِ تاریخچه‌ی حرکت‌ها — نه فقط از رویِ FENِ لحظه‌ی فعلی.
+
+    باگِ «قوانینِ پایانِ بازی مثلِ سه‌حرکتِ تکراری اعمال نمی‌شوند»: در همه‌جای
+    این فایل با pychess.Board(game["fen"]) یک Boardِ تازه فقط از رویِ FENِ
+    فعلی ساخته می‌شد. FEN صرفاً چیدمانِ فعلیِ مهره‌ها را نگه می‌دارد و هیچ
+    اطلاعی از حرکت‌های قبلیِ همین بازی در آن نیست. python-chess برای تشخیصِ
+    سه‌حرکتِ تکراری (is_repetition) دقیقاً به move_stack همان شیِ Board نگاه
+    می‌کند (شمارشِ موقعیت‌های تکراری‌ای که این Board واقعاً از سرشان گذشته)،
+    نه به خودِ FEN. پس با ساختن Board فقط از رویِ FEN، این Board همیشه یک
+    move_stackِ تقریباً خالی داشت (حداکثر همان یک حرکتِ تازه‌ای که خودِ همین
+    تابع بلافاصله push می‌کرد) و در نتیجه is_repetition(3) عملاً هیچ‌وقت True
+    برنمی‌گشت — حتی وقتی در واقعیتِ بازی یک موقعیت واقعاً سه بار تکرار شده
+    بود، چون از دیدِ این Boardِ تازه‌ساز، آن تکرارها اصلاً «اتفاق نیفتاده»
+    بودند.
+
+    راه‌حل: بازی‌ها همیشه از وضعیتِ شروعِ استانداردِ شطرنج آغاز می‌شوند
+    (START_FEN در chess_challenge.py)، و تاریخچه‌ی کاملِ حرکت‌ها به‌صورتِ
+    SANِ کاما-جدا در game[\"pgn\"] ذخیره شده است. با replay کاملِ همین
+    لیست رویِ یک Boardِ تازه، همان موقعیتِ نهایی به‌دست می‌آید — ولی این‌بار
+    با move_stackِ واقعیِ کاملِ بازی، پس is_repetition و بقیه‌ی قوانینِ
+    مبتنی‌بر-تاریخچه درست کار می‌کنند."""
+    board = pychess.Board()
+    pgn = game.get("pgn") or ""
+    if pgn:
+        for san in pgn.split(","):
+            if not san:
+                continue
+            try:
+                board.push_san(san)
+            except Exception:
+                logger.exception(
+                    "بازسازیِ تاریخچه‌ی حرکت‌ها ناموفق بود (san=%r) — بازگشت به FEN فعلی", san
+                )
+                return pychess.Board(game["fen"])
+    return board
+
+
 def _apply_clock_decay(game):
     """قبل از پاسخ‌دادن، زمان طرف نوبت‌دار را بر اساس فاصله از آخرین حرکت کم می‌کند
     تا کلاک‌ها بدون نیاز به تایمر سمت سرور جداگانه به‌روز بمانند."""
     if game["status"] != "active":
         return dict(game)
+    # اینجا فقط نوبتِ فعلی (board.turn) لازم است که مستقیماً از رویِ خودِ
+    # FEN هم درست خوانده می‌شود؛ برخلافِ is_repetition، به تاریخچه‌ی کاملِ
+    # حرکت‌ها نیاز ندارد، پس برای جلوگیری از overhead روی مسیرِ پرتکرارِ
+    # poll همان ساختِ سبکِ قبلی نگه داشته شده (نه _load_board).
     board = pychess.Board(game["fen"])
     elapsed = 0
     try:
@@ -394,7 +436,10 @@ async def api_move(request):
         return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
 
     game = _apply_clock_decay(game)
-    board = pychess.Board(game["fen"])
+    # از _load_board (نه ساختِ Board فقط از رویِ FEN) استفاده می‌شود چون
+    # پایین‌تر is_repetition(3) صدا زده می‌شود که برای کارکردِ درست به
+    # move_stack کاملِ بازی نیاز دارد؛ توضیحِ کامل در تعریفِ _load_board.
+    board = _load_board(game)
     is_white_turn = board.turn == pychess.WHITE
     turn_id = game["white_id"] if is_white_turn else game["black_id"]
     if user_id != turn_id:
@@ -603,7 +648,9 @@ async def maybe_play_ai_move(token: str):
         return
     if AI_ID not in (game["white_id"], game["black_id"]):
         return
-    board = pychess.Board(game["fen"])
+    # همان دلیلِ استفاده از _load_board در api_move: پایین‌تر is_repetition(3)
+    # صدا زده می‌شود که به تاریخچه‌ی کاملِ حرکت‌ها نیاز دارد، نه فقط FEN فعلی.
+    board = _load_board(game)
     ai_is_white = game["white_id"] == AI_ID
     if board.turn != (pychess.WHITE if ai_is_white else pychess.BLACK):
         return  # نوبتِ طرفِ انسانی است
