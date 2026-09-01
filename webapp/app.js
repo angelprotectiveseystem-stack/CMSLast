@@ -17,113 +17,6 @@ var API = ""; // same-origin
 var PIECE_GLYPH = { p:"♟", n:"♞", b:"♝", r:"♜", q:"♛", k:"♚" };
 var FILES = ["a","b","c","d","e","f","g","h"];
 
-// ─── افکت صوتی + هپتیک ──────────────────────────────────────
-// همه‌ی صداها با WebAudio به‌صورت سینتتیک (بدون فایل صوتی خارجی)
-// تولید می‌شوند تا وابسته به دانلود/کش asset نباشند و روی هر WebView
-// فوراً و بدون تاخیر پخش شوند. AudioContext تا اولین ژست/تعامل کاربر
-// (کلیک) در حالت suspended می‌ماند — این یک محدودیت استاندارد مرورگرهاست
-// (از جمله WebView تلگرام)، پس در اولین touchstart/pointerdown صفحه آن
-// را resume می‌کنیم.
-var Sound = (function(){
-  var ctx = null;
-  var enabled = true;
-  var unlocked = false;
-
-  try{
-    var savedPref = localStorage.getItem("chess_sound_enabled");
-    if(savedPref === "0") enabled = false;
-  }catch(e){}
-
-  function getCtx(){
-    if(!ctx){
-      var Ctor = window.AudioContext || window.webkitAudioContext;
-      if(!Ctor) return null;
-      ctx = new Ctor();
-    }
-    return ctx;
-  }
-
-  function unlock(){
-    if(unlocked) return;
-    unlocked = true;
-    var c = getCtx();
-    if(c && c.state === "suspended") c.resume().catch(function(){});
-  }
-  ["touchstart","pointerdown","mousedown"].forEach(function(ev){
-    document.addEventListener(ev, unlock, { once: true, passive: true });
-  });
-
-  // یک نتِ ساده با envelope نرم (attack سریع، decay نمایی) — برای هر
-  // افکت با فرکانس/مدت/موج متفاوت صدا زده می‌شود.
-  function tone(freq, dur, type, gainPeak, delay){
-    if(!enabled) return;
-    var c = getCtx();
-    if(!c) return;
-    if(c.state === "suspended") c.resume().catch(function(){});
-    var t0 = c.currentTime + (delay || 0);
-    var osc = c.createOscillator();
-    var gain = c.createGain();
-    osc.type = type || "sine";
-    osc.frequency.setValueAtTime(freq, t0);
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(gainPeak || 0.18, t0 + 0.008);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(gain);
-    gain.connect(c.destination);
-    osc.start(t0);
-    osc.stop(t0 + dur + 0.02);
-  }
-
-  return {
-    setEnabled: function(v){
-      enabled = v;
-      try{ localStorage.setItem("chess_sound_enabled", v ? "1" : "0"); }catch(e){}
-    },
-    isEnabled: function(){ return enabled; },
-    move: function(){ tone(392, 0.09, "triangle", 0.16); },
-    capture: function(){ tone(220, 0.11, "square", 0.14); tone(150, 0.14, "square", 0.10, 0.03); },
-    check: function(){ tone(880, 0.12, "sine", 0.18); tone(660, 0.16, "sine", 0.14, 0.07); },
-    castle: function(){ tone(392, 0.08, "triangle", 0.15); tone(494, 0.1, "triangle", 0.13, 0.06); },
-    promote: function(){ tone(523, 0.1, "sine", 0.16); tone(659, 0.1, "sine", 0.15, 0.08); tone(784, 0.14, "sine", 0.14, 0.16); },
-    win: function(){ tone(523, 0.13, "sine", 0.18); tone(659, 0.13, "sine", 0.18, 0.11); tone(784, 0.2, "sine", 0.18, 0.22); },
-    lose: function(){ tone(392, 0.16, "sine", 0.16); tone(311, 0.22, "sine", 0.15, 0.13); },
-    draw: function(){ tone(440, 0.14, "sine", 0.15); tone(440, 0.14, "sine", 0.15, 0.16); },
-    chatSend: function(){ tone(700, 0.06, "sine", 0.12); tone(1000, 0.05, "sine", 0.09, 0.045); },
-    chatReceive: function(){ tone(500, 0.07, "sine", 0.13); tone(760, 0.08, "sine", 0.12, 0.05); }
-  };
-})();
-
-// ─── هپتیک (Telegram HapticFeedback) با fallback به Vibration API ─────
-// روی موبایل خارج از تلگرام (مثلاً مرورگر معمولی PWA) تلگرام در دسترس
-// نیست؛ در آن حالت از navigator.vibrate استاندارد استفاده می‌شود تا
-// هپتیک همیشه کار کند، نه فقط داخل اپ تلگرام.
-var Haptics = {
-  light: function(){
-    if(tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
-    else if(navigator.vibrate) navigator.vibrate(10);
-  },
-  medium: function(){
-    if(tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
-    else if(navigator.vibrate) navigator.vibrate(20);
-  },
-  rigid: function(){
-    if(tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("rigid");
-    else if(navigator.vibrate) navigator.vibrate([15, 30, 15]);
-  },
-  warning: function(){
-    if(tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("warning");
-    else if(navigator.vibrate) navigator.vibrate([20, 40, 20]);
-  },
-  success: function(){
-    if(tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
-    else if(navigator.vibrate) navigator.vibrate([15, 30, 15, 30, 15]);
-  },
-  error: function(){
-    if(tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
-    else if(navigator.vibrate) navigator.vibrate([40, 30, 40]);
-  }
-};
-
 var chess = new Chess();
 var state = {
   myColor: null,       // 'w' | 'b'
@@ -148,11 +41,7 @@ var state = {
   moveList: [],          // تاریخچه‌ی حرکات (SAN) — همیشه از سرور می‌آید، نه از chess.js
   drawOfferBy: null,
   drawModalShown: false,
-  animating: false,
-  activeAnims: [],
-  pendingAnimFrame: null,
-  historyRenderedCount: 0,
-  liveSocket: null
+  animating: false
 };
 
 // ─── Board sizing ───────────────────────────────────────────
@@ -248,52 +137,29 @@ function buildBoard(){
   }
 }
 
-// ─── Piece movement / animation engine (rewritten from scratch) ─────
-//
-// این پیاده‌سازی قبلی جهت جابه‌جایی را از روی «اندیس ستون/ردیف در DOM»
-// حساب می‌کرد (col/row * اندازه‌ی فرضی خانه). چون صفحه dir="rtl" است،
-// در CSS Grid محور افقی (ستون‌ها) از راست به چپ چیده می‌شود، ولی
-// transform: translateX یک آفست فیزیکی (بدون توجه به direction) است.
-// نتیجه: برای هر حرکتی که مولفه‌ی افقی داشت (همه‌ی حرکات به‌جز حرکت
-// روی یک ستون ثابت)، مهره در مسیر اشتباه (آینه‌شده) حرکت می‌کرد و فقط
-// در فریم پایانی به‌خانه‌ی درست می‌پرید — همان «حرکت برعکس» که گزارش
-// شده بود. علاوه بر این، رندر جدیدی که حین یک انیمیشن می‌رسید (مثلاً
-// poll که هر ۱.۵ ثانیه بررسی می‌کند) به‌جای اعمال فوری، در صف
-// (pendingRender) نگه داشته می‌شد؛ این تاخیر دقیقاً همان «سکته»/جهش
-// وسط حرکت بود، و چون paintHighlights در پایان renderPieces دوباره
-// اجرا می‌شد، نقطه‌های حرکت (move-dot) هم دوباره ساخته و انیمیشن
-// dotpop‌شان از نو پخش می‌شد — همان سکته‌ی «نقطه‌ها بعد از کلیک».
-//
-// راه‌حل ریشه‌ای (به‌جای رفع مورد به مورد):
-// ۱) مسافت جابه‌جایی از روی مختصات واقعی پیکسلی صفحه
-//    (getBoundingClientRect) محاسبه می‌شود، نه اندیس ستون/ردیف. این
-//    مقدار فیزیکی و مستقل از rtl/ltr، چرخش تخته (flip)، و هر گونه
-//    گرد شدن اعشاری در اندازه‌ی خانه‌هاست — پس امکان «برعکس رفتن»
-//    اصولاً وجود ندارد.
-// ۲) هیچ رندری هرگز به تعویق نمی‌افتد. اگر انیمیشنی در حال اجراست و
-//    رندر جدیدی لازم شد، انیمیشن‌های فعلی فوراً (بدون پرش بصری، چون
-//    Animation.finish() دقیقاً کی‌فریم پایانی را اعمال می‌کند) به
-//    پایان می‌رسند و بلافاصله رندر جدید روی وضعیت واقعی انجام می‌شود.
-//    یعنی همیشه حداکثر یک انیمیشن روی هر مهره در جریان است و رندرها
-//    هرگز صف نمی‌شوند — سکته‌ی ناشی از تاخیر یا هم‌پوشانی دو انیمیشن
-//    از ریشه حذف می‌شود.
-function settleActiveAnimations(){
-  if(state.pendingAnimFrame){
-    cancelAnimationFrame(state.pendingAnimFrame);
-    state.pendingAnimFrame = null;
-  }
-  var anims = state.activeAnims;
-  state.activeAnims = [];
-  anims.forEach(function(a){
-    try{ a.finish(); }catch(e){}
-  });
-  state.animating = false;
+function squareToRowCol(sq){
+  // مختصات شبکه‌ی خانه (row, col) را از روی موقعیت واقعی‌اش در DOM
+  // برمی‌گرداند — این با توجه به state.boardEls (که با رعایت چرخش
+  // صفحه/flip ساخته شده) محاسبه می‌شود، پس چه بازیکن سفید باشد چه
+  // سیاه، جهت حرکت درست است.
+  var el = state.boardEls[sq];
+  if(!el || !el.parentNode) return null;
+  var idx = Array.prototype.indexOf.call(el.parentNode.children, el);
+  return { row: Math.floor(idx / 8), col: idx % 8 };
 }
 
-function renderPieces(animateFrom, animateTo, silent){
-  // هر رندر جدید، هر انیمیشن قبلی را فوراً (بدون پرش) می‌بندد؛ هرگز
-  // به تعویق نمی‌افتد — این خودِ تضمینِ نبودِ سکته/هم‌پوشانی است.
-  settleActiveAnimations();
+function renderPieces(animateFrom, animateTo){
+  // پیاده‌سازی FLIP سبک chess.com: مهره‌ی واقعی در DOM به خانه‌ی
+  // مقصدش منتقل می‌شود و بلافاصله با transform به مکان قبلی‌اش
+  // برگردانده می‌شود (بدون هیچ پرش/تغییر سایز)، سپس با یک انیمیشن
+  // خطی و کوتاه (فقط translate، بدون scale یا lift) به سمت صفر
+  // حرکت می‌کند — دقیقاً حسی که در chess.com هست: یک سُر خوردن صاف
+  // و سریع، بدون تاب خوردن یا بالا/پایین پریدن.
+  //
+  // فاصله بر اساس تعداد خانه‌ها (row/col delta) محاسبه می‌شود، نه
+  // pixel واقعی از getBoundingClientRect. این باعث می‌شود انیمیشن
+  // کاملاً مستقل از نوسانات لحظه‌ای layout (که منبع اصلی ناهمواری
+  // بود) و همیشه دقیقاً به اندازه‌ی N خانه جابه‌جا شود.
   var boardState = chess.board();
   var desired = {};
   for(var r=0;r<8;r++){
@@ -325,10 +191,9 @@ function renderPieces(animateFrom, animateTo, silent){
 
   if(!vacated.length && !arrived.length){ paintHighlights(); return; }
 
-  // موقعیت واقعی پیکسلی (getBoundingClientRect) هر مهره‌ی جابه‌جاشونده
-  // را قبل از هر تغییری در DOM ثبت می‌کنیم — این مقدار فیزیکی صفحه
-  // است، مستقل از rtl/ltr و چرخش تخته.
-  vacated.forEach(function(v){ v.rect = v.el.getBoundingClientRect(); });
+  // موقعیت شبکه‌ای (row/col) هر مهره‌ی جابه‌جاشونده را قبل از هر
+  // تغییری در DOM ثبت می‌کنیم.
+  vacated.forEach(function(v){ v.grid = squareToRowCol(v.sq); });
 
   function takeVacated(sq){
     for(var i=0;i<vacated.length;i++) if(vacated[i].sq === sq) return vacated.splice(i,1)[0];
@@ -349,7 +214,7 @@ function renderPieces(animateFrom, animateTo, silent){
     var v0 = takeVacated(animateFrom);
     if(v0){
       var a0 = takeArrived(animateTo);
-      if(a0) moves.push({ el: v0.el, toSq: a0.sq, toType: a0.type, fromRect: v0.rect });
+      if(a0) moves.push({ el: v0.el, toSq: a0.sq, toType: a0.type, fromGrid: v0.grid });
       else vacated.push(v0); // مقصد تغییر نکرده؛ احتمالاً همگام‌سازی عجیب — بگذار به مرحله‌ی بعد برود
     }
   }
@@ -359,53 +224,28 @@ function renderPieces(animateFrom, animateTo, silent){
     var a = takeArrivedByType(v.type, v.color);
     if(a){
       takeVacated(v.sq);
-      moves.push({ el: v.el, toSq: a.sq, toType: a.type, fromRect: v.rect });
+      moves.push({ el: v.el, toSq: a.sq, toType: a.type, fromGrid: v.grid });
     }
   });
 
   // LAST — همان المان مهره را فیزیکی به خانه‌ی مقصد منتقل می‌کنیم
-  var didPromote = false;
   moves.forEach(function(m){
+    var toGrid = squareToRowCol(m.toSq);
+    m.toGrid = toGrid;
     state.boardEls[m.toSq].appendChild(m.el);
     if(m.el.dataset.ptype !== m.toType){ // ترفیع: نوع مهره عوض شده
       m.el.textContent = PIECE_GLYPH[m.toType];
       m.el.dataset.ptype = m.toType;
-      didPromote = true;
     }
   });
 
-  // باقی‌مانده‌ی vacated یعنی واقعاً «گرفته‌شده‌اند». برخلاف قبل، محوشدن
-  // این مهره فوری شروع نمی‌شود — باید تقریباً هم‌زمان با لحظه‌ای اتفاق
-  // بیفتد که مهره‌ی مهاجم واقعاً به همان خانه می‌رسد (دقیقاً مثل
-  // chess.com: مهاجم می‌رسد و در همان لحظه مهره‌ی گرفته‌شده ناپدید
-  // می‌شود، نه این‌که قبل از رسیدنِ مهاجم محو شود). چون مدت‌زمانِ
-  // واقعیِ حرکتِ مهاجم (dur) کمی پایین‌تر، داخل همین moves.forEach محاسبه
-  // می‌شود، اینجا فقط یک تابعِ کمکی می‌سازیم که آن حلقه صدایش بزند —
-  // با مسافتی که خودِ مهاجم طی می‌کند هماهنگ است، نه یک عددِ ثابتِ حدسی.
-  var didCapture = vacated.length > 0;
-  var captureFinishers = vacated.map(function(v){
-    var removed = false;
-    return function(){
-      if(removed) return;
-      removed = true;
-      v.el.classList.add("captured-anim");
-      setTimeout(function(){ if(v.el.parentNode) v.el.remove(); }, 220);
-    };
+  // باقی‌مانده‌ی vacated یعنی واقعاً «گرفته‌شده‌اند» — فقط این‌ها محو/کوچک می‌شوند
+  vacated.forEach(function(v){
+    v.el.classList.add("captured-anim");
+    (function(elToRemove){
+      setTimeout(function(){ if(elToRemove.parentNode) elToRemove.remove(); }, 200);
+    })(v.el);
   });
-  // اگر به هر دلیلی هیچ moves‌ای برای هم‌زمان‌سازی وجود نداشت (نادر —
-  // مثلاً یک سینک عجیب از سرور)، فوراً محو می‌شوند تا مهره‌ی گرفته‌شده
-  // برای همیشه روی صفحه گیر نکند.
-  if(!moves.length) captureFinishers.forEach(function(fn){ fn(); });
-  // نگاشتِ خانه‌ی مقصد → توابعِ محوکردنِ مهره‌ی گرفته‌شده در همان خانه؛
-  // moves.forEach پایین‌تر با toSq این نگاشت را چک می‌کند تا محوشدن را
-  // دقیقاً هم‌زمان با رسیدنِ مهاجم به آن خانه صدا بزند.
-  var captureFinishersBySquare = {};
-  vacated.forEach(function(v, i){
-    if(!captureFinishersBySquare[v.sq]) captureFinishersBySquare[v.sq] = [];
-    captureFinishersBySquare[v.sq].push(captureFinishers[i]);
-  });
-  // قلعه: دو مهره با هم جابه‌جا شدند (شاه + رخ) بدون گرفته‌شدنِ هیچ‌کدام
-  var didCastle = !didCapture && moves.length === 2;
   // باقی‌مانده‌ی arrived یعنی مهره‌ی کاملاً تازه (بار اول لود صفحه، یا
   // ترفیعی که جفتش پیدا نشد) — با یک پاپ کوچک ظاهر می‌شود
   arrived.forEach(function(a){
@@ -418,136 +258,99 @@ function renderPieces(animateFrom, animateTo, silent){
     state.boardEls[a.sq].appendChild(span);
   });
 
-  // PLAY — مسافت جابه‌جایی از روی مختصات واقعیِ پیکسلی صفحه محاسبه
-  // می‌شود (rect مبدا که پیش از جابه‌جایی گرفتیم، در برابر rect مقصد
-  // که همین الان بعد از appendChild گرفته می‌شود). این عدد فیزیکی است
-  // و به rtl/ltr، چرخش تخته، یا گرد شدن اعشاری اندازه‌ی خانه‌ها کاری
-  // ندارد؛ پس مهره همیشه دقیقاً در مسیر واقعی‌اش حرکت می‌کند.
+  // PLAY — بر اساس اختلاف row/col (نه pixel واقعی) مهره را به‌اندازه‌ی
+  // دقیق N خانه جابه‌جا می‌کنیم. چون سایز هر خانه از روی خودِ board-size
+  // متغیر CSS محاسبه می‌شود، این کار مستقل از هرگونه نوسان لحظه‌ای در
+  // layout بیرونی است.
   //
-  // رویکرد عوض شد: به‌جای Web Animations API (`el.animate()` با چند
-  // keyframe و یک offset میانی)، از یک CSS transition ساده‌ی دو-نقطه‌ای
-  // روی transform استفاده می‌شود. دلیل تعویض: `el.animate()` با
-  // keyframeهای دارای offset (مثل ۰٫۸۲ این‌جا) روی برخی WebViewهای
-  // اندرویدِ قدیمی/داخل تلگرام به‌صورت غیریکنواخت تفسیر می‌شود — بعضی
-  // نسخه‌ها بین دو keyframe درون‌یابی نرم انجام نمی‌دهند و رسماً می‌پرند،
-  // که خودش یک نوع «سکته» است که نمی‌شود از کدِ سطح بالا حدس زد چون در
-  // مرورگرهای دسکتاپ دیده نمی‌شود. CSS transition روی transform قدیمی‌ترین
-  // و پایدارترین قابلیتِ انیمیشنِ شتاب‌گرفته‌با-GPU در وب است و در همه‌ی
-  // نسخه‌های WebView (از اندروید ۴ به بعد) یکسان و بدون‌جهش کار می‌کند.
-  //
-  // ترفند دو-مرحله‌ای برای اجرای درست: ۱) مهره فوراً (بدون transition) به
-  // موقعیت قبلی‌اش منتقل می‌شود (یعنی چون appendChild همین الان آن را در
-  // خانه‌ی مقصد نشانده، این‌جا transform معکوسِ فاصله اعمال می‌شود تا
-  // دوباره سرِ جای قبلی‌اش دیده شود) ۲) با یک reflow اجباری (خواندن
-  // offsetWidth) این حالت را «قفل» می‌کنیم تا مرورگر مطمئن این را یک
-  // فریم واقعی رسم‌شده بداند، نه چیزی که می‌شود با نوشتنِ بعدی ادغامش کرد
-  // ۳) بعد transition را وصل و مقصد را روی صفر می‌گذاریم — همین یک
-  // تغییر است که مرورگر بین دو مقدار transform به‌طور تضمینی و یکنواخت
-  // میان‌یابی می‌کند.
+  // از Web Animations API (element.animate) استفاده می‌کنیم، نه
+  // دستکاری دستی style.transform/transition. دلیل: با دستکاری دستی
+  // (ست‌کردن transform به مقدار جهش‌خورده، فورس‌کردن reflow، بعد ست
+  // کردن transition، بعد در rAF برگرداندن به صفر) بین نوشتن استایل‌ها
+  // race condition پیش می‌آمد — روی برخی وب‌ویوها (به‌خصوص WebView
+  // تلگرام) مرورگر فریم شروع را می‌بلعد و مستقیم می‌پرد به مقدار نهایی،
+  // پس هیچ انیمیشنی دیده نمی‌شد. Web Animations API این مشکل را ندارد
+  // چون هر دو کی‌فریم (شروع و پایان) در یک فراخوانی به مرورگر داده
+  // می‌شود و خود مرورگر تضمین می‌کند اولین فریم واقعاً رندر شود.
   if(moves.length){
     state.animating = true;
-    moves.forEach(function(m){ m.el.classList.add("moving"); });
-    state.pendingAnimFrame = requestAnimationFrame(function(){
-      state.pendingAnimFrame = null;
-      moves.forEach(function(m){
-        var toRect = state.boardEls[m.toSq].getBoundingClientRect();
-        if(!m.fromRect){ m.el.classList.remove("moving"); return; }
-        var dx = m.fromRect.left - toRect.left;
-        var dy = m.fromRect.top - toRect.top;
-        if(!dx && !dy){ m.el.classList.remove("moving"); return; }
-        var dist = Math.sqrt(dx*dx + dy*dy);
-        // مدت‌زمانِ حرکت: chess.com از یک مدتِ نسبتاً کوتاه و تقریباً ثابت
-        // استفاده می‌کند (حسِ «سریع و قاطع»، نه «آهسته و رویایی») که فقط
-        // برای فاصله‌های خیلی بلند (مثل قلعه یا حرکتِ وزیر سرتاسرِ صفحه)
-        // کمی بلندتر می‌شود. عدد پایه و سقف نسبت به قبل کاهش یافت.
-        var dur = Math.max(160, Math.min(260, 130 + dist * 0.22));
-        var el = m.el;
-        el.style.transition = "none";
-        // نکته: برخلاف نسخه‌ی قبلی، اینجا هیچ scale-ای در حینِ حرکت اعمال
-        // نمی‌شود — فقط translate خالص. chess.com مهره را در طول حرکت
-        // بزرگ/کوچک نمی‌کند؛ فقط با یک سایه‌ی نرم (که در CSS اضافه شد)
-        // حسِ «بلندشدن از سطح تخته» را می‌دهد، و اندازه ثابت می‌ماند.
-        el.style.transform = "translate(" + dx + "px," + dy + "px)";
-        void el.offsetWidth; // reflow اجباری — نقطه‌ی شروع را قفل می‌کند
-        // یک requestAnimationFrame دوم و تودرتو لازم است: reflow فقط
-        // layout را محاسبه می‌کند، نه اینکه تضمین کند مرورگر واقعاً یک
-        // فریم را رسم (paint) کرده باشد. اگر وصل‌کردن transition و
-        // نوشتنِ مقصد در همان تسکِ همزمانِ جاوااسکریپت انجام شود، روی
-        // بعضی WebViewها (به‌خصوص اندرویدِ داخلِ تلگرام) هر دو تغییر با
-        // هم در یک فریم ادغام می‌شوند و مرورگر مستقیم به state نهایی
-        // می‌پرد. با این rAF دوم، موقعیتِ شروع تضمین می‌شود که واقعاً
-        // رسم شده باشد، و فقط بعد از آن transition وصل و مقصد نوشته شود.
-        requestAnimationFrame(function(){
-          // ease-out قاطع: شروعِ نسبتاً سریع، فرود بسیار نرم — دقیقاً حسِ
-          // حرکتِ مهره‌ی chess.com، بدون هیچ overshoot/بانسی در مسیر.
-          el.style.transition = "transform " + dur + "ms cubic-bezier(.22,.61,.36,1)";
-          el.style.transform = "translate(0px,0px)";
-        });
-
-        var entry = { el: el, done: false };
-        var finish = function(){
-          if(entry.done) return;
-          entry.done = true;
-          el.removeEventListener("transitionend", onEnd);
-          clearTimeout(fallbackTimer);
-          el.style.transition = "";
-          el.style.transform = "";
-          el.classList.remove("moving");
-          // پالسِ نرمِ «نشستن» درست در لحظه‌ای که مهره واقعاً به مقصد
-          // می‌رسد — نه در لحظه‌ی شروعِ appendChild — تا این ظرافت با
-          // خودِ لحظه‌ی برخورد هم‌زمان باشد.
-          el.classList.add("just-arrived");
-          el.addEventListener("animationend", function onSettleEnd(){
-            el.removeEventListener("animationend", onSettleEnd);
-            el.classList.remove("just-arrived");
-          });
-          // اگر این خانه محلِ گرفتنِ یک مهره بود، همین الان (لحظه‌ی واقعیِ
-          // رسیدنِ مهاجم) مهره‌ی گرفته‌شده را محو کن — نه زودتر.
-          var capFns = captureFinishersBySquare[m.toSq];
-          if(capFns) capFns.forEach(function(fn){ fn(); });
-          var i = state.activeAnims.indexOf(entry);
-          if(i >= 0) state.activeAnims.splice(i, 1);
-          if(!state.activeAnims.length){
-            state.animating = false;
-            sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
-          }
-        };
-        function onEnd(ev){ if(ev.target === el && ev.propertyName === "transform") finish(); }
-        el.addEventListener("transitionend", onEnd);
-        // محافظ: اگر به هر دلیلی (مثل قطع‌شدن transition وسط راه توسط
-        // یک رندر جدید که خودش settleActiveAnimations را صدا می‌زند)
-        // transitionend هرگز نرسد، حداکثر کمی بعد از پایانِ مدتِ مورد
-        // انتظار خودمان finish را صدا می‌زنیم تا مهره هیچ‌وقت گیر نکند.
-        var fallbackTimer = setTimeout(finish, dur + 150); // ۵۰ms اضافه برای تأخیرِ rAF دوم
-        entry.finish = finish;
-        state.activeAnims.push(entry);
-      });
-      if(!state.activeAnims.length) state.animating = false;
-      // شبکه‌ی ایمنیِ نهایی: هر مهره‌ی گرفته‌شده‌ای که هنوز محو نشده
-      // (مثلاً en passant — جایی که مهره‌ی گرفته‌شده در toSq مهاجم
-      // نیست، بلکه یک خانه‌ی کناری است) با تأخیرِ کوتاهی همراستا با
-      // مدت‌زمانِ متوسطِ حرکت محو می‌شود تا هیچ‌وقت روی صفحه گیر نکند.
-      setTimeout(function(){
-        captureFinishers.forEach(function(fn){ fn(); });
-      }, 260);
+    var pendingAnims = moves.length;
+    var animDone = function(){
+      pendingAnims--;
+      if(pendingAnims <= 0){
+        state.animating = false;
+        sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
+      }
+    };
+    var boardEl = $("board");
+    var squarePx = boardEl.clientWidth / 8;
+    moves.forEach(function(m){
+      if(!m.fromGrid || !m.toGrid){ animDone(); return; }
+      var dCol = m.fromGrid.col - m.toGrid.col;
+      var dRow = m.fromGrid.row - m.toGrid.row;
+      if(!dCol && !dRow){ animDone(); return; }
+      var dx = dCol * squarePx;
+      var dy = dRow * squarePx;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      // مدت‌زمان بلندتر و ثابت‌تر، شبیه chess.com: حرکت یک‌خانه‌ای هم
+      // باید به‌قدر کافی طول بکشد که چشم آن را «سُر خوردن» ببیند، نه
+      // یک ومضه‌ی چندفریمی که روی موبایل/WebView به‌نظر لگ می‌رسد.
+      // فاصله‌های بلندتر (مثل حرکت وزیر از یک سر تخته به سر دیگر) کمی
+      // بیشتر طول می‌کشند تا سرعت حسی طبیعی بماند.
+      var dur = Math.max(260, Math.min(420, 220 + dist * 0.35));
+      m.el.style.zIndex = "5";
+      if(typeof m.el.animate !== "function"){
+        // مرورگر/وب‌ویوی خیلی قدیمی که Web Animations API ندارد —
+        // بدون انیمیشن مستقیم جابه‌جا می‌شود (بهتر از throw خطا).
+        m.el.style.zIndex = "";
+        animDone();
+        return;
+      }
+      var anim = m.el.animate(
+        [
+          { transform: "translate(" + dx + "px," + dy + "px)" },
+          { transform: "translate(0px,0px)" }
+        ],
+        // easing از نوع ease-out ملایم: شروع کمی سریع‌تر، پایان نرم و
+        // بدون توقف ناگهانی — هیچ jank بصری در وسط راه ایجاد نمی‌کند
+        // چون خودِ مرورگر (نه جاوااسکریپت) هر فریم را محاسبه می‌کند.
+        { duration: dur, easing: "cubic-bezier(.22,.61,.36,1)", fill: "forwards" }
+      );
+      var settled = false;
+      // finish() موقعیت را دقیقاً روی کی‌فریم پایانی قفل می‌کند (بدون
+      // پرش) و سپس style موقت را پاک می‌کنیم. از cancel() اینجا استفاده
+      // نمی‌کنیم چون cancel وسط انیمیشن باعث پرش آنی به موقعیت نهایی
+      // می‌شد — دقیقاً همان «سکته» که در تست دیده شد. finish فقط وقتی
+      // معنی دارد که انیمیشن واقعاً به پایان طبیعی‌اش رسیده باشد.
+      var settle = function(){
+        if(settled) return;
+        settled = true;
+        try{ anim.finish(); }catch(e){}
+        // بعد از finish، effect را از استک انیمیشن پاک می‌کنیم تا در
+        // رندرهای بعدی (مثلاً اگر همین مهره دوباره حرکت کند) هیچ اثر
+        // باقی‌مانده‌ای تداخل ایجاد نکند. چون finish() از قبل مقدار
+        // نهایی (0,0) را قفل کرده، این cancel هیچ پرش بصری‌ای ایجاد
+        // نمی‌کند.
+        try{ anim.cancel(); }catch(e){}
+        m.el.style.zIndex = "";
+        animDone();
+      };
+      anim.onfinish = settle;
+      anim.oncancel = function(){
+        if(settled) return;
+        settled = true;
+        m.el.style.zIndex = "";
+        animDone();
+      };
+      // شبکه‌ی ایمنی: اگر به هر دلیلی onfinish هرگز فایر نشود (مثلاً
+      // تب در پس‌زمینه رفت)، با تأخیر قابل‌توجه (نه نزدیک به dur واقعی)
+      // یک‌بار settle را صدا می‌زنیم تا هرگز گیر نکنیم، بدون این‌که با
+      // پایان طبیعی انیمیشن رقابت کند.
+      setTimeout(settle, dur + 400);
     });
   }
 
   paintHighlights();
-
-  // افکت صوتی/هپتیکِ خودِ حرکت — بر اساس دیفِ واقعی صفحه تعیین می‌شود
-  // (didCapture/didCastle/didPromote)، نه بر اساس san یا flags، چون این
-  // دیف هم برای حرکات محلی و هم حرکات هم‌گام‌سازی‌شده از سرور یکسان و
-  // قابل‌اعتماد است. کیش با اولویتِ بالاتر از حرکت/گرفتنِ ساده پخش
-  // می‌شود چون معنادارتر است.
-  if(!silent){
-    var isCheckNow = chess.in_check ? chess.in_check() : chess.inCheck();
-    if(didPromote){ Sound.promote(); Haptics.medium(); }
-    else if(isCheckNow){ Sound.check(); Haptics.rigid(); }
-    else if(didCastle){ Sound.castle(); Haptics.light(); }
-    else if(didCapture){ Sound.capture(); Haptics.medium(); }
-    else { Sound.move(); Haptics.light(); }
-  }
 }
 
 function paintHighlights(){
@@ -633,28 +436,17 @@ function askPromotion(cb){
 function doMove(from, to, promotion){
   var move = chess.move({ from: from, to: to, promotion: promotion || "q" });
   if(!move) return;
-  // صدا/هپتیکِ خودِ حرکت اینجا دیگر پخش نمی‌شود — renderPieces (که چند
-  // خط پایین‌تر صدا زده می‌شود) بر اساس دیفِ واقعیِ صفحه (گرفتن/قلعه/
-  // ترفیع/کیش) این کار را انجام می‌دهد، هم برای حرکات خودم و هم حرکات
-  // حریف، تا هیچ اتفاقی دوبار صدا/لرزش نگیرد.
+  if(tg) tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light");
   state.selected = null;
   state.legalTargets = [];
   state.lastMove = { from: from, to: to };
+  state.moveList = state.moveList.concat([move.san]);
   renderPieces(from, to);
   renderCaptured();
-  syncHistory(state.moveList.concat([move.san]));
+  renderHistory();
   updateTurnBanner();
-  // ارسال به سرور و چک پایان‌بازی (که خودش یک تولید کامل حرکات مجاز در
-  // chess.js است) عمداً یک تیک بعد اجرا می‌شوند — نه چون خودشان کند
-  // هستند، بلکه چون همین‌جا، در همان تسکِ همزمانی که renderPieces() شروعِ
-  // انیمیشن را به یک requestAnimationFrame موکول کرده، هر کارِ اضافه‌ی
-  // synchronous مستقیماً به بودجه‌ی زمانیِ همان فریم اضافه می‌شود. با
-  // setTimeout(...,0) این کارها بعد از این‌که مرورگر فرصت رسم فریم اول
-  // انیمیشن را داشت اجرا می‌شوند.
-  setTimeout(function(){
-    sendMove(move);
-    checkLocalGameOver();
-  }, 0);
+  sendMove(move);
+  checkLocalGameOver();
 }
 
 // ─── Networking ─────────────────────────────────────────────
@@ -676,20 +468,20 @@ function sendMove(move){
         // سرور حرکت را رد کرد (مثلاً چون شطرنج زنده موقتاً قفل/غیرفعال شده)؛
         // حرکت محلیِ خوش‌بینانه را برمی‌گردانیم تا صفحه با واقعیت هماهنگ بماند.
         chess.undo();
-        var revertedMoves = state.moveList.length ? state.moveList.slice(0, -1) : state.moveList;
+        if(state.moveList.length) state.moveList = state.moveList.slice(0, -1);
         state.selected = null;
         state.legalTargets = [];
         state.lastMove = null;
-        renderPieces(null, null, true); // silent: این یک حرکتِ واقعی نیست، فقط بازگردانیِ optimistic-update رد‌شده است
+        renderPieces();
         renderCaptured();
-        syncHistory(revertedMoves);
+        renderHistory();
         updateTurnBanner();
         setConnStatus(false);
         if(res.error) alert(res.error);
       } else {
         setConnStatus(true);
         applyServerState(res.state, false);
-        if(res.state.moves){ syncHistory(res.state.moves); }
+        if(res.state.moves){ state.moveList = res.state.moves; renderHistory(); }
       }
     })
     .catch(function(){ setConnStatus(false); });
@@ -721,41 +513,6 @@ function pollState(){
   }).catch(function(){ setConnStatus(false); });
 }
 
-// ─── Real-time push (WebSocket) ────────────────────────────────
-// رفع ریشه‌ای حسِ «لگ»: قبلاً تنها راهِ دیدنِ حرکتِ حریف poll هر ۱.۵ ثانیه
-// بود، یعنی صرف‌نظر از روانیِ خودِ انیمیشن، تا ۱.۵ ثانیه + رفت‌وبرگشتِ
-// شبکه طول می‌کشید تا اصلاً چیزی برای انیمیت‌کردن برسد. حالا سرور همان
-// لحظه‌ی ثبتِ حرکت یک پیامِ کوچک از طریق WebSocket پوش می‌کند و این تابع
-// بلافاصله pollState را صدا می‌زند — بدون صبر برای دورِ بعدیِ تایمر.
-// اگر WebSocket به هر دلیلی (فیلترینگ، افتادن اتصال) قطع شود، خودش با
-// backoff دوباره وصل می‌شود و در همین حین تایمرِ ۴ ثانیه‌ایِ poll به‌عنوان
-// شبکه‌ی ایمنی همچنان کار می‌کند — یعنی بدترین حالت هم عقب‌گرد به همان
-// رفتار قبلی است، نه از کار افتادن کامل.
-function connectLiveSocket(){
-  if(!TOKEN || typeof WebSocket !== "function") return;
-  var proto = location.protocol === "https:" ? "wss:" : "ws:";
-  var url = proto + "//" + location.host + "/ws/" + encodeURIComponent(TOKEN);
-  var retryDelay = 1000;
-  function open(){
-    var ws;
-    try{ ws = new WebSocket(url); }catch(e){ scheduleRetry(); return; }
-    state.liveSocket = ws;
-    ws.onopen = function(){
-      retryDelay = 1000;
-      pollState(); // هر چیزی که در فاصله‌ی قطعی جا مانده را بلافاصله بگیر
-    };
-    ws.onmessage = function(){ pollState(); };
-    ws.onclose = scheduleRetry;
-    ws.onerror = function(){ try{ ws.close(); }catch(e){} };
-  }
-  function scheduleRetry(){
-    state.liveSocket = null;
-    setTimeout(open, retryDelay);
-    retryDelay = Math.min(retryDelay * 1.6, 15000);
-  }
-  open();
-}
-
 function fenPly(fen){
   var parts = (fen || "").split(" ");
   var turn = parts[1];
@@ -777,9 +534,10 @@ function applyServerState(s, fromPoll){
     var prevLast = state.lastMove;
     chess.load(incomingFen);
     state.lastMove = s.last_move || prevLast;
+    if(s.moves) state.moveList = s.moves;
     renderPieces(state.lastMove && state.lastMove.from, state.lastMove && state.lastMove.to);
     renderCaptured();
-    if(s.moves) syncHistory(s.moves);
+    renderHistory();
   }
   state.turn = chess.turn();
   if(fromPoll){
@@ -876,7 +634,6 @@ function renderHistory(){
     empty.className = "chat-empty";
     empty.textContent = "هنوز حرکتی ثبت نشده";
     list.appendChild(empty);
-    state.historyRenderedCount = 0;
     return;
   }
   for(var i=0;i<moves.length;i+=2){
@@ -886,63 +643,6 @@ function renderHistory(){
     list.appendChild(row);
   }
   list.scrollTop = list.scrollHeight;
-  state.historyRenderedCount = moves.length;
-}
-
-// یک ردیف/خانه‌ی جدید تاریخچه را بدون بازسازی کل لیست اضافه می‌کند.
-// فقط برای حالتی امن است که دقیقاً یک حرکت به انتهای moveList اضافه شده باشد
-// (چک آن در syncHistory انجام می‌شود).
-function appendHistoryMove(san){
-  var list = $("history-list");
-  var empty = list.querySelector(".chat-empty");
-  if(empty) empty.remove();
-  var idx = state.moveList.length - 1;
-  if(idx % 2 === 0){
-    var row = document.createElement("div");
-    row.className = "history-row";
-    row.innerHTML = '<span class="history-num">' + (idx/2+1) + '.</span><span class="history-move">' + san + '</span><span class="history-move"></span>';
-    list.appendChild(row);
-  } else {
-    var rows = list.querySelectorAll(".history-row");
-    var lastRow = rows[rows.length-1];
-    if(!lastRow){ renderHistory(); return; }
-    var spans = lastRow.querySelectorAll(".history-move");
-    if(spans[1]) spans[1].textContent = san; else { renderHistory(); return; }
-  }
-  list.scrollTop = list.scrollHeight;
-  state.historyRenderedCount = state.moveList.length;
-}
-
-// رفع باگ ریشه‌ای «سکته‌ی» انیمیشن حرکت مهره: renderHistory() قبلاً با
-// innerHTML="" کل لیست تاریخچه را (که در یک بازی طولانی می‌تواند ده‌ها
-// ردیف DOM باشد) روی *هر* حرکت — هم حرکت خودم (در doMove) و هم هر حرکت
-// حریف که هر ۱.۵ ثانیه از poll می‌رسید (در applyServerState) — از نو
-// می‌ساخت. این کار، همراه با رندر تکراری بعد از تایید سرور در sendMove،
-// دقیقاً همان تسکِ سینک روی ترد اصلی بود که renderPieces() سعی داشت با
-// موکول‌کردن شروعِ خودِ انیمیشن به requestAnimationFrame از آن دور بماند؛
-// چون آن رندرها هم در همان تسکِ همزمان (قبل از رسیدن به رویداد بعدی حلقه)
-// اجرا می‌شدند، حجمشان مستقیماً به بودجه‌ی زمانیِ فریم اضافه می‌شد و روی
-// گوشی‌های ضعیف‌تر باعث جاماندن فریم اول انیمیشن (= همان سکته) می‌شد.
-// syncHistory به‌جای بازسازی کامل، فقط وقتی که واقعاً دقیقاً یک حرکت به
-// انتها اضافه شده (رایج‌ترین حالت) یک عنصر DOM اضافه می‌کند؛ و وقتی
-// چیزی واقعاً تغییر نکرده (مثلاً تاییدیه‌ی سرور بعد از حرکت خودم که قبلاً
-// محلی رندر شده) هیچ کاری انجام نمی‌دهد. فقط در حالت‌های نادر و واقعی
-// (ری‌ست/آندو/چند حرکت هم‌زمان بعد از قطعی/بارگذاری اول) به رندر کامل
-// برمی‌گردد.
-function syncHistory(newMoves){
-  newMoves = newMoves || [];
-  var oldLen = state.moveList.length;
-  if(newMoves.length === oldLen){
-    state.moveList = newMoves;
-    return;
-  }
-  if(newMoves.length === oldLen + 1 && state.historyRenderedCount === oldLen){
-    state.moveList = newMoves;
-    appendHistoryMove(newMoves[newMoves.length-1]);
-    return;
-  }
-  state.moveList = newMoves;
-  renderHistory();
 }
 
 function updateTurnBanner(){
@@ -997,28 +697,6 @@ function showGameOver(status, winnerId, whiteEloChange, blackEloChange){
   state.gameOverShown = true;
   clearInterval(state.clockTimer);
   $("draw-modal-overlay").classList.add("hidden");
-  // افکتِ سقوطِ شاهِ مات‌شده — قبل از باز شدنِ مودالِ پایانِ بازی، چون
-  // بعد از باز شدنِ مودال صفحه دیده نمی‌شود. شاهِ رنگِ «بازنده» (یعنی
-  // رنگی که الان نوبتش بوده و دیگر حرکتی نداشته) پیدا و علامت‌گذاری
-  // می‌شود. مودال با یک تأخیرِ کوتاه باز می‌شود تا کاربر خودِ لحظه‌ی
-  // سقوط را ببیند — دقیقاً همان افکتِ امضادارِ chess.com.
-  var mateDelay = 0;
-  if(status === "checkmate"){
-    var losingColor = chess.turn(); // طرفی که الان نوبتش است و مات شده
-    var boardState = chess.board();
-    for(var r=0;r<8;r++) for(var c=0;c<8;c++){
-      var p = boardState[r][c];
-      if(p && p.type==="k" && p.color===losingColor){
-        var sq = FILES[c] + (8-r);
-        var kingEl = state.boardEls[sq] && state.boardEls[sq].querySelector(".piece");
-        if(kingEl){ kingEl.classList.add("mated-king"); mateDelay = 550; }
-      }
-    }
-  }
-  setTimeout(function(){ _showGameOverModal(status, winnerId, whiteEloChange, blackEloChange); }, mateDelay);
-}
-
-function _showGameOverModal(status, winnerId, whiteEloChange, blackEloChange){
   var icon = $("modal-icon"), title = $("modal-title"), sub = $("modal-sub"), eloEl = $("modal-elo");
   var iWon = winnerId && String(winnerId) === String(state.myId);
   var isDraw = status === "draw" || status === "stalemate";
@@ -1055,83 +733,38 @@ function _showGameOverModal(status, winnerId, whiteEloChange, blackEloChange){
   }
   $("modal-overlay").classList.remove("hidden");
   if(iWon) launchConfetti();
-  // برای بیننده (spectator) نه بردی هست نه باختی — صدای خنثی پایانِ بازی
-  if(state.isSpectator){ Sound.draw(); Haptics.warning(); }
-  else if(isDraw){ Sound.draw(); Haptics.warning(); }
-  else if(iWon){ Sound.win(); Haptics.success(); }
-  else { Sound.lose(); Haptics.error(); }
+  if(tg) tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(iWon ? "success" : (isDraw ? "warning" : "error"));
 }
 
 function launchConfetti(){
-  // رفع باگ ریشه‌ای: قبلاً ذرات با سرعت ثابتِ کم (بدون شتاب) رها می‌شدند
-  // و انیمیشن با یک سقف زمانیِ ثابت (۳۲۰۰ میلی‌ثانیه) — صرف‌نظر از این‌که
-  // ذرات واقعاً به کجای صفحه رسیده بودند — قطع می‌شد. چون نقطه‌ی شروع
-  // بعضی ذرات تا نیمی از ارتفاعِ صفحه بالاتر از بالای صفحه بود و سرعتشان
-  // هم کم بود، در بسیاری از اجراها اصلاً وقت نمی‌کردند به پایین صفحه
-  // برسند و ناگهان (وسط سقوط) ناپدید می‌شدند.
-  // راه‌حل: به ذرات شتاب گرانشی واقعی می‌دهیم (سرعت هر فریم بیشتر می‌شود)
-  // و انیمیشن را نه بر اساس یک تایمر ثابت، بلکه تا وقتی که همه‌ی ذرات
-  // واقعاً از پایین صفحه خارج شده باشند ادامه می‌دهیم (با یک سقف زمانیِ
-  // بالا فقط به‌عنوان محافظ در برابر حلقه‌ی بی‌نهایت). نزدیک پایین صفحه
-  // هم به‌آرامی محو می‌شوند تا خروج‌شان چشم‌نواز باشد، نه قطع ناگهانی.
   var canvas = $("confetti");
   canvas.style.display = "block";
   canvas.width = window.innerWidth; canvas.height = window.innerHeight;
   var ctx = canvas.getContext("2d");
   var colors = ["#5b7cfa","#8b6bf0","#3fd68f","#f0b93f","#f0546e"];
-  var gravity = 0.16;
-  var fadeZoneStart = canvas.height * 0.78;
-  var fadeZoneSize = canvas.height * 0.3;
   var parts = [];
-  var count = 110;
-  for(var i=0;i<count;i++){
+  for(var i=0;i<80;i++){
     parts.push({
-      x: Math.random()*canvas.width,
-      y: -20 - Math.random()*160,
-      vy: 1.5 + Math.random()*2,
-      vx: -2 + Math.random()*4,
-      size: 5 + Math.random()*6,
-      color: colors[i%colors.length],
-      rot: Math.random()*360,
-      vr: -9 + Math.random()*18,
-      shape: (i % 3 === 0) ? "circle" : "rect",
-      opacity: 1
+      x: Math.random()*canvas.width, y: -20 - Math.random()*canvas.height*0.5,
+      vy: 2+Math.random()*3, vx: -1.5+Math.random()*3,
+      size: 4+Math.random()*5, color: colors[i%colors.length],
+      rot: Math.random()*360, vr: -6+Math.random()*12
     });
   }
   var start = Date.now();
-  var MAX_MS = 6000; // محافظ در برابر اجرای بی‌پایان
-  function allSettled(){
-    return parts.every(function(p){ return p.y - p.size > canvas.height; });
-  }
   function frame(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
     var elapsed = Date.now()-start;
     parts.forEach(function(p){
-      p.vy += gravity;
       p.x += p.vx; p.y += p.vy; p.rot += p.vr;
-      if(p.y > fadeZoneStart){
-        p.opacity = Math.max(0, 1 - (p.y - fadeZoneStart) / fadeZoneSize);
-      }
-      if(p.opacity <= 0) return;
       ctx.save();
-      ctx.globalAlpha = p.opacity;
       ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180);
       ctx.fillStyle = p.color;
-      if(p.shape === "circle"){
-        ctx.beginPath();
-        ctx.arc(0,0,p.size/2,0,Math.PI*2);
-        ctx.fill();
-      } else {
-        ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size*0.65);
-      }
+      ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size);
       ctx.restore();
     });
-    if(!allSettled() && elapsed < MAX_MS){
-      requestAnimationFrame(frame);
-    } else {
-      canvas.style.display = "none";
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-    }
+    if(elapsed < 3200) requestAnimationFrame(frame);
+    else { canvas.style.display = "none"; ctx.clearRect(0,0,canvas.width,canvas.height); }
   }
   requestAnimationFrame(frame);
 }
@@ -1152,20 +785,6 @@ document.querySelectorAll(".theme-opt").forEach(function(btn){
   document.querySelectorAll(".theme-opt").forEach(function(btn){
     btn.classList.toggle("active", btn.dataset.theme === current);
   });
-})();
-
-// ─── تنظیمِ روشن/خاموشِ صدا ───────────────────────────────────
-(function initSoundToggle(){
-  var onBtn = $("btn-sound-on"), offBtn = $("btn-sound-off");
-  if(!onBtn || !offBtn) return;
-  function refresh(){
-    var on = Sound.isEnabled();
-    onBtn.classList.toggle("active", on);
-    offBtn.classList.toggle("active", !on);
-  }
-  onBtn.addEventListener("click", function(){ Sound.setEnabled(true); refresh(); Haptics.light(); });
-  offBtn.addEventListener("click", function(){ Sound.setEnabled(false); refresh(); });
-  refresh();
 })();
 
 // ─── Chat ───────────────────────────────────────────────────
@@ -1208,9 +827,6 @@ function pollChat(){
           }
         }
         renderChatMessage(m);
-        if(String(m.sender_id) !== String(state.myId)){
-          Sound.chatReceive(); Haptics.light();
-        }
         if(!state.chatOpen && String(m.sender_id) !== String(state.myId)){
           state.chatUnread++;
           updateChatBadge();
@@ -1240,7 +856,6 @@ function sendChatMessage(){
   // «در حال ارسال» برداشته می‌شود.
   var bubble = renderChatMessage({ sender_id: state.myId, sender_name: "شما", text: text }, true);
   state.pendingChat.push({ text: text, el: bubble });
-  Sound.chatSend(); Haptics.light();
   apiPost("/api/chat", { text: text }).then(function(res){
     if(!res.ok){
       bubble.classList.remove("sending");
@@ -1328,7 +943,7 @@ function init(){
     state.whiteTime = s.white_time; state.blackTime = s.black_time;
     state.status = s.status;
     buildBoard();
-    renderPieces(null, null, true); // silent: بارگذاریِ اولیه‌ی صفحه، نه یک حرکتِ واقعی
+    renderPieces();
     renderCaptured();
     renderHistory();
     updateTurnBanner();
@@ -1337,10 +952,7 @@ function init(){
     showScreen("screen-game");
     sizeBoard();
     setTimeout(sizeBoard, 100); // اجرای دوباره بعد از استقرار کامل layout (رفع باگ سایز اشتباه در بار اول)
-    // ۱.۵ ثانیه‌ای فقط شبکه‌ی ایمنی است (اگر WebSocket وصل نشد/قطع شد)؛
-    // مسیر اصلی و بی‌تاخیرِ کشفِ حرکت حریف، connectLiveSocket پایین‌تر است.
-    state.pollTimer = setInterval(pollState, 4000);
-    connectLiveSocket();
+    state.pollTimer = setInterval(pollState, 1500);
     state.clockTimer = setInterval(tickClocks, 1000);
     state.chatTimer = setInterval(pollChat, 2000);
     pollChat();
