@@ -114,12 +114,15 @@ html,body{
 }
 .icon-btn svg{ width:22px; height:22px; transition: transform .25s cubic-bezier(.34,1.56,.64,1); }
 .icon-btn:active{ transform: scale(.88); background: var(--bg-2); }
-/* دکمه‌ی بستنِ پنل‌ها (تاریخچه/تم/چت): به‌جای مربعِ کوچکِ آیکونیِ عمومی،
-   یک کپسولِ کشیده‌تر با کمی عرضِ اضافه — هم راحت‌تر لمس می‌شود، هم در
-   کنارِ عنوانِ پنل بی‌قواره به‌نظر نمی‌رسد. */
+/* دکمه‌ی بستنِ پنل‌ها (تاریخچه/تم/چت): به‌جای مربعِ کوچکِ آیکونیِ عمومی
+   (که فقط ۴۴px عرض داشت)، یک کپسولِ به‌وضوح کشیده‌تر و بلندتر — تمامِ
+   ابعاد (نه فقط عرض) به‌صورتِ صریح override می‌شود تا از هر مقدارِ
+   ارثی‌شده‌ی .icon-btn مستقل باشد. */
 .icon-btn-close{
-  width:64px; border-radius:12px;
-  font-size:14px; font-weight:700; letter-spacing:.5px;
+  width:96px; height:44px; min-width:96px;
+  padding:0 18px; border-radius:12px;
+  font-size:15px; font-weight:700; letter-spacing:.5px;
+  flex-shrink:0;
 }
 .chat-badge{
   position:absolute; top:-4px; left:-4px; min-width:16px; height:16px; padding:0 3px;
