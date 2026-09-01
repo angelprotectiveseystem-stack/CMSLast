@@ -201,6 +201,23 @@ async def list_pending(caller_id: int, caller_role: str, is_pishva: bool):
             return await cur.fetchall()
 
 
+async def list_pending_for_panel(is_pishva: bool = True, caller_id: int = None):
+    """لیست کارهای در انتظار برای نمایش دکمه‌ای در پنل مدیر ارشد.
+    خروجی: [{"id": ..., "label": ...}, ...] مرتب‌شده بر اساس نزدیک‌ترین زمان."""
+    rows = await list_pending(caller_id or 0, "", is_pishva)
+    out = []
+    for r in rows:
+        target = datetime.fromisoformat(r["target_at"])
+        when = _fmt_dt(target)
+        if r["kind"] == KIND_REMINDER:
+            label = f"⏰ یادآور «{r['message']}» — {when}"
+        else:
+            desc = r["description"] or r["tool_name"]
+            label = f"🛠 «{desc}» — {when}"
+        out.append({"id": r["id"], "label": label})
+    return out
+
+
 async def render_pending_list(caller_id: int, caller_role: str, is_pishva: bool) -> str:
     rows = await list_pending(caller_id, caller_role, is_pishva)
     if not rows:

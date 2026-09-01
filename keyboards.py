@@ -285,9 +285,25 @@ def kb_pishva_panel():
         InlineKeyboardButton("📡 پخش خودکار", callback_data="pishva_broadcast")],
         [InlineKeyboardButton("🛡️ پنل امنیتی APS", callback_data="security_panel"),
         InlineKeyboardButton("🗂️ سوابق AI ادمین‌ها", callback_data="ai_admlog_menu")],
-        [InlineKeyboardButton("⏰ یادآورها", callback_data="pishva_reminders")],
+        [InlineKeyboardButton("⏰ یادآورها", callback_data="pishva_reminders"),
+        InlineKeyboardButton("🤖 کارهای دستیار", callback_data="pishva_ai_scheduled")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")],
     ])
+
+# ─── کارهای زمان‌بندی‌شدهٔ دستیار هوشمند ───────────────────────────
+def kb_ai_scheduled_list(rows):
+    """rows: لیستی از دیکشنری‌های {id, label} برای هر یادآور/اقدام در انتظار.
+    زیر هر ردیف (دکمهٔ شیشه‌ای غیرفعال/برچسب) یک دکمهٔ «لغو» جدا قرار می‌گیرد."""
+    kb_rows = []
+    if not rows:
+        kb_rows.append([InlineKeyboardButton("📭 چیزی زمان‌بندی نشده", callback_data="noop_label")])
+    else:
+        for r in rows:
+            kb_rows.append([InlineKeyboardButton(r["label"], callback_data="noop_label")])
+            kb_rows.append([InlineKeyboardButton("❌ لغو", callback_data=f"aischedcancel_{r['id']}")])
+    kb_rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")])
+    return InlineKeyboardMarkup(kb_rows)
+
 
 def kb_status_select(current):
     def icon(s): return "✅ " if s == current else ""
@@ -314,6 +330,7 @@ def kb_pishva_settings_simple(settings):
         [InlineKeyboardButton(f"📊 داشبورد ادمین‌ها {tog('admin_dashboard_enabled')}", callback_data="setting_admin_dashboard")],
         [InlineKeyboardButton(f"🤖 هوش مصنوعی {tog('ai_online')}", callback_data="setting_ai_online")],
         [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('live_chess_enabled')}", callback_data="setting_live_chess")],
+        [InlineKeyboardButton(f"🚨 گزارش باگ به مدیر ارشد {tog('bug_report_to_pishva_enabled')}", callback_data="setting_bug_report")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
 

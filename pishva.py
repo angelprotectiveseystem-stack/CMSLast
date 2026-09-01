@@ -85,7 +85,8 @@ async def pishva_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keys = ["notifications_enabled", "communications_enabled", "help_enabled",
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
-        "admin_dashboard_enabled", "ai_online", "live_chess_enabled"]
+        "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
+        "bug_report_to_pishva_enabled"]
     settings = {}
     for k in keys:
         settings[k] = await db.get_setting(k, "1")
@@ -114,6 +115,7 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "setting_admin_dashboard": "admin_dashboard_enabled",
         "setting_ai_online": "ai_online",
         "setting_live_chess": "live_chess_enabled",
+        "setting_bug_report": "bug_report_to_pishva_enabled",
     }
     key = key_map.get(query.data)
     if key:
@@ -124,13 +126,46 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keys = ["notifications_enabled", "communications_enabled", "help_enabled",
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
-        "admin_dashboard_enabled", "ai_online", "live_chess_enabled"]
+        "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
+        "bug_report_to_pishva_enabled"]
     settings = {k: await db.get_setting(k, "1") for k in keys}
     await safe_edit_message_text(query, 
         f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",
         reply_markup=kb.kb_pishva_settings_simple(settings),
         parse_mode="Markdown"
     )
+
+# ─── کارهای زمان‌بندی‌شدهٔ دستیار هوشمند ───────────────────────
+async def pishva_ai_scheduled(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    import ai_scheduler
+    rows = await ai_scheduler.list_pending_for_panel(is_pishva=True)
+    await safe_edit_message_text(query, 
+        f"{box('🤖 کارهای زمان‌بندی‌شدهٔ دستیار')}\n\n"
+        f"📌 کارهایی که دستیار هوشمند قراره در آینده انجام بده؛ برای لغو هرکدام، دکمهٔ زیرش را بزنید.",
+        reply_markup=kb.kb_ai_scheduled_list(rows),
+        parse_mode="Markdown"
+    )
+
+async def ai_scheduled_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    import ai_scheduler
+    job_id = query.data.replace("aischedcancel_", "")
+    try:
+        job_id = int(job_id)
+    except ValueError:
+        await query.answer("❌ شناسه نامعتبر.", show_alert=True)
+        return
+    result = await ai_scheduler.cancel(ctx.job_queue, job_id, PISHVA_ID, is_pishva=True)
+    await query.answer(result, show_alert=True)
+    await pishva_ai_scheduled(update, ctx)
 
 # ─── Action Logs ─────────────────────────────────────────────
 async def pishva_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

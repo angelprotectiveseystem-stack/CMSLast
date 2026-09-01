@@ -94,6 +94,7 @@ from pishva import (
     pishva_auto_backup, auto_backup_toggle, auto_backup_interval_menu,
     auto_backup_set_interval, auto_backup_fmt_toggle, auto_backup_period_toggle,
     pishva_restore_start, restore_file_received, restore_confirm_apply, restore_cancel,
+    pishva_ai_scheduled, ai_scheduled_cancel,
 )
 from comms import (
     comms_msg_admin_start, comms_msg_target, comms_msg_send,
@@ -308,6 +309,10 @@ async def global_error_handler(update, context) -> None:
     # کتابخانه‌ی تلگرام کجا BadRequest رو raise کرده.
     try:
         from helpers import escape_md_legacy, safe_send_message
+        import database as db
+
+        if (await db.get_setting("bug_report_to_pishva_enabled", "1")) != "1":
+            return
 
         error_summary = escape_md_legacy(str(context.error)[:300])
         tb_frames = traceback.extract_tb(context.error.__traceback__)
@@ -913,6 +918,8 @@ def build_application():
     app.add_handler(CallbackQueryHandler(security_blocked_list, pattern="^security_blocked$"))
     app.add_handler(CallbackQueryHandler(security_blocked_item, pattern="^blockedview_"))
     app.add_handler(CallbackQueryHandler(unblock_action, pattern="^unblock_"))
+    app.add_handler(CallbackQueryHandler(pishva_ai_scheduled, pattern="^pishva_ai_scheduled$"))
+    app.add_handler(CallbackQueryHandler(ai_scheduled_cancel, pattern="^aischedcancel_"))
     app.add_handler(CallbackQueryHandler(pishva_reminders, pattern="^pishva_reminders$"))
     app.add_handler(CallbackQueryHandler(reminder_toggle, pattern="^reminder_toggle_"))
     app.add_handler(CallbackQueryHandler(reminder_interval_menu, pattern="^reminder_interval_"))
