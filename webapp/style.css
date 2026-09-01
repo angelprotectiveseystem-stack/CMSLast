@@ -285,7 +285,18 @@ html,body{
 }
 .promo-title{ font-size:14px; color: var(--text-2); margin-bottom:10px; }
 .promo-options{ display:flex; gap:8px; }
-.promo-options .piece{ width:54px; height:54px; background: var(--bg-1); border-radius:10px; font-size:36px; cursor:pointer; }
+.promo-options .piece{
+  /* رفعِ باگِ «فقط اسب قابل‌انتخابه»: کلاسِ پایه‌ی .piece برای مهره‌های
+     روی صفحه position:absolute + inset:0 + margin:auto دارد (تا دقیقاً
+     وسطِ خانه‌شان بنشینند). این چهار گزینه‌ی ترفیع همان کلاس را به ارث
+     می‌برند، پس همه‌شان دقیقاً روی هم (وسطِ promo-modal) قرار می‌گرفتند؛
+     چون آخرین موردِ اضافه‌شده (اسب) در DOM بالاتر می‌افتد، فقط کلیک روی
+     او ثبت می‌شد و بقیه دقیقاً زیرش پنهان بودند. با ریست‌کردنِ position
+     به static، دوباره داخل flex‌ی promo-options به‌صورت افقی و جدا از هم
+     چیده می‌شوند. */
+  position:static; inset:auto; margin:0;
+  width:54px; height:54px; background: var(--bg-1); border-radius:10px; font-size:36px; cursor:pointer;
+}
 .promo-options .piece:active{ transform: scale(.9); }
 
 .history-panel{
