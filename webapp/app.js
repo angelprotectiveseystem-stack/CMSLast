@@ -504,15 +504,17 @@ function renderPieces(animateFrom, animateTo, silent){
           clearTimeout(fallbackTimer);
           el.style.transition = "";
           el.style.transform = "";
+          // رفعِ باگِ «لرزش/سکته‌ی لحظه‌ی فرود»: قبلاً همین‌جا، بلافاصله بعد
+          // از برداشتنِ moving، کلاسِ just-arrived اضافه می‌شد که یک
+          // انیمیشنِ کوچکِ scale (به اسمِ settle) اجرا می‌کرد. حتی بعد از
+          // فیکسِ will-change (که مشکلِ دموت/پروموتِ لایه‌ی GPU را حل کرد)،
+          // خودِ همین پالسِ بعد-از-فرود — هرچند ظریف — دقیقاً همان تکونی
+          // بود که حسِ سکته می‌داد. چون مشکل خودِ این انیمیشنِ بعد از
+          // نشستن بود (نه انیمیشنِ آمدن/سُرخوردن)، ساده‌ترین رفع این است
+          // که اصلاً اضافه نشود: دیگر هیچ کلاس/انیمیشنی بعد از فرودِ مهره
+          // اجرا نمی‌شود، فقط moving برداشته می‌شود و مهره دقیقاً در حالتِ
+          // ثابتِ نهایی‌اش می‌ماند.
           el.classList.remove("moving");
-          // پالسِ نرمِ «نشستن» درست در لحظه‌ای که مهره واقعاً به مقصد
-          // می‌رسد — نه در لحظه‌ی شروعِ appendChild — تا این ظرافت با
-          // خودِ لحظه‌ی برخورد هم‌زمان باشد.
-          el.classList.add("just-arrived");
-          el.addEventListener("animationend", function onSettleEnd(){
-            el.removeEventListener("animationend", onSettleEnd);
-            el.classList.remove("just-arrived");
-          });
           // اگر این خانه محلِ گرفتنِ یک مهره بود، همین الان (لحظه‌ی واقعیِ
           // رسیدنِ مهاجم) مهره‌ی گرفته‌شده را محو کن — نه زودتر.
           var capFns = captureFinishersBySquare[m.toSq];
@@ -521,7 +523,14 @@ function renderPieces(animateFrom, animateTo, silent){
           if(i >= 0) state.activeAnims.splice(i, 1);
           if(!state.activeAnims.length){
             state.animating = false;
-            sizeBoard(); // اگر در این فاصله چیزی واقعاً عوض شده، حالا اعمالش کن
+            // sizeBoard() فوراً همین‌جا صدا زده نمی‌شود، بلکه با کمی تأخیر:
+            // اگر resizeِ واقعیِ --board-size دقیقاً همان فریمی رخ بدهد که
+            // moving برداشته می‌شود، آن هم‌زمانی خودش می‌تواند حسِ تکون
+            // بدهد. با این تأخیرِ کوتاه از آن لحظه‌ی حساس دور می‌شویم؛ خودِ
+            // sizeBoard هم اگر تا آن موقع حرکتِ دیگری شروع شده باشد
+            // (state.animating دوباره true شود) کاری نمی‌کند، پس هیچ
+            // ری‌سایزِ واقعی از دست نمی‌رود.
+            setTimeout(sizeBoard, 220);
           }
         };
         function onEnd(ev){ if(ev.target === el && ev.propertyName === "transform") finish(); }
