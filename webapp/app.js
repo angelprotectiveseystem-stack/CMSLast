@@ -329,8 +329,18 @@ function renderPieces(animateFrom, animateTo){
         el.style.transition = "none";
         el.style.transform = "translate(" + dx + "px," + dy + "px) scale(1.05)";
         void el.offsetWidth; // reflow اجباری — نقطه‌ی شروع را قفل می‌کند
-        el.style.transition = "transform " + dur + "ms cubic-bezier(.19,1,.22,1)";
-        el.style.transform = "translate(0px,0px) scale(1)";
+        // یک requestAnimationFrame دوم و تودرتو لازم است: reflow فقط
+        // layout را محاسبه می‌کند، نه اینکه تضمین کند مرورگر واقعاً یک
+        // فریم را رسم (paint) کرده باشد. اگر وصل‌کردن transition و
+        // نوشتنِ مقصد در همان تسکِ همزمانِ جاوااسکریپت انجام شود، روی
+        // بعضی WebViewها (به‌خصوص اندرویدِ داخلِ تلگرام) هر دو تغییر با
+        // هم در یک فریم ادغام می‌شوند و مرورگر مستقیم به state نهایی
+        // می‌پرد. با این rAF دوم، موقعیتِ شروع تضمین می‌شود که واقعاً
+        // رسم شده باشد، و فقط بعد از آن transition وصل و مقصد نوشته شود.
+        requestAnimationFrame(function(){
+          el.style.transition = "transform " + dur + "ms cubic-bezier(.19,1,.22,1)";
+          el.style.transform = "translate(0px,0px) scale(1)";
+        });
 
         var entry = { el: el, done: false };
         var finish = function(){
@@ -354,7 +364,7 @@ function renderPieces(animateFrom, animateTo){
         // یک رندر جدید که خودش settleActiveAnimations را صدا می‌زند)
         // transitionend هرگز نرسد، حداکثر کمی بعد از پایانِ مدتِ مورد
         // انتظار خودمان finish را صدا می‌زنیم تا مهره هیچ‌وقت گیر نکند.
-        var fallbackTimer = setTimeout(finish, dur + 100);
+        var fallbackTimer = setTimeout(finish, dur + 150); // ۵۰ms اضافه برای تأخیرِ rAF دوم
         entry.finish = finish;
         state.activeAnims.push(entry);
       });
