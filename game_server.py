@@ -52,7 +52,14 @@ def set_bot(bot):
 # یک کشِ ساده‌ی حافظه‌ای (TTL) از زدنِ درخواستِ تکراری در هر poll جلوگیری
 # می‌شود.
 _avatar_cache = {}  # user_id -> (url_or_None, monotonic_expiry)
-_AVATAR_CACHE_TTL = 300  # ثانیه
+_AVATAR_CACHE_TTL = 300       # ثانیه — برای نتیجه‌ی موفق (عکس پیدا شد)
+_AVATAR_CACHE_TTL_EMPTY = 30  # ثانیه — برای نتیجه‌ی خالی/خطا
+# نتیجه‌ی «عکس ندارد یا خطا خورد» فقط ۳۰ ثانیه کش می‌شود (نه ۵ دقیقه‌ی
+# کامل)، چون این حالت می‌تواند موقتی باشد (کاربر تازه با بات چت را شروع
+# کرده و privacy هنوز رفرش نشده، یا یک خطای شبکه‌ی گذرا)؛ TTL کوتاه‌تر
+# یعنی در بازیِ در حالِ اجرا، حتی اگر اولین تلاش شکست خورد، طیِ چند
+# poll بعدی خودش را اصلاح می‌کند، بدون این‌که فشار زیادی به تلگرام وارد
+# شود (که TTLِ بلندِ ۵-دقیقه‌ای برای همان منظور بود).
 
 
 async def _resolve_avatar_url(user_id):
@@ -70,12 +77,21 @@ async def _resolve_avatar_url(user_id):
             file_id = photos.photos[0][0].file_id
             tg_file = await BOT.get_file(file_id)
             url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file.file_path}"
-    except TelegramError:
+        else:
+            # حالتِ رایج‌ترین: کاربر اصلاً عکسِ پروفایل ندارد یا privacy
+            # settings تلگرامش اجازه‌ی دیدنش به بات‌ها را نمی‌دهد. این یک
+            # خطا نیست، پس با سطحِ debug (نه warning/error) لاگ می‌شود —
+            # صرفاً برای این‌که موقعِ عیب‌یابی بشود فرق گذاشت بینِ «عکس
+            # واقعاً وجود ندارد» و «درخواست خطا خورد».
+            logger.debug("No profile photo available for user %s", user_id)
+    except TelegramError as e:
+        logger.warning("Telegram error resolving avatar for user %s: %s", user_id, e)
         url = None
     except Exception:
         logger.exception("Failed to resolve avatar for user %s", user_id)
         url = None
-    _avatar_cache[user_id] = (url, time.monotonic() + _AVATAR_CACHE_TTL)
+    ttl = _AVATAR_CACHE_TTL if url else _AVATAR_CACHE_TTL_EMPTY
+    _avatar_cache[user_id] = (url, time.monotonic() + ttl)
     return url
 
 
