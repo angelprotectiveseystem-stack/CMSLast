@@ -143,7 +143,7 @@ from reminders import (
     reminder_interval_menu, reminder_set_interval
 )
 from keyword_commands import handle_keyword_command, kw_announce_start, kw_news_start, panel_ownership_guard, open_panel_here
-from chess_challenge import chess_menu, chess_pick_time, chess_pick_color, chess_send_request, chess_accept, chess_decline, chess_elo_board
+from chess_challenge import chess_menu, chess_pick_time, chess_pick_color, chess_send_request, chess_accept, chess_decline, chess_elo_board, chess_ai_menu, chess_ai_pick_time, chess_ai_pick_color, chess_ai_start
 from security import (
     security_panel, security_queue_list, security_queue_item,
     request_to_queue, queue_approve, queue_release, queue_block_ask,
@@ -987,6 +987,10 @@ def build_application():
     app.add_handler(CallbackQueryHandler(chess_accept, pattern="^chess_acc_"))
     app.add_handler(CallbackQueryHandler(chess_decline, pattern="^chess_dec_"))
     app.add_handler(CallbackQueryHandler(chess_elo_board, pattern="^chess_elo_board$"))
+    app.add_handler(CallbackQueryHandler(chess_ai_menu, pattern="^chessai_menu$"))
+    app.add_handler(CallbackQueryHandler(chess_ai_pick_time, pattern="^chessai_time_"))
+    app.add_handler(CallbackQueryHandler(chess_ai_pick_color, pattern="^chessai_color_"))
+    app.add_handler(CallbackQueryHandler(chess_ai_start, pattern="^chessai_go_"))
 
     # Teams
     app.add_handler(CallbackQueryHandler(teams_menu, pattern="^teams_menu$"))

@@ -14,6 +14,8 @@ import time
 import uuid
 from urllib.parse import parse_qsl
 
+import asyncio
+
 import chess as pychess
 from aiohttp import web
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -21,6 +23,7 @@ from telegram.constants import ParseMode
 from telegram.error import TelegramError
 
 import database as db
+from chess_ai import AI_ID, choose_move, evaluate_fen
 from config import BOT_TOKEN, WEBAPP_PORT, PISHVA_ID
 
 logger = logging.getLogger(__name__)
@@ -66,7 +69,7 @@ async def _notify_players_game_finished(game, status, winner_id):
     label = _RESULT_LABELS.get(status, status)
     pairs = ((game["white_id"], game["white_msg_id"]), (game["black_id"], game["black_msg_id"]))
     for side_id, msg_id in pairs:
-        if not side_id:
+        if not side_id or side_id == AI_ID:
             continue
         if winner_id is None:
             result_line = f"🤝 بازی مساوی شد ({label})."
@@ -182,14 +185,17 @@ async def _finish_with_elo(token, status, game, winner_id):
         "white" if winner_id == game["white_id"] else "black"
     )
     chg_w = chg_b = None
-    try:
-        from elo import ensure_chess_elo_table, update_chess_elo_after_game
-        await ensure_chess_elo_table()
-        _, _, chg_w, chg_b = await update_chess_elo_after_game(
-            game["white_id"], game["white_name"], game["black_id"], game["black_name"], result
-        )
-    except Exception:
-        logger.exception("Chess Elo update failed for game %s", token)
+    # بازی‌های «هوش مصنوعی» جزو رتبه‌بندی Elo محسوب نمی‌شوند — فقط تمرینِ
+    # شخصی‌اند و نباید جدولِ امتیازِ مدیران واقعی را آلوده کنند.
+    if AI_ID not in (game["white_id"], game["black_id"]):
+        try:
+            from elo import ensure_chess_elo_table, update_chess_elo_after_game
+            await ensure_chess_elo_table()
+            _, _, chg_w, chg_b = await update_chess_elo_after_game(
+                game["white_id"], game["white_name"], game["black_id"], game["black_name"], result
+            )
+        except Exception:
+            logger.exception("Chess Elo update failed for game %s", token)
     await db.finish_chess_game(token, status, winner_id, chg_w, chg_b)
     try:
         await _notify_players_game_finished(game, status, winner_id)
@@ -418,6 +424,10 @@ async def api_move(request):
     )
     if status != "active":
         await _finish_with_elo(token, status, game, winner)
+    else:
+        # اگر حریف هوش مصنوعی باشد، بلافاصله (همین درخواست) حرکتِ جواب را
+        # هم بازی می‌کند تا کاربر مجبور به صبر برای دور بعدیِ poll نباشد.
+        await maybe_play_ai_move(token)
 
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
@@ -456,6 +466,23 @@ async def api_draw_offer(request):
     if not await db.can_use_live_chess(user_id):
         return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
     await db.set_chess_draw_offer(token, user_id)
+
+    if AI_ID in (game["white_id"], game["black_id"]):
+        # هوش مصنوعی بلافاصله به پیشنهادِ تساوی پاسخ می‌دهد: فقط وقتی
+        # موقعیتش به‌وضوح بد باشد قبول می‌کند، وگرنه رد می‌کند.
+        ai_is_white = game["white_id"] == AI_ID
+        score = evaluate_fen(game["fen"])
+        ai_score = score if ai_is_white else -score
+        if ai_score < -150:
+            await _finish_with_elo(token, "draw", game, None)
+        else:
+            await db.clear_chess_draw_offer(token)
+            ai_name = game["white_name"] if ai_is_white else game["black_name"]
+            try:
+                await db.add_chess_chat_message(token, AI_ID, ai_name, "🤖 پیشنهاد تساوی را رد می‌کنم.")
+            except Exception:
+                logger.exception("Failed to log AI draw-decline chat message for %s", token)
+
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
     return web.json_response({"ok": True, "state": _game_to_state(fresh, user_id)})
@@ -556,6 +583,47 @@ async def api_chat_fetch(request):
         for r in rows
     ]
     return web.json_response({"ok": True, "messages": messages})
+
+
+async def maybe_play_ai_move(token: str):
+    """اگر بازی مقابل هوش مصنوعی باشد و نوبتِ فعلی متعلق به آن باشد،
+    حرکتش را (در یک ترد جدا، چون CPU-bound است) محاسبه و اعمال می‌کند.
+    از /api/move (بعد از حرکت انسان) و از chess_challenge.py (وقتی خودِ
+    هوش مصنوعی سفید است و باید اولین حرکت را بزند) صدا زده می‌شود."""
+    game = await db.get_chess_game(token)
+    if not game or game["status"] != "active":
+        return
+    if AI_ID not in (game["white_id"], game["black_id"]):
+        return
+    board = pychess.Board(game["fen"])
+    ai_is_white = game["white_id"] == AI_ID
+    if board.turn != (pychess.WHITE if ai_is_white else pychess.BLACK):
+        return  # نوبتِ طرفِ انسانی است
+
+    level = game["ai_level"] or "medium"
+    move = await asyncio.to_thread(choose_move, board, level)
+    if move is None:
+        return
+
+    frm = pychess.square_name(move.from_square)
+    to = pychess.square_name(move.to_square)
+    san = board.san(move)
+    board.push(move)
+
+    status, winner = "active", None
+    if board.is_checkmate():
+        status = "checkmate"
+        winner = AI_ID
+    elif board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves() or board.is_fivefold_repetition():
+        status = "draw"
+
+    await db.update_chess_game_move(
+        token, board.fen(), san, frm, to, game["white_time"], game["black_time"]
+    )
+    if status != "active":
+        fresh = await db.get_chess_game(token)
+        await _finish_with_elo(token, status, fresh, winner)
+    await _notify_state_changed(token)
 
 
 def new_game_token():

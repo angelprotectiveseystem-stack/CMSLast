@@ -272,6 +272,7 @@ async def init_db():
             "ALTER TABLE chess_games ADD COLUMN black_elo_change INTEGER",
             "ALTER TABLE chess_games ADD COLUMN white_msg_id INTEGER",
             "ALTER TABLE chess_games ADD COLUMN black_msg_id INTEGER",
+            "ALTER TABLE chess_games ADD COLUMN ai_level TEXT",
         ):
             try:
                 await db.execute(stmt)
@@ -1611,15 +1612,15 @@ async def expire_other_chess_requests(user_a: int, user_b: int, exclude_req_id: 
         await db.commit()
 
 
-async def create_chess_game(token, white_id, black_id, white_name, black_name, fen, time_control=300):
+async def create_chess_game(token, white_id, black_id, white_name, black_name, fen, time_control=300, ai_level=None):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             """INSERT INTO chess_games
                (token, white_id, black_id, white_name, black_name, fen, status,
-                white_time, black_time, created_at, last_move_at)
-               VALUES (?,?,?,?,?,?,'active',?,?,?,?)""",
-            (token, white_id, black_id, white_name, black_name, fen, time_control, time_control, now, now)
+                white_time, black_time, created_at, last_move_at, ai_level)
+               VALUES (?,?,?,?,?,?,'active',?,?,?,?,?)""",
+            (token, white_id, black_id, white_name, black_name, fen, time_control, time_control, now, now, ai_level)
         )
         await db.commit()
         return cur.lastrowid
@@ -1644,11 +1645,14 @@ async def get_active_chess_game_for(telegram_id: int):
 
 async def get_active_chess_games_excluding(telegram_id: int):
     """همه‌ی بازی‌های شطرنج زنده‌ای که الان در جریانند و طرف داده‌شده در
-    آن‌ها بازیکن نیست — برای پیشنهاد «تماشا» به شخص ثالث در پنل شطرنج زنده."""
+    آن‌ها بازیکن نیست — برای پیشنهاد «تماشا» به شخص ثالث در پنل شطرنج زنده.
+    بازی‌های تک‌نفره‌ی «بازی با هوش مصنوعی» (ai_level پر شده) جزو بازی‌های
+    قابل‌تماشا حساب نمی‌شوند، چون فقط تمرینِ شخصی‌اند."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT * FROM chess_games WHERE status='active' AND white_id!=? AND black_id!=? ORDER BY id DESC",
+            """SELECT * FROM chess_games WHERE status='active' AND white_id!=? AND black_id!=?
+               AND ai_level IS NULL ORDER BY id DESC""",
             (telegram_id, telegram_id)
         ) as cur:
             return await cur.fetchall()

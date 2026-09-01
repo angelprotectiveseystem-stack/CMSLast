@@ -119,6 +119,12 @@ def _evaluate(board: pychess.Board) -> int:
     return score
 
 
+def evaluate_fen(fen: str) -> int:
+    """ارزیابیِ یک وضعیت از روی FEN، از دیدِ سفید (برای تصمیمِ هوش مصنوعی
+    دربارهٔ قبول/ردِ پیشنهاد تساوی، بدون نیاز به جست‌وجوی کامل)."""
+    return _evaluate(pychess.Board(fen))
+
+
 def _order_moves(board: pychess.Board):
     """حرکت‌های ضربه‌ای را اول می‌گذارد تا هرسِ alpha-beta مؤثرتر باشد."""
     moves = list(board.legal_moves)

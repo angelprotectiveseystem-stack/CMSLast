@@ -13,8 +13,9 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 import database as db
-from config import PISHVA_ID, WEBAPP_URL
-from game_server import new_game_token
+from chess_ai import AI_LEVELS, ai_display_name
+from config import CHESS_AI_ID, PISHVA_ID, WEBAPP_URL
+from game_server import maybe_play_ai_move, new_game_token
 from helpers import safe_edit_message_text, box, pishva_display
 
 logger = logging.getLogger(__name__)
@@ -98,16 +99,8 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # لیست می‌شود.
     other_games = await db.get_active_chess_games_excluding(uid)
 
-    if not opponents and not other_games:
-        await safe_edit_message_text(
-            query,
-            f"{box('♟️ شطرنج زنده')}\n\nهیچ مدیر دیگری برای دعوت به بازی پیدا نشد.",
-            reply_markup=_kb_back(),
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        return
-
     rows = []
+    rows.append([InlineKeyboardButton("🤖 بازی با هوش مصنوعی", callback_data="chessai_menu")])
     for opp_id, name in opponents:
         label = ("👑 " if opp_id == PISHVA_ID else "🎖️ ") + name
         rows.append([InlineKeyboardButton(label, callback_data=f"chess_req_{opp_id}")])
@@ -123,9 +116,9 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     text = f"{box('♟️ شطرنج زنده')}\n\n"
     if opponents:
-        text += "با یکی از مدیران محترم یا مدیر ارشد وارد یک بازی شطرنج زنده شوید.\nحریف خود را انتخاب کنید:"
+        text += "می‌توانید با هوش مصنوعی تمرین کنید یا با یکی از مدیران محترم/مدیر ارشد وارد یک بازی زنده شوید.\nحریف خود را انتخاب کنید:"
     else:
-        text += "هیچ مدیر دیگری برای دعوت به بازی پیدا نشد."
+        text += "می‌توانید با هوش مصنوعی تمرین کنید. در حال حاضر مدیر دیگری برای دعوت به بازی پیدا نشد."
     if other_games:
         text += "\n\n👁 یا یکی از بازی‌های در حال انجام را زنده تماشا کنید:"
 
@@ -438,6 +431,137 @@ async def chess_decline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     except Exception:
         logger.exception("Failed to notify decline to %s", req["requester_id"])
+
+
+async def chess_ai_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """دکمه‌ی «🤖 بازی با هوش مصنوعی» در پنل شطرنج زنده: انتخاب سطح سختی."""
+    query = update.callback_query
+    uid = query.from_user.id
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
+        return
+    active_game = await db.get_active_chess_game_for(uid)
+    if active_game:
+        await query.answer("شما یک بازی فعال دارید؛ ابتدا آن را تمام کنید.", show_alert=True)
+        return
+    await query.answer()
+    rows = [
+        [InlineKeyboardButton(info["label"], callback_data=f"chessai_time_{level}")]
+        for level, info in AI_LEVELS.items()
+    ]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="chess_menu")])
+    await safe_edit_message_text(
+        query,
+        f"{box('🤖 بازی با هوش مصنوعی')}\n\nسطح سختی هوش مصنوعی را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def chess_ai_pick_time(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """قدم دوم: زمان فکر انتخاب می‌شود."""
+    query = update.callback_query
+    uid = query.from_user.id
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
+        return
+    await query.answer()
+    level = query.data.split("_")[-1]
+    rows = [
+        [InlineKeyboardButton(label, callback_data=f"chessai_color_{level}_{secs}")]
+        for secs, label in TIME_CONTROLS
+    ]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="chessai_menu")])
+    await safe_edit_message_text(
+        query,
+        f"{box('🤖 بازی با هوش مصنوعی')}\n\n⏱ زمان فکر خودتان را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def chess_ai_pick_color(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """قدم سوم: رنگِ مهره‌های کاربر انتخاب می‌شود."""
+    query = update.callback_query
+    uid = query.from_user.id
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
+        return
+    await query.answer()
+    _, _, level, secs = query.data.split("_")
+    rows = [
+        [InlineKeyboardButton(COLOR_LABELS[c], callback_data=f"chessai_go_{level}_{secs}_{c}")]
+        for c in ("w", "b", "r")
+    ]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="chessai_menu")])
+    await safe_edit_message_text(
+        query,
+        f"{box('🤖 بازی با هوش مصنوعی')}\n\nبا کدام رنگ بازی می‌کنید؟",
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def chess_ai_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """قدم آخر: بازی بلافاصله ساخته می‌شود (بدون نیاز به قبول‌کردن، چون
+    طرف مقابل هوش مصنوعی است) و در صورتی که نوبت اول با هوش مصنوعی باشد،
+    حرکت اول آن هم بلافاصله انجام می‌شود."""
+    query = update.callback_query
+    uid = query.from_user.id
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await query.answer()
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
+        return
+    active_game = await db.get_active_chess_game_for(uid)
+    if active_game:
+        await query.answer("شما یک بازی فعال دارید؛ ابتدا آن را تمام کنید.", show_alert=True)
+        return
+
+    _, _, level, secs, color = query.data.split("_")
+    time_control = int(secs)
+    if color == "r":
+        color = random.choice(["w", "b"])
+
+    await query.answer("بازی ساخته شد ✅")
+    human_name = await _display_name(uid)
+    ai_name = ai_display_name(level)
+    if color == "w":
+        white_id, black_id = uid, CHESS_AI_ID
+        white_name, black_name = human_name, ai_name
+    else:
+        white_id, black_id = CHESS_AI_ID, uid
+        white_name, black_name = ai_name, human_name
+
+    token = new_game_token()
+    await db.create_chess_game(token, white_id, black_id, white_name, black_name, START_FEN, time_control, ai_level=level)
+
+    msg = await safe_edit_message_text(
+        query,
+        f"{box('🤖 بازی با هوش مصنوعی شروع شد!')}\n\n"
+        f"شما با مهره‌های {'سفید' if color == 'w' else 'سیاه'} در مقابل {ai_name} بازی می‌کنید.",
+        reply_markup=_kb_play(token),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    try:
+        msg_id = msg.message_id if msg else None
+        if color == "w":
+            await db.set_chess_game_messages(token, white_msg_id=msg_id, black_msg_id=None)
+        else:
+            await db.set_chess_game_messages(token, white_msg_id=None, black_msg_id=msg_id)
+    except Exception:
+        logger.exception("Failed to store chess game message id for AI game %s", token)
+
+    if white_id == CHESS_AI_ID:
+        # نوبت اول با هوش مصنوعی است؛ حرکتش را همین الان انجام بده تا وقتی
+        # کاربر وارد مینی‌اپ می‌شود، صفحه از قبل حرکتِ اول را نشان بدهد.
+        await maybe_play_ai_move(token)
 
 
 def _kb_play(token: str) -> InlineKeyboardMarkup:
