@@ -10,6 +10,52 @@ CHESS_REQUEST_EXPIRY_MINUTES = 30
 
 logger = logging.getLogger(__name__)
 
+# ─── کش کوتاه‌مدت برای get_setting/get_admin ───────────────────────────
+# ریشه‌ی اصلیِ لگِ حسِ‌شده در شطرنج زنده: هر دیتابیس (اعم از get_setting یا
+# get_admin) الان یک درخواستِ شبکه‌ایِ جداگانه به Turso (دیتابیسِ ابری) است،
+# نه یک فایلِ محلی. هر تک حرکتِ شطرنج، قبل از اینکه اصلاً روی صفحه ثبت شود،
+# از مسیرِ can_use_live_chess() سه بار پشتِ‌سرِهم (نه موازی) از این دو تابع
+# استفاده می‌کند؛ یعنی هر حرکت = حداقل ۳ رفت‌وبرگشتِ شبکه‌ایِ اضافه، فقط برای
+# چک‌کردنِ چیزی که تقریباً هیچ‌وقت (بینِ دو حرکتِ متوالی) عوض نمی‌شود: وضعیتِ
+# قفلِ کلیِ شطرنج زنده و پرمیشن‌های ادمین. همین تاخیرِ شبکه‌ایِ تکرارشونده،
+# روی هر حرکت، دقیقاً همان «سکته»ای است که حس می‌شود — نه خودِ کدِ انیمیشن.
+# راه‌حل: نتیجه‌ی این دو تابع را برای چند ثانیه در حافظه نگه می‌داریم (TTL
+# کوتاه، نه کش دائمی) تا حرکات پشتِ‌سرِهم مجبور به رفت‌وبرگشتِ شبکه‌ی تکراری
+# نباشند، ولی تغییراتِ واقعی (روشن/خاموش‌کردنِ شطرنج، تغییرِ دسترسیِ ادمین)
+# هم حداکثر با چند ثانیه تاخیر خودشان را نشان بدهند.
+_SETTING_CACHE_TTL = 4  # ثانیه
+_setting_cache = {}   # key -> (value, expires_at_monotonic)
+_admin_cache = {}     # telegram_id -> (row, expires_at_monotonic)
+
+
+def _cache_get(store, key):
+    import time
+    hit = store.get(key)
+    if hit and hit[1] > time.monotonic():
+        return hit[0]
+    return None
+
+
+def _cache_set(store, key, value):
+    import time
+    store[key] = (value, time.monotonic() + _SETTING_CACHE_TTL)
+
+
+def _invalidate_setting_cache(key=None):
+    """بعد از هر تغییرِ واقعیِ یک تنظیم، بلافاصله کش را پاک کن تا کاربر
+    مجبور نباشد چند ثانیه صبر کند تا اثرِ تغییرش را ببیند."""
+    if key is None:
+        _setting_cache.clear()
+    else:
+        _setting_cache.pop(key, None)
+
+
+def _invalidate_admin_cache(telegram_id=None):
+    if telegram_id is None:
+        _admin_cache.clear()
+    else:
+        _admin_cache.pop(telegram_id, None)
+
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -315,10 +361,15 @@ async def init_db():
 
 # ─── Settings ────────────────────────────────────────────────
 async def get_setting(key: str, default="") -> str:
+    cached = _cache_get(_setting_cache, key)
+    if cached is not None:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT value FROM system_settings WHERE key=?", (key,)) as cur:
             row = await cur.fetchone()
-            return row[0] if row else default
+            value = row[0] if row else default
+            _cache_set(_setting_cache, key, value)
+            return value
 
 
 async def set_setting(key: str, value: str):
@@ -328,14 +379,20 @@ async def set_setting(key: str, value: str):
             (key, value)
         )
         await db.commit()
+    _invalidate_setting_cache(key)
 
 
 # ─── Admins ───────────────────────────────────────────────────
 async def get_admin(telegram_id: int):
+    cached = _cache_get(_admin_cache, telegram_id)
+    if cached is not None:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM admins WHERE telegram_id=?", (telegram_id,)) as cur:
-            return await cur.fetchone()
+            row = await cur.fetchone()
+            _cache_set(_admin_cache, telegram_id, row)
+            return row
 
 
 async def get_all_admins():
@@ -368,6 +425,7 @@ async def create_admin(telegram_id, username, full_name, role):
             (telegram_id, username, full_name, full_name, role, now, now, default_perms)
         )
         await db.commit()
+    _invalidate_admin_cache(telegram_id)
 
 
 async def update_admin_activity(telegram_id):
@@ -401,6 +459,7 @@ async def set_admin_permission(telegram_id: int, perm: str, value: bool):
         await db.execute("UPDATE admins SET permissions=? WHERE telegram_id=?",
                           (json.dumps(perms), telegram_id))
         await db.commit()
+    _invalidate_admin_cache(telegram_id)
 
 
 # ─── شطرنج زنده — قفل امنیتی و سوییچ دستی ──────────────────────
@@ -460,6 +519,7 @@ async def kick_admin(telegram_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE admins SET is_active=0 WHERE telegram_id=?", (telegram_id,))
         await db.commit()
+    _invalidate_admin_cache(telegram_id)
 
 
 async def set_admin_warnings(telegram_id: int, count: int):
@@ -474,6 +534,7 @@ async def set_admin_role(telegram_id: int, new_role: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE admins SET role=? WHERE telegram_id=?", (new_role, telegram_id))
         await db.commit()
+    _invalidate_admin_cache(telegram_id)
 
 
 async def update_admin_role_active(telegram_id: int, new_role: str):
@@ -486,6 +547,7 @@ async def update_admin_role_active(telegram_id: int, new_role: str):
             (new_role, telegram_id)
         )
         await db.commit()
+    _invalidate_admin_cache(telegram_id)
 
 
 # ─── Classes ─────────────────────────────────────────────────
