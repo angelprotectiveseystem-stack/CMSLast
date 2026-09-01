@@ -1,0 +1,408 @@
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; }
+
+:root{
+  --bg-0:#0e1220;
+  --bg-1:#161c30;
+  --bg-2:#1e2640;
+  --surface:#232c48;
+  --border:#2f3a5c;
+  --text-1:#f2f4fb;
+  --text-2:#9aa4c7;
+  --text-3:#5f6a92;
+  --accent:#5b7cfa;
+  --accent-2:#8b6bf0;
+  --success:#3fd68f;
+  --danger:#f0546e;
+  --warning:#f0b93f;
+  --light-sq:#2c3557;
+  --dark-sq:#1a2038;
+  --hi-sq:rgba(91,124,250,.45);
+  --move-dot:rgba(255,255,255,.55);
+  --piece-white:#f4f6ff; --piece-white-stroke:transparent; --piece-black:#0c0f1e; --piece-black-stroke:#545f8c;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Vazirmatn', Tahoma, sans-serif;
+}
+
+[data-theme="light"]{
+  --bg-0:#eef1f8; --bg-1:#ffffff; --bg-2:#e7ebf6; --surface:#ffffff; --border:#dbe0ef;
+  --text-1:#1b2035; --text-2:#5b6280; --text-3:#8790ab;
+  --light-sq:#f2f4fb; --dark-sq:#c3cae4;
+  --hi-sq:rgba(91,124,250,.35); --move-dot:rgba(30,40,80,.35);
+  --piece-white:#ffffff; --piece-white-stroke:#8b93b8; --piece-black:#1b2035; --piece-black-stroke:transparent;
+}
+[data-theme="wood"]{
+  --bg-0:#241a10; --bg-1:#2c2013; --bg-2:#382a19; --surface:#332619; --border:#54402a;
+  --text-1:#f5e9d6; --text-2:#c9b291; --text-3:#8f7a5e;
+  --light-sq:#e8c99b; --dark-sq:#a06b3f;
+  --accent:#c68642; --accent-2:#8a5a2e;
+  --hi-sq:rgba(198,134,66,.45); --move-dot:rgba(60,35,10,.5);
+  --piece-white:#fbf1e0; --piece-white-stroke:#8a6a44; --piece-black:#2b1a0d; --piece-black-stroke:transparent;
+}
+[data-theme="green"]{
+  --bg-0:#12190f; --bg-1:#182219; --bg-2:#1e2c1e; --surface:#1e2c1e; --border:#2d4029;
+  --text-1:#eef3ea; --text-2:#a9baa3; --text-3:#728768;
+  --light-sq:#eeeed2; --dark-sq:#6f9152;
+  --accent:#6fa84c; --accent-2:#4c8a3e;
+  --hi-sq:rgba(111,168,76,.45); --move-dot:rgba(30,20,10,.4);
+  --piece-white:#fbfbf0; --piece-white-stroke:#5b7250; --piece-black:#22301c; --piece-black-stroke:transparent;
+}
+
+html,body{
+  height:100%;
+  background: radial-gradient(circle at 50% -10%, #1c2444 0%, var(--bg-0) 60%);
+  color: var(--text-1);
+  font-family: var(--font);
+  overflow:hidden;
+  transition: background-color .25s ease, color .25s ease;
+}
+
+#app{ height:100vh; height:100dvh; position:relative; }
+
+.screen{
+  position:absolute; inset:0;
+  display:none;
+  flex-direction:column;
+  opacity:0;
+  transform: scale(.98);
+  transition: opacity .45s cubic-bezier(.4,0,.2,1), transform .45s cubic-bezier(.4,0,.2,1);
+}
+.screen.active{ display:flex; opacity:1; transform: scale(1); }
+
+/* loading */
+#screen-loading{ align-items:center; justify-content:center; gap:18px; }
+.brand-mark{
+  width:96px; height:96px; border-radius:24px;
+  overflow:hidden;
+  display:flex; align-items:center; justify-content:center;
+  animation: floaty 2.4s ease-in-out infinite;
+  box-shadow: 0 10px 40px rgba(138,15,15,.4);
+}
+.brand-svg{ width:100%; height:100%; display:block; }
+@keyframes floaty{ 0%,100%{ transform: translateY(0) rotate(0deg);} 50%{ transform: translateY(-8px) rotate(4deg);} }
+.loading-text{ color: var(--text-2); font-size:14px; }
+.spinner{
+  width:28px; height:28px; border-radius:50%;
+  border:3px solid var(--border); border-top-color: var(--accent);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin{ to{ transform: rotate(360deg);} }
+
+/* error */
+#screen-error{ align-items:center; justify-content:center; gap:14px; padding: 0 32px; text-align:center; }
+.error-icon{
+  width:56px; height:56px; border-radius:50%;
+  background: rgba(240,84,110,.15); color: var(--danger);
+  display:flex; align-items:center; justify-content:center;
+  font-size:26px; font-weight:700;
+  border: 2px solid rgba(240,84,110,.4);
+}
+.error-text{ color: var(--text-2); font-size:14px; line-height:1.8; }
+
+/* game screen */
+#screen-game{ padding: 10px 12px 14px; gap:8px; }
+
+.topbar{ display:flex; align-items:center; justify-content:space-between; padding: 2px 2px 0; }
+.topbar-actions{ display:flex; gap:8px; }
+.topbar-status{ display:flex; align-items:center; gap:6px; font-size:12px; color: var(--text-2); }
+.dot{ width:7px; height:7px; border-radius:50%; background: var(--success); box-shadow: 0 0 6px var(--success); animation: pulse 1.8s ease-in-out infinite; }
+@keyframes pulse{ 0%,100%{ opacity:1;} 50%{ opacity:.4;} }
+.icon-btn{
+  position:relative;
+  background: var(--surface); border:1px solid var(--border); color: var(--text-1);
+  width:44px; height:44px; border-radius:10px;
+  display:flex; align-items:center; justify-content:center;
+  transition: transform .25s cubic-bezier(.34,1.56,.64,1), background .28s ease, border-color .28s ease;
+}
+.icon-btn svg{ width:22px; height:22px; transition: transform .25s cubic-bezier(.34,1.56,.64,1); }
+.icon-btn:active{ transform: scale(.88); background: var(--bg-2); }
+.chat-badge{
+  position:absolute; top:-4px; left:-4px; min-width:16px; height:16px; padding:0 3px;
+  border-radius:8px; background: var(--danger); color:#fff; font-size:10px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; line-height:1;
+}
+.chat-badge.hidden{ display:none; }
+
+.player-card{
+  display:flex; align-items:center; gap:10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px 12px;
+  min-height: 58px;
+}
+.avatar{
+  width:46px; height:46px; border-radius:50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  display:flex; align-items:center; justify-content:center;
+  font-size:17px; font-weight:700; color:#fff; flex-shrink:0;
+}
+.player-info{ flex:1; min-width:0; }
+.player-name{ font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.captured-row{ display:flex; gap:1px; font-size:16px; min-height:19px; color: var(--text-2); letter-spacing:-2px; }
+.clock{
+  font-family: 'SF Mono', ui-monospace, monospace; font-size:18px; font-weight:700;
+  background: var(--bg-1); border-radius:8px; padding:7px 13px;
+  min-width:76px; text-align:center; color: var(--text-2);
+  transition: color .3s cubic-bezier(.4,0,.2,1), background .3s cubic-bezier(.4,0,.2,1), box-shadow .3s ease;
+}
+.clock.active{ color:#fff; background: var(--accent); box-shadow: 0 0 14px rgba(91,124,250,.5); }
+.clock.low{ color:#fff; background: var(--danger); animation: pulse 1s ease-in-out infinite; }
+
+.board-wrap{ position:relative; flex: 1; display:flex; align-items:center; justify-content:center; min-height:0; width:100%; contain: layout size; }
+.board{
+  width: var(--board-size, min(96vw, 560px));
+  aspect-ratio:1;
+  display:grid;
+  grid-template-columns: repeat(8,1fr);
+  grid-template-rows: repeat(8,1fr);
+  border-radius:12px;
+  overflow:hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0,0,0,.45);
+  flex-shrink: 0;
+}
+
+.square{ position:relative; display:flex; align-items:center; justify-content:center; }
+.square.light{ background: var(--light-sq); }
+.square.dark{ background: var(--dark-sq); }
+.square::before{
+  content:''; position:absolute; inset:0; opacity:0;
+  transition: opacity .26s cubic-bezier(.4,0,.2,1); pointer-events:none;
+}
+.square.selected::before{
+  background: var(--hi-sq); opacity:1;
+}
+.square.last-from::before, .square.last-to::before{
+  background: rgba(240,185,63,.28); opacity:1;
+}
+.square.check::before{
+  background: radial-gradient(circle, rgba(240,84,110,.65) 0%, rgba(240,84,110,0) 72%); opacity:1;
+  animation: checkpulse 1s ease-in-out infinite;
+}
+@keyframes checkpulse{
+  0%,100%{ opacity:.55; }
+  50%{ opacity:1; }
+}
+.move-dot{
+  position:absolute; width:26%; height:26%; border-radius:50%;
+  background: var(--move-dot); pointer-events:none;
+  animation: dotpop .26s cubic-bezier(.34,1.56,.64,1);
+}
+.move-dot.capture{
+  width:82%; height:82%; background:transparent;
+  border: 4px solid var(--move-dot); border-radius:50%;
+}
+@keyframes dotpop{ from{ transform: scale(0);} to{ transform: scale(1);} }
+
+.piece{
+  width:92%; height:92%;
+  display:flex; align-items:center; justify-content:center;
+  font-size: calc(var(--board-size, 320px) / 8 * 0.8);
+  line-height: 1;
+  cursor:grab;
+  position:absolute; inset:0; margin:auto; z-index:2;
+  transition: text-shadow .2s ease, filter .2s ease;
+  text-shadow: 0 2px 3px rgba(0,0,0,.5);
+}
+.piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }
+.piece.black-p{ color: var(--piece-black); -webkit-text-stroke: .5px var(--piece-black-stroke); }
+.piece.dragging{ transform: scale(1.18); z-index:20; cursor:grabbing; filter: drop-shadow(0 8px 10px rgba(0,0,0,.35)); }
+.piece.moving{ z-index:15; will-change: transform; }
+/* توجه: عمداً هیچ filter/drop-shadow روی .moving گذاشته نشد. drop-shadow
+   برخلاف box-shadow روی خیلی از WebViewهای موبایل (به‌خصوص اندرویدِ
+   داخلِ تلگرام) قابلِ compositing ارزان نیست و باید هر فریم از نو
+   محاسبه شود — درست همان چیزی که باعثِ افتِ نرخِ فریم و «سکته»ایِ شدنِ
+   انیمیشنِ حرکت شد. سایه‌ی زیرِ مهره در حینِ حرکت حذف شد تا حرکت به
+   روانیِ نسخه‌ی قبل (که این افکت را نداشت) برگردد. */
+
+.piece.captured-anim{
+  animation: capturepop .22s cubic-bezier(.4,0,1,1) forwards;
+  z-index: 1; /* زیر مهره‌ی مهاجمی که دارد وارد همان خانه می‌شود می‌ماند */
+}
+@keyframes capturepop{ to{ transform: scale(.35); opacity:0; } }
+/* مدت‌زمان این افکت عمداً کوتاه‌تر از قبل شد (بود ۰٫۳۲s) تا محوشدنِ
+   مهره‌ی گرفته‌شده تقریباً هم‌زمان با رسیدنِ مهره‌ی مهاجم به همان خانه
+   تمام شود — دقیقاً شبیه chess.com، نه اینکه مهاجم برسد و مهره‌ی گرفته‌شده
+   هنوز چند فریمِ دیگر روی صفحه بماند. */
+
+.piece.landed{ animation: land .28s cubic-bezier(.34,1.56,.64,1); }
+@keyframes land{ 0%{ transform: scale(1.22);} 60%{ transform: scale(.96);} 100%{ transform: scale(1);} }
+
+.piece.just-arrived{ animation: settle .18s cubic-bezier(.34,1.56,.64,1); }
+@keyframes settle{ 0%{ transform: scale(1.08);} 100%{ transform: scale(1);} }
+/* پالسِ خیلی کوچک و ظریف وقتی مهره‌ای که سُر خورده سرِ خانه‌ی مقصد
+   می‌نشیند — دقیقاً همان «ته‌نشین‌شدنِ نرم» chess.com، نه پاپِ بزرگِ
+   .landed که مخصوصِ ظاهرشدنِ کاملاً تازه‌ی یک مهره (بار اول لود صفحه) است. */
+
+.piece.mated-king{ animation: kingfall .6s cubic-bezier(.55,0,.55,1) .15s forwards; transform-origin: 50% 85%; }
+@keyframes kingfall{
+  0%{ transform: rotate(0deg) scale(1); }
+  100%{ transform: rotate(88deg) scale(.92) translateY(6%); opacity:.85; }
+}
+/* افکتِ امضادارِ chess.com در لحظه‌ی کیش‌ومات: شاهِ بازنده روی صفحه
+   می‌افتد/کج می‌شود. جهتِ سقوط (مثبت/منفی) در جاوااسکریپت بر اساس
+   رنگِ خانه انتخاب می‌شود تا شاه همیشه به‌سمتِ «بیرونِ صفحه» بیفتد. */
+
+.turn-banner{
+  text-align:center; font-size:15px; font-weight:700;
+  color: var(--text-2); padding:4px 0;
+  transition: color .2s ease;
+}
+.turn-banner.mine{ color: var(--success); }
+.turn-banner.theirs{ color: var(--text-3); }
+
+.spectator-note{
+  text-align:center; font-size:13px; font-weight:600; color: var(--text-2);
+  background: var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:8px 0;
+}
+.spectator-note.hidden{ display:none; }
+.action-row.hidden{ display:none; }
+
+.action-row{ display:flex; gap:8px; }
+.action-btn{
+  flex:1; padding:14px 0; border-radius:12px;
+  background: var(--surface); border:1px solid var(--border);
+  color: var(--text-1); font-size:15px; font-weight:700;
+  font-family: var(--font);
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1), background .25s ease, box-shadow .25s ease;
+}
+.action-btn:active{ transform: scale(.95); }
+.action-btn:disabled{ opacity:.55; }
+.action-btn.danger{ color: var(--danger); border-color: rgba(240,84,110,.35); }
+.action-btn.primary{ background: linear-gradient(135deg, var(--accent), var(--accent-2)); border:none; color:#fff; }
+
+.promo-modal{
+  position:absolute; inset:0; background: rgba(10,13,26,.72);
+  display:flex; align-items:center; justify-content:center;
+  border-radius:12px; z-index:30;
+  animation: fadein .28s cubic-bezier(.4,0,.2,1);
+}
+.promo-modal.hidden{ display:none; }
+.promo-card{
+  background: var(--surface); border:1px solid var(--border);
+  border-radius:16px; padding:16px; text-align:center;
+  animation: popin .34s cubic-bezier(.34,1.56,.64,1);
+}
+.promo-title{ font-size:14px; color: var(--text-2); margin-bottom:10px; }
+.promo-options{ display:flex; gap:8px; }
+.promo-options .piece{
+  /* رفعِ باگِ «فقط اسب قابل‌انتخابه»: کلاسِ پایه‌ی .piece برای مهره‌های
+     روی صفحه position:absolute + inset:0 + margin:auto دارد (تا دقیقاً
+     وسطِ خانه‌شان بنشینند). این چهار گزینه‌ی ترفیع همان کلاس را به ارث
+     می‌برند، پس همه‌شان دقیقاً روی هم (وسطِ promo-modal) قرار می‌گرفتند؛
+     چون آخرین موردِ اضافه‌شده (اسب) در DOM بالاتر می‌افتد، فقط کلیک روی
+     او ثبت می‌شد و بقیه دقیقاً زیرش پنهان بودند. با ریست‌کردنِ position
+     به static، دوباره داخل flex‌ی promo-options به‌صورت افقی و جدا از هم
+     چیده می‌شوند. */
+  position:static; inset:auto; margin:0;
+  width:54px; height:54px; background: var(--bg-1); border-radius:10px; font-size:36px; cursor:pointer;
+}
+.promo-options .piece:active{ transform: scale(.9); }
+
+.history-panel{
+  position:absolute; inset:0; background: var(--bg-0);
+  z-index:40; display:flex; flex-direction:column;
+  transform: translateX(100%);
+  transition: transform .4s cubic-bezier(.16,1,.3,1);
+}
+.history-panel.hidden{ display:flex; }
+.history-panel.open{ transform: translateX(0); }
+.history-head{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px; border-bottom:1px solid var(--border); font-weight:700; font-size:16px;
+}
+.history-list{ flex:1; overflow-y:auto; padding: 8px 16px; }
+.history-row{
+  display:flex; align-items:center; gap:12px; padding:11px 0;
+  border-bottom: 1px solid var(--border); font-size:16px;
+}
+.history-num{ color: var(--text-3); width:30px; font-family: monospace; }
+.history-move{ flex:1; font-family: monospace; font-weight:600; }
+
+.theme-list{ flex:1; overflow-y:auto; padding: 14px 16px; display:flex; flex-direction:column; gap:10px; }
+.theme-opt{
+  display:flex; align-items:center; gap:12px;
+  background: var(--surface); border:1px solid var(--border); color: var(--text-1);
+  border-radius:14px; padding:14px 16px; font-size:16px; font-family: var(--font); font-weight:600;
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1), border-color .25s ease, box-shadow .25s ease;
+}
+.theme-opt:active{ transform: scale(.96); }
+.theme-opt.active{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.theme-swatch{ width:32px; height:32px; border-radius:8px; flex-shrink:0; border:1px solid rgba(0,0,0,.15); }
+.theme-swatch-dark{ background: linear-gradient(135deg,#1a2038,#2c3557); }
+.theme-swatch-light{ background: linear-gradient(135deg,#f2f4fb,#c3cae4); }
+.theme-swatch-wood{ background: linear-gradient(135deg,#e8c99b,#a06b3f); }
+.theme-swatch-green{ background: linear-gradient(135deg,#eeeed2,#6f9152); }
+
+.chat-list{ flex:1; overflow-y:auto; padding: 10px 14px; display:flex; flex-direction:column; gap:10px; }
+.chat-bubble{
+  max-width:80%; padding:10px 14px; border-radius:14px; font-size:16px; line-height:1.7;
+  background: var(--surface); border:1px solid var(--border); align-self:flex-start;
+  word-break:break-word;
+  animation: bubblein .32s cubic-bezier(.34,1.56,.64,1);
+  transition: opacity .25s ease;
+}
+@keyframes bubblein{ from{ opacity:0; transform: translateY(6px) scale(.96);} to{ opacity:1; transform: translateY(0) scale(1);} }
+.chat-bubble.sending{ opacity:.55; }
+.chat-bubble.failed{ border-color: var(--danger); }
+.chat-bubble .chat-sender{ display:block; font-size:12px; color: var(--text-3); margin-bottom:3px; font-weight:700; }
+.chat-bubble.mine{
+  align-self:flex-end; background: linear-gradient(135deg, var(--accent), var(--accent-2)); border:none; color:#fff;
+}
+.chat-bubble.mine .chat-sender{ color: rgba(255,255,255,.75); }
+.chat-empty{ color: var(--text-3); font-size:14px; text-align:center; margin-top:24px; }
+.chat-input-row{ display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--border); }
+.chat-input{
+  flex:1; background: var(--bg-1); border:1px solid var(--border); border-radius:12px;
+  padding:12px 14px; color: var(--text-1); font-size:16px; font-family: var(--font);
+}
+.chat-input:focus{ outline:none; border-color: var(--accent); }
+.chat-send{ flex-shrink:0; }
+
+.modal-overlay{
+  position:absolute; inset:0; background: rgba(10,13,26,.82);
+  z-index:50; display:flex; align-items:center; justify-content:center;
+  animation: fadein .32s cubic-bezier(.4,0,.2,1);
+  backdrop-filter: blur(2px);
+}
+.modal-overlay.hidden{ display:none; }
+.modal-card{
+  background: var(--surface); border:1px solid var(--border);
+  border-radius:20px; padding:28px 26px; text-align:center; width: min(80vw, 300px);
+  animation: popin .42s cubic-bezier(.34,1.56,.64,1);
+}
+.modal-icon{ font-size:52px; margin-bottom:10px; animation: iconpop .5s cubic-bezier(.34,1.56,.64,1) .05s both; }
+.modal-title{ font-size:20px; font-weight:700; margin-bottom:6px; }
+.modal-sub{ font-size:14px; color: var(--text-2); margin-bottom:14px; line-height:1.8; }
+.modal-elo{ font-size:14px; color: var(--text-2); margin-bottom:20px; line-height:1.9; }
+.modal-elo:empty{ display:none; }
+.draw-response-row{ display:flex; gap:8px; margin-top:4px; }
+
+/* دکمه‌ی «بستن» پایان‌بازی: به‌جای دکمه‌ی مسطحِ عمومیِ اکشن‌ها (که هم‌شکلِ
+   تسلیم/پیشنهاد تساوی بود و به‌نظر جدا و بی‌روح می‌آمد)، یک دکمه‌ی
+   برجسته‌ی مخصوصِ خودش با فرم capsule، گرادیان، سایه‌ی نرم و افکت فشردن
+   فنری — هم‌راستا با حس کلی برد/باخت این مودال. */
+#modal-close{
+  margin-top: 6px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border: none;
+  border-radius: 999px;
+  padding: 15px 0;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: .3px;
+  color: #fff;
+  box-shadow: 0 10px 26px rgba(91,124,250,.4), inset 0 1px 0 rgba(255,255,255,.25);
+  transition: transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .3s ease, opacity .2s ease;
+}
+#modal-close:active{
+  transform: scale(.94);
+  box-shadow: 0 4px 14px rgba(91,124,250,.32), inset 0 1px 0 rgba(255,255,255,.2);
+}
+
+@keyframes fadein{ from{ opacity:0;} to{ opacity:1;} }
+@keyframes popin{ from{ opacity:0; transform: scale(.78) translateY(14px);} to{ opacity:1; transform: scale(1) translateY(0);} }
+@keyframes iconpop{ from{ opacity:0; transform: scale(.4) rotate(-15deg);} to{ opacity:1; transform: scale(1) rotate(0deg);} }
+
+#confetti{ position:absolute; inset:0; pointer-events:none; z-index:60; display:none; }
+                           
