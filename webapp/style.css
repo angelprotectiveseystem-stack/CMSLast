@@ -1,4 +1,10 @@
-* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; }
+/* touch-action: manipulation حذفِ تاخیرِ ذاتیِ ~300ms مرورگر قبل از ثبتِ
+   تپ (که برای تشخیصِ دابل-تپ-زوم است) را برای کلِ اپ تضمین می‌کند؛ چون
+   این صفحه اصلاً قابلِ اسکرول/زوم نیست، این تاخیر صرفاً روی هر تپِ روی
+   خانه/دکمه یک لگِ ورودیِ قابل‌حس اضافه می‌کرد که ربطی به کیفیتِ خودِ
+   انیمیشن نداشت — این یکی از منابعِ حسِ «لگ» است که مستقل از انجینِ
+   حرکتِ مهره‌ها روی WebViewهای موبایل وجود دارد. */
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; touch-action: manipulation; }
 
 :root{
   --bg-0:#0e1220;
@@ -436,6 +442,13 @@ html,body{
    برجسته‌ی مخصوصِ خودش با فرم capsule، گرادیان، سایه‌ی نرم و افکت فشردن
    فنری — هم‌راستا با حس کلی برد/باخت این مودال. */
 #modal-close{
+  /* باگ: .action-btn به flex:1 تکیه دارد که فقط داخلِ یک والدِ flex اثر
+     دارد؛ اینجا modal-card والدِ flex نیست، پس flex:1 هیچ کاری نمی‌کرد و
+     دکمه فقط به‌اندازه‌ی متنِ «بستن» + پدینگِ افقیِ صفر جمع می‌شد (کوتاه و
+     نامتناسب با بقیه‌ی مودال). width:100% دکمه را به عرضِ کاملِ کارتِ
+     مودال می‌کشد — همان درازترشدنی که خواسته شده بود. */
+  display: block;
+  width: 100%;
   margin-top: 6px;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   border: none;
