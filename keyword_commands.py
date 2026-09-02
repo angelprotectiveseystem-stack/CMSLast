@@ -1,5 +1,6 @@
 import re
 import json
+import logging
 import platform
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -7,7 +8,12 @@ import database as db
 import keyboards as kb
 from helpers import safe_edit_message_text, box, separator, now_shamsi
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER, BOT_USERNAME
-from panel_timeout import schedule_panel_timeout, reset_panel_timeout, cancel_panel_timeout
+from panel_timeout import (
+    schedule_panel_timeout, reset_panel_timeout, cancel_panel_timeout,
+    CLOSED_WELCOME_TIMEOUT_SECONDS,
+)
+
+logger = logging.getLogger(__name__)
 
 ADMIN_KEYWORDS = {"تنظیم مدیر", "تنظیم مدیر امنیتی", "حذف مدیر", "حذف مدیر امنیتی"}
 
@@ -52,6 +58,8 @@ SIMPLE_KEYWORDS = {
     "آمار": "quick_stats",         # آمار سریع بازیکنان و مسابقات
     "نتایج": "recent_results",     # آخرین نتایج مسابقات
     "اخطارها": "warnings_list",    # لیست بازیکنان با اخطار
+    "بازی": "live_chess",          # باز کردن منوی شطرنج زنده
+    "شطرنج": "live_chess",         # مترادف بازی
 }
 
 PISHVA_ONLY_ACTIONS = {
@@ -142,15 +150,39 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     raise ApplicationHandlerStop()
 
 
-async def register_panel_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg_id: int):
-    """صاحب پنل رو ثبت می‌کنه و تایمر بسته‌شدن خودکار (عدم فعالیت) رو راه‌اندازی می‌کنه"""
+async def _clear_previous_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE,
+                                 chat_id: int, uid: int, new_msg_id: int):
+    """پنلِ قبلیِ همین کاربر (در همین گروه) رو، اگه هنوز باز مونده باشه، حذف
+    می‌کنه. این باعث می‌شه با گفتنِ هر کلمه‌ی جدید («پنل»، «بستن»/«خروج» و...)
+    فقط یک پنل به‌ازای هر کاربر توی گروه باز بمونه، نه چندتا هم‌زمان."""
+    if ctx.chat_data is None:
+        return
+    key = f"active_panel_msg_{uid}"
+    prev_msg_id = ctx.chat_data.get(key)
+    if not prev_msg_id or prev_msg_id == new_msg_id:
+        return
+    cancel_panel_timeout(ctx, chat_id, prev_msg_id)
+    ctx.chat_data.pop(f"panel_owner_{prev_msg_id}", None)
+    try:
+        await ctx.bot.delete_message(chat_id=chat_id, message_id=prev_msg_id)
+    except Exception as e:
+        logger.debug(f"could not delete previous panel message {prev_msg_id} in {chat_id}: {e}")
+
+
+async def register_panel_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg_id: int,
+                                timeout_seconds: int = None):
+    """صاحب پنل رو ثبت می‌کنه، پنلِ قبلیِ همون کاربر (اگه هنوز باز بود) رو
+    حذف می‌کنه، و تایمر بسته‌شدن خودکار (عدم فعالیت) رو راه‌اندازی می‌کنه.
+    timeout_seconds برای override کردنِ بازه‌ی پیش‌فرض (۳ دقیقه)."""
     chat = update.effective_chat
     if not chat or chat.type not in ("group", "supergroup"):
         return
     uid = update.effective_user.id if update.effective_user else None
     if uid and ctx.chat_data is not None:
+        await _clear_previous_panel(update, ctx, chat.id, uid, msg_id)
         ctx.chat_data[f"panel_owner_{msg_id}"] = uid
-        schedule_panel_timeout(ctx, chat.id, msg_id, uid)
+        ctx.chat_data[f"active_panel_msg_{uid}"] = msg_id
+        schedule_panel_timeout(ctx, chat.id, msg_id, uid, timeout_seconds=timeout_seconds)
 
 
 # ─── پرسیدن محل باز شدن پنل (گروه vs پیوی) ──────────────────
@@ -186,9 +218,8 @@ async def ask_panel_location(update: Update, ctx: ContextTypes.DEFAULT_TYPE, act
     )
     # ثبت مالکیت پیام سوال، وگرنه وقتی کاربر روی «همینجا» کلیک کنه،
     # panel_ownership_guard چون owner_id ثبت‌نشده می‌بینه، پیام «پنل قابل استفاده نیست» می‌ده.
-    if ctx.chat_data is not None:
-        ctx.chat_data[f"panel_owner_{sent.message_id}"] = uid
-        schedule_panel_timeout(ctx, chat.id, sent.message_id, uid)
+    # این کار پنلِ قبلیِ همین کاربر (اگه هنوز باز بود) رو هم حذف می‌کنه.
+    await register_panel_owner(update, ctx, sent.message_id)
     raise ApplicationHandlerStop()
 
 
@@ -305,10 +336,7 @@ async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await show_pishva_welcome(update, ctx)
         else:
             await show_admin_welcome(update, ctx, admin)
-        if ctx.chat_data is not None:
-            msg_id = query.message.message_id
-            ctx.chat_data[f"panel_owner_{msg_id}"] = uid
-            schedule_panel_timeout(ctx, query.message.chat_id, msg_id, uid)
+        await register_panel_owner(update, ctx, query.message.message_id)
         return
 
     text, markup, err = await _panel_content(action, uid, is_pishva, admin)
@@ -319,10 +347,9 @@ async def open_panel_here(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     sent = await safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
 
     # ثبت مالکیت پنل
-    if sent and ctx.chat_data is not None:
+    if sent:
         msg_id = sent.message_id if hasattr(sent, "message_id") else query.message.message_id
-        ctx.chat_data[f"panel_owner_{msg_id}"] = uid
-        schedule_panel_timeout(ctx, query.message.chat_id, msg_id, uid)
+        await register_panel_owner(update, ctx, msg_id)
 
 
 
@@ -351,12 +378,12 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         raise ApplicationHandlerStop()
 
     # ─── بستن پنل (کلمه‌ی «بستن» یا «خروج») ───
-    # پنلِ فعلی رو نمی‌بندد (چون در پیوی اصلاً چیزی برای ادیت‌کردن ثبت
-    # نشده — register_panel_owner فقط توی گروه کار می‌کنه)، بلکه یک
-    # پیامِ تازه با همون خوش‌آمدگوییِ همیشگی می‌فرستد ولی به‌جای کیبوردِ
-    # کاملِ پنل، فقط ۲ دکمه زیرش می‌ذاره: لاگ‌ها و ورود به پنل. با
-    # ۳ دقیقه بی‌فعالیتی (مثلِ هر پنلِ دیگه‌ای توی گروه) خودش هم بسته
-    # می‌شه.
+    # پنلِ قبلاً بازِ همین کاربر توی گروه رو حذف می‌کنه (از طریق
+    # register_panel_owner → _clear_previous_panel) و یک پیامِ تازه با
+    # همون خوش‌آمدگوییِ همیشگی می‌فرستد ولی به‌جای کیبوردِ کاملِ پنل،
+    # فقط ۲ دکمه زیرش می‌ذاره: لاگ‌ها و ورود به پنل. این پیام (برخلافِ
+    # پنل‌های معمولی که ۳ دقیقه صبر می‌کنن) با ۱ دقیقه بی‌فعالیتی
+    # خودش بسته می‌شه.
     if action == "close_panel":
         from auth import time_greeting, get_weather_line
         name = (await db.get_setting("pishva_display_name", "مدیر ارشد")) if is_pishva \
@@ -369,7 +396,15 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         sent = await update.message.reply_text(
             text, reply_markup=kb.kb_panel_closed_menu(), parse_mode="Markdown"
         )
-        await register_panel_owner(update, ctx, sent.message_id)
+        await register_panel_owner(update, ctx, sent.message_id, timeout_seconds=CLOSED_WELCOME_TIMEOUT_SECONDS)
+        raise ApplicationHandlerStop()
+
+    # ─── شطرنج زنده (کلمه‌ی «بازی» یا «شطرنج») ───
+    if action == "live_chess":
+        from chess_challenge import chess_menu_from_message
+        sent = await chess_menu_from_message(update, ctx)
+        if sent is not None:
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── پنل مدیر ارشد (کلمه «مدیر ارشد») ───

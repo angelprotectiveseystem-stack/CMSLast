@@ -22,6 +22,7 @@ from telegram.error import TelegramError
 logger = logging.getLogger(__name__)
 
 PANEL_TIMEOUT_SECONDS = 180  # ۳ دقیقه
+CLOSED_WELCOME_TIMEOUT_SECONDS = 60  # ۱ دقیقه — پیامِ خوش‌آمدگویی بعد از «بستن»/«خروج»
 
 CLOSED_TEXT = (
     "⏱ *پنل به‌دلیل عدم فعالیت بسته شد.*\n\n"
@@ -61,24 +62,28 @@ def _cancel_existing_job(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, message_i
 
 
 def schedule_panel_timeout(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int,
-                            message_id: int, owner_id: int):
+                            message_id: int, owner_id: int, timeout_seconds: int = None):
     """تایمر بستن خودکار رو برای این پنل (چت+پیام) راه‌اندازی می‌کنه.
-    اگه تایمر قبلی برای همین پیام وجود داشته باشه، اول حذفش می‌کنه."""
+    اگه تایمر قبلی برای همین پیام وجود داشته باشه، اول حذفش می‌کنه.
+    با timeout_seconds می‌شه بازه‌ی پیش‌فرض (۳ دقیقه) رو برای یک پیامِ
+    خاص override کرد؛ مثلاً پیامِ خوش‌آمدگویی بعد از «بستن»/«خروج» که
+    باید زودتر (۱ دقیقه) بسته بشه."""
     if ctx.job_queue is None:
         return
     _cancel_existing_job(ctx, chat_id, message_id)
+    delay = timeout_seconds if timeout_seconds is not None else PANEL_TIMEOUT_SECONDS
     ctx.job_queue.run_once(
         _close_panel_job,
-        when=PANEL_TIMEOUT_SECONDS,
+        when=delay,
         data={"chat_id": chat_id, "message_id": message_id, "owner_id": owner_id},
         name=_job_name(chat_id, message_id),
     )
 
 
 def reset_panel_timeout(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int,
-                         message_id: int, owner_id: int):
+                         message_id: int, owner_id: int, timeout_seconds: int = None):
     """با هر کلیک صاحب پنل روی یک دکمه، تایمر رو از نو شروع می‌کنه."""
-    schedule_panel_timeout(ctx, chat_id, message_id, owner_id)
+    schedule_panel_timeout(ctx, chat_id, message_id, owner_id, timeout_seconds=timeout_seconds)
 
 
 def cancel_panel_timeout(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int):

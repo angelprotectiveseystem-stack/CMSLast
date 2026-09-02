@@ -108,28 +108,26 @@ async def _eligible_opponents(requester_id: int):
     return opponents
 
 
-async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    uid = query.from_user.id
+async def _chess_menu_content(uid: int):
+    """محتوای (متن، کیبورد) منوی شطرنج زنده رو می‌سازه.
+    هم دکمه‌ی «♟️ شطرنج زنده» (کال‌بک) و هم کلمه‌ی کلیدی «بازی»/«شطرنج»
+    (پیام متنی) از همین تابع محتوا می‌گیرن تا دقیقاً یک چیز نمایش داده بشه.
 
+    خروجی: (text, markup, reason)
+    - موفق: (text, markup, None)
+    - مسدود: (None, None, پیام‌دلیل)
+    """
     reason = await _chess_block_reason(uid)
     if reason:
-        await query.answer()
-        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
-        return
-
-    await query.answer()
+        return None, None, reason
 
     active_game = await db.get_active_chess_game_for(uid)
     if active_game:
-        await safe_edit_message_text(
-            query,
+        text = (
             f"{box('♟️ شطرنج زنده')}\n\n"
-            f"⏳ شما یک بازی فعال دارید. برای ادامه، روی دکمه‌ی زیر بزنید:",
-            reply_markup=_kb_resume(active_game["token"]),
-            parse_mode=ParseMode.MARKDOWN,
+            f"⏳ شما یک بازی فعال دارید. برای ادامه، روی دکمه‌ی زیر بزنید:"
         )
-        return
+        return text, _kb_resume(active_game["token"]), None
 
     opponents = await _eligible_opponents(uid)
     # بازی‌های دیگرانی که همین الان در جریانند (خود uid در آن‌ها بازیکن
@@ -162,11 +160,33 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if other_games:
         text += "\n\n👁 یا یکی از بازی‌های در حال انجام را زنده تماشا کنید:"
 
-    await safe_edit_message_text(
-        query, text,
-        reply_markup=InlineKeyboardMarkup(rows),
-        parse_mode=ParseMode.MARKDOWN,
-    )
+    return text, InlineKeyboardMarkup(rows), None
+
+
+async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    uid = query.from_user.id
+    await query.answer()
+
+    text, markup, reason = await _chess_menu_content(uid)
+    if reason:
+        await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    await safe_edit_message_text(query, text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+
+
+async def chess_menu_from_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """باز کردن منوی شطرنج زنده با کلمه‌ی کلیدی («بازی» یا «شطرنج») در پیام متنی
+    (نه دکمه). پیامِ ارسال‌شده رو برمی‌گردونه تا در صورت نیاز (داخل گروه)
+    مالکیتِ پنل براش ثبت بشه؛ اگه مسدود بود (و فقط متنِ ساده فرستاده شد)
+    None برمی‌گردونه."""
+    uid = update.effective_user.id
+    text, markup, reason = await _chess_menu_content(uid)
+    if reason:
+        await update.message.reply_text(reason, parse_mode=ParseMode.MARKDOWN)
+        return None
+    return await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
 
 
 async def chess_elo_board(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
