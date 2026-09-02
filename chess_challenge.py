@@ -16,7 +16,7 @@ from telegram.ext import ContextTypes
 
 import database as db
 from chess_ai import AI_LEVELS, ai_display_name
-from config import CHESS_AI_ID, PISHVA_ID, WEBAPP_URL
+from config import CHESS_AI_ID, PISHVA_ID, WEBAPP_URL, BOT_USERNAME
 from game_server import maybe_play_ai_move, new_game_token
 from helpers import safe_edit_message_text, box, pishva_display
 
@@ -108,10 +108,15 @@ async def _eligible_opponents(requester_id: int):
     return opponents
 
 
-async def _chess_menu_content(uid: int):
+async def _chess_menu_content(uid: int, chat_type: str = "private", bot=None):
     """محتوای (متن، کیبورد) منوی شطرنج زنده رو می‌سازه.
     هم دکمه‌ی «♟️ شطرنج زنده» (کال‌بک) و هم کلمه‌ی کلیدی «بازی»/«شطرنج»
     (پیام متنی) از همین تابع محتوا می‌گیرن تا دقیقاً یک چیز نمایش داده بشه.
+
+    chat_type/bot لازمه چون توی گروه/سوپرگروه، تلگرام اصلاً اجازه‌ی
+    دکمه‌ی وب‌اپ (web_app) رو نمی‌ده (خطای Button_type_invalid)؛ پس اگه
+    این منو داخل گروه باز شده باشه، به‌جای دکمه‌های ورود/تماشای مستقیم،
+    دکمه‌ی لینک به پیوی ربات گذاشته می‌شه.
 
     خروجی: (text, markup, reason)
     - موفق: (text, markup, None)
@@ -121,13 +126,16 @@ async def _chess_menu_content(uid: int):
     if reason:
         return None, None, reason
 
+    is_group = chat_type in ("group", "supergroup")
+    bot_username = await _resolve_bot_username(bot) if is_group else None
+
     active_game = await db.get_active_chess_game_for(uid)
     if active_game:
         text = (
             f"{box('♟️ شطرنج زنده')}\n\n"
             f"⏳ شما یک بازی فعال دارید. برای ادامه، روی دکمه‌ی زیر بزنید:"
         )
-        return text, _kb_resume(active_game["token"]), None
+        return text, _kb_play_for_chat(active_game["token"], is_group, bot_username), None
 
     opponents = await _eligible_opponents(uid)
     # بازی‌های دیگرانی که همین الان در جریانند (خود uid در آن‌ها بازیکن
@@ -143,11 +151,12 @@ async def _chess_menu_content(uid: int):
         label = ("👑 " if opp_id == PISHVA_ID else "🎖️ ") + name
         rows.append([InlineKeyboardButton(label, callback_data=f"chess_req_{opp_id}")])
 
-    if other_games and WEBAPP_URL:
+    if other_games and (WEBAPP_URL or is_group):
         for g in other_games:
-            url = f"{WEBAPP_URL}/webapp/?token={g['token']}"
             label = f"👁 تماشا: ⚪ {g['white_name']} در مقابل ⚫ {g['black_name']}"
-            rows.append([InlineKeyboardButton(label, web_app=WebAppInfo(url=url))])
+            btn = _watch_button(label, g["token"], is_group, bot_username)
+            if btn:
+                rows.append([btn])
 
     rows.append([InlineKeyboardButton("🏆 جدول Elo شطرنج زنده", callback_data="chess_elo_board")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")])
@@ -168,7 +177,8 @@ async def chess_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = query.from_user.id
     await query.answer()
 
-    text, markup, reason = await _chess_menu_content(uid)
+    chat_type = query.message.chat.type if query.message else "private"
+    text, markup, reason = await _chess_menu_content(uid, chat_type, ctx.bot)
     if reason:
         await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
         return
@@ -182,7 +192,8 @@ async def chess_menu_from_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE
     مالکیتِ پنل براش ثبت بشه؛ اگه مسدود بود (و فقط متنِ ساده فرستاده شد)
     None برمی‌گردونه."""
     uid = update.effective_user.id
-    text, markup, reason = await _chess_menu_content(uid)
+    chat_type = update.effective_chat.type if update.effective_chat else "private"
+    text, markup, reason = await _chess_menu_content(uid, chat_type, ctx.bot)
     if reason:
         await update.message.reply_text(reason, parse_mode=ParseMode.MARKDOWN)
         return None
@@ -602,11 +613,15 @@ async def chess_ai_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     token = new_game_token()
     await db.create_chess_game(token, white_id, black_id, white_name, black_name, START_FEN, time_control, ai_level=level)
 
+    chat_type = query.message.chat.type if query.message else "private"
+    is_group = chat_type in ("group", "supergroup")
+    bot_username = await _resolve_bot_username(ctx.bot) if is_group else None
+
     msg = await safe_edit_message_text(
         query,
         f"{box('🤖 بازی با هوش مصنوعی شروع شد!')}\n\n"
         f"شما با مهره‌های {'سفید' if color == 'w' else 'سیاه'} در مقابل {ai_name} بازی می‌کنید.",
-        reply_markup=_kb_play(token),
+        reply_markup=_kb_play_for_chat(token, is_group, bot_username),
         parse_mode=ParseMode.MARKDOWN,
     )
     try:
@@ -645,6 +660,61 @@ def _kb_spectate(token: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👁 تماشای بازی", web_app=WebAppInfo(url=url))],
     ])
+
+
+async def _resolve_bot_username(bot) -> str:
+    """یوزرنیم ربات رو برمی‌گردونه (برای ساختِ لینکِ دیپ‌لینک به پیوی).
+    اول از config.BOT_USERNAME می‌خونه، اگه ست نشده بود از خودِ تلگرام
+    می‌پرسه (get_me)."""
+    if BOT_USERNAME:
+        return BOT_USERNAME
+    if bot is None:
+        return ""
+    try:
+        me = await bot.get_me()
+        return me.username or ""
+    except Exception:
+        logger.exception("Failed to resolve bot username")
+        return ""
+
+
+def _kb_play_for_chat(token: str, is_group: bool, bot_username: str = None) -> InlineKeyboardMarkup:
+    """کیبورد «ورود به بازی» — توی پیوی مستقیم دکمه‌ی وب‌اپ، توی گروه/
+    سوپرگروه (که تلگرام دکمه‌ی وب‌اپ رو قبول نمی‌کنه و Button_type_invalid
+    می‌ده) به‌جاش یک دکمه‌ی لینک به پیوی ربات."""
+    if not is_group:
+        return _kb_play(token)
+    if not bot_username:
+        return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔒 ورود به بازی (در پیوی)", url=f"https://t.me/{bot_username}?start=chess_enter_{token}")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")],
+    ])
+
+
+def _kb_spectate_for_chat(token: str, is_group: bool, bot_username: str = None) -> InlineKeyboardMarkup:
+    """کیبورد «تماشای بازی» — نسخه‌ی گروه‌سازگارِ _kb_spectate."""
+    if not is_group:
+        return _kb_spectate(token)
+    if not bot_username:
+        return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔒 تماشای بازی (در پیوی)", url=f"https://t.me/{bot_username}?start=chess_watch_{token}")],
+    ])
+
+
+def _watch_button(label: str, token: str, is_group: bool, bot_username: str = None):
+    """دکمه‌ی «تماشا»یِ یک بازیِ در حال انجام رو می‌سازه؛ توی گروه (که
+    وب‌اپ مجاز نیست) به لینکِ پیوی تبدیل می‌شه. اگه توی گروه بودیم و
+    یوزرنیمِ ربات هم در دسترس نبود، دکمه‌ای ساخته نمی‌شه (None)."""
+    if is_group:
+        if not bot_username:
+            return None
+        return InlineKeyboardButton(label, url=f"https://t.me/{bot_username}?start=chess_watch_{token}")
+    if not WEBAPP_URL:
+        return None
+    url = f"{WEBAPP_URL}/webapp/?token={token}"
+    return InlineKeyboardButton(label, web_app=WebAppInfo(url=url))
 
 
 def _kb_back() -> InlineKeyboardMarkup:

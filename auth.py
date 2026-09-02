@@ -256,6 +256,38 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
         return ConversationHandler.END
 
+    # ─── دیپ‌لینک شطرنج زنده (وقتی دکمه‌ی «ورود/تماشا در پیوی» در گروه زده شده) ───
+    # توی گروه/سوپرگروه، تلگرام دکمه‌ی وب‌اپ رو قبول نمی‌کنه (Button_type_invalid)،
+    # پس اونجا به‌جاش یک دکمه‌ی لینک به همین‌جا (پیوی) گذاشته می‌شه که دکمه‌ی
+    # واقعیِ ورود/تماشا (وب‌اپ) رو همین‌جا نشون می‌ده.
+    if payload and (payload.startswith("chess_enter_") or payload.startswith("chess_watch_")) and (is_pishva or is_admin):
+        is_watch = payload.startswith("chess_watch_")
+        token = payload[len("chess_watch_"):] if is_watch else payload[len("chess_enter_"):]
+        if is_admin:
+            await db.update_admin_activity(uid)
+
+        game = await db.get_chess_game(token)
+        if not game or game["status"] != "active":
+            await update.message.reply_text("❗ این بازی دیگر در دسترس نیست.")
+            return ConversationHandler.END
+
+        from chess_challenge import _kb_play, _kb_spectate
+        if is_watch:
+            await update.message.reply_text(
+                f"{box('👁 تماشای بازی شطرنج زنده')}\n\n"
+                f"⚪ {game['white_name']}  در مقابل  ⚫ {game['black_name']}",
+                reply_markup=_kb_spectate(token), parse_mode="Markdown"
+            )
+        else:
+            if uid not in (game["white_id"], game["black_id"]):
+                await update.message.reply_text("⛔ شما بازیکن این بازی نیستید.")
+                return ConversationHandler.END
+            await update.message.reply_text(
+                f"{box('♟️ ورود به بازی')}\n\nبرای ادامه‌ی بازی روی دکمه‌ی زیر بزنید:",
+                reply_markup=_kb_play(token), parse_mode="Markdown"
+            )
+        return ConversationHandler.END
+
     if is_pishva:
         return await show_pishva_welcome(update, ctx)
     if is_admin:
