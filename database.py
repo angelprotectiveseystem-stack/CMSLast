@@ -1153,26 +1153,97 @@ async def log_action(admin_id, action_type, description, target_id=None):
         await db.commit()
 
 
-async def get_action_logs(period="all", admin_id=None):
+async def get_action_logs(period="all", admin_id=None, page=0, page_size=10):
+    """لاگِ اقدامات رو صفحه‌بندی‌شده برمی‌گردونه: (ردیف‌ها, تعداد کل).
+    page از ۰ شروع می‌شه؛ حتی اگه تعداد کل نتایج خیلی زیاد باشه (مثلاً
+    ده‌ها هزار ردیف)، فقط همون صفحه‌ی درخواستی از دیتابیس خونده می‌شه."""
     from datetime import timedelta
     now = datetime.now()
     conditions = []
+    params = []
     if period == "today":
         d = now.strftime("%Y-%m-%d")
-        conditions.append(f"logged_at LIKE '{d}%'")
+        conditions.append("logged_at LIKE ?")
+        params.append(f"{d}%")
     elif period == "week":
         d = (now - timedelta(days=7)).isoformat()
-        conditions.append(f"logged_at >= '{d}'")
+        conditions.append("logged_at >= ?")
+        params.append(d)
     elif period == "month":
         d = (now - timedelta(days=30)).isoformat()
-        conditions.append(f"logged_at >= '{d}'")
+        conditions.append("logged_at >= ?")
+        params.append(d)
     if admin_id:
-        conditions.append(f"admin_id = {admin_id}")
+        conditions.append("admin_id = ?")
+        params.append(admin_id)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    offset = max(page, 0) * page_size
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(f"SELECT * FROM action_logs {where} ORDER BY logged_at DESC LIMIT 100") as cur:
-            return await cur.fetchall()
+        async with db.execute(f"SELECT COUNT(*) AS c FROM action_logs {where}", params) as cur:
+            row = await cur.fetchone()
+            total = row["c"] if row else 0
+        async with db.execute(
+            f"SELECT * FROM action_logs {where} ORDER BY logged_at DESC LIMIT ? OFFSET ?",
+            params + [page_size, offset]
+        ) as cur:
+            rows = await cur.fetchall()
+        return rows, total
+
+
+async def search_action_logs(term: str = "", hour_from=None, hour_to=None, page=0, page_size=10):
+    """جستجو در لاگ اقدامات: term توی توضیحات/نوع اقدام/تاریخ-ساعت خام و
+    همچنین نام/یوزرنیم مدیرِ ثبت‌کننده جستجو می‌شه. hour_from/hour_to
+    (هر دو ۰ تا ۲۳) یه فیلترِ بازه‌ی ساعتِ رخداد رو اضافه می‌کنه — با
+    پشتیبانی از بازه‌ی پیچشی (مثلاً ۲۲ تا ۳ بامداد).
+    برمی‌گردونه: (ردیف‌ها, تعداد کل)."""
+    term = (term or "").strip()
+    conditions = []
+    params = []
+
+    if term:
+        like = f"%{term}%"
+        admin_ids = []
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT telegram_id FROM admins WHERE display_name LIKE ? OR full_name LIKE ? OR username LIKE ?",
+                (like, like, like)
+            ) as cur:
+                admin_ids = [r["telegram_id"] for r in await cur.fetchall()]
+
+        sub = ["description LIKE ?", "action_type LIKE ?", "logged_at LIKE ?"]
+        sub_params = [like, like, like]
+        if admin_ids:
+            placeholders = ",".join("?" * len(admin_ids))
+            sub.append(f"admin_id IN ({placeholders})")
+            sub_params.extend(admin_ids)
+        conditions.append("(" + " OR ".join(sub) + ")")
+        params.extend(sub_params)
+
+    if hour_from is not None and hour_to is not None:
+        if hour_from <= hour_to:
+            conditions.append("CAST(substr(logged_at,12,2) AS INTEGER) BETWEEN ? AND ?")
+            params.extend([hour_from, hour_to])
+        else:
+            conditions.append(
+                "(CAST(substr(logged_at,12,2) AS INTEGER) >= ? OR CAST(substr(logged_at,12,2) AS INTEGER) <= ?)"
+            )
+            params.extend([hour_from, hour_to])
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    offset = max(page, 0) * page_size
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(f"SELECT COUNT(*) AS c FROM action_logs {where}", params) as cur:
+            row = await cur.fetchone()
+            total = row["c"] if row else 0
+        async with db.execute(
+            f"SELECT * FROM action_logs {where} ORDER BY logged_at DESC LIMIT ? OFFSET ?",
+            params + [page_size, offset]
+        ) as cur:
+            rows = await cur.fetchall()
+        return rows, total
 
 
 # ─── Access Requests ─────────────────────────────────────────

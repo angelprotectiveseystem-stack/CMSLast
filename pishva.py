@@ -4,12 +4,14 @@ from telegram.error import BadRequest
 import database as db
 import keyboards as kb
 from helpers import (safe_edit_message_text, box, separator, now_shamsi, broadcast_to_admins,
-    notify_pishva, pishva_display, log_line, safe_reply_text, escape_md_legacy)
+    notify_pishva, pishva_display, log_line, safe_reply_text, escape_md_legacy,
+    format_log_entry, parse_hour_range)
 from config import (PISHVA_ID, STATUS_NORMAL, STATUS_BAD, STATUS_DANGER, STATUS_APS,
     ST_TOURNAMENT_NAME, ST_PISHVA_NAME_CHANGE, ST_ADMIN_NAME_CHANGE,
     ST_NEW_YEAR_CONFIRM, ST_NEW_YEAR_PASSWORD, ST_REPAIR_REASON,
     ST_GROUP_ID, ST_CHANNEL_ID, ST_UPDATE_VERSION, ST_UPDATE_DESC,
-    ST_RESTORE_FILE, ST_CHESS_AI_BROADCAST_TEXT, NEW_YEAR_PASSWORD)
+    ST_RESTORE_FILE, ST_CHESS_AI_BROADCAST_TEXT, NEW_YEAR_PASSWORD,
+    ST_LOGS_SEARCH_TERM, ST_LOGS_SEARCH_RANGE)
 from telegram.ext import ConversationHandler
 import io
 
@@ -180,26 +182,139 @@ async def pishva_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+LOGS_PERIOD_LABEL = {"today": "امروز", "week": "این هفته", "month": "این ماه", "all": "کل تاریخ"}
+LOGS_PAGE_SIZE = 10
+
+
+async def _render_logs_page(query, period: str, page: int):
+    """یک صفحه از لاگِ اقدامات (بر اساس فیلتر بازه‌ی زمانی) را رندر می‌کند.
+    از صفحه‌بندیِ واقعیِ سمت دیتابیس استفاده می‌کند، پس حتی اگه تعداد کل
+    نتایج خیلی زیاد باشه (ده‌ها هزار ردیف)، فقط همون صفحه خونده می‌شه."""
+    rows, total = await db.get_action_logs(period, page=page, page_size=LOGS_PAGE_SIZE)
+    if not rows:
+        await safe_edit_message_text(query, "❗ هیچ اقدامی در این بازه ثبت نشده.", reply_markup=kb.kb_logs_filter())
+        return
+
+    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
+    pname = await pishva_display()
+    label = LOGS_PERIOD_LABEL.get(period, period)
+    total_pages = max(1, (total + LOGS_PAGE_SIZE - 1) // LOGS_PAGE_SIZE)
+
+    lines = [f"{box('🔍 لاگ اقدامات — ' + label)}", f"یافت‌شده: {total} مورد — صفحه {page + 1} از {total_pages}", ""]
+    for log in rows:
+        name = pname if log["admin_id"] == PISHVA_ID else admins.get(log["admin_id"], str(log["admin_id"]))
+        t = str(log["logged_at"] or "")[:16]
+        lines.append(format_log_entry(t, name, log["action_type"], log["description"]))
+
+    text = "\n\n".join(lines)
+    keyboard = kb.kb_logs_list(period, page, total_pages)
+    try:
+        await safe_edit_message_text(query, text, reply_markup=keyboard, parse_mode="Markdown")
+    except BadRequest:
+        await safe_edit_message_text(query, text, reply_markup=keyboard)
+
+
 async def show_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """انتخاب یکی از فیلترهای بازه (امروز/این‌هفته/این‌ماه/کل) → صفحه‌ی اول."""
     query = update.callback_query
     await query.answer()
     period = query.data.split("_")[-1]
-    logs = await db.get_action_logs(period)
+    ctx.user_data["logs_period"] = period
+    await _render_logs_page(query, period, 0)
+
+
+async def logs_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """دکمه‌ی صفحه‌ی بعد/قبل در لیست لاگ: callback_data = logspage_<period>_<page>"""
+    query = update.callback_query
+    await query.answer()
+    _, period, page_str = query.data.split("_")
+    try:
+        page = int(page_str)
+    except ValueError:
+        page = 0
+    ctx.user_data["logs_period"] = period
+    await _render_logs_page(query, period, page)
+
+
+# ─── جستجوی لاگ (دو مرحله‌ای: عبارت جستجو → بازه‌ی ساعت) ────────
+async def logs_search_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    ctx.user_data.pop("logs_search_term", None)
+    ctx.user_data.pop("logs_search_hour_from", None)
+    ctx.user_data.pop("logs_search_hour_to", None)
+    await safe_edit_message_text(
+        query,
+        f"{box('🔍 جستجو در لاگ')}\n\n"
+        "🔎 عبارت جستجو رو بفرستید — نام مدیر، نام بازیکن، نوع اقدام، تاریخ یا هر چیز مرتبط.\n"
+        "برای رد شدن از این مرحله «-» بفرستید.",
+        parse_mode="Markdown",
+    )
+    return ST_LOGS_SEARCH_TERM
+
+
+async def logs_search_term_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    ctx.user_data["logs_search_term"] = "" if text == "-" else text
+    await update.message.reply_text(
+        f"{box('⏳ بازه‌ی ساعت (اختیاری)')}\n\n"
+        "اگه می‌خوای فقط اتفاق‌های یه بازه‌ی ساعتِ مشخص رو ببینی، دو عدد بفرست، مثلاً: 22 تا 24\n"
+        "برای رد شدن از این مرحله «-» بفرست.",
+        parse_mode="Markdown",
+    )
+    return ST_LOGS_SEARCH_RANGE
+
+
+async def _build_logs_search_view(ctx: ContextTypes.DEFAULT_TYPE, page: int):
+    term = ctx.user_data.get("logs_search_term", "") or ""
+    hf = ctx.user_data.get("logs_search_hour_from")
+    ht = ctx.user_data.get("logs_search_hour_to")
+    rows, total = await db.search_action_logs(term=term, hour_from=hf, hour_to=ht, page=page, page_size=LOGS_PAGE_SIZE)
+
+    if not rows:
+        return f"{box('🔍 نتایج جستجو')}\n\n❗ نتیجه‌ای یافت نشد.", kb.kb_logs_search_list(0, 1)
+
     admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
     pname = await pishva_display()
-    if not logs:
-        await safe_edit_message_text(query, "❗ هیچ اقدامی در این بازه ثبت نشده.", reply_markup=kb.kb_logs_filter())
-        return
-    lines = []
-    for log in logs[:20]:
+    total_pages = max(1, (total + LOGS_PAGE_SIZE - 1) // LOGS_PAGE_SIZE)
+
+    lines = [f"{box('🔍 نتایج جستجو')}", f"یافت‌شده: {total} مورد — صفحه {page + 1} از {total_pages}", ""]
+    for log in rows:
         name = pname if log["admin_id"] == PISHVA_ID else admins.get(log["admin_id"], str(log["admin_id"]))
         t = str(log["logged_at"] or "")[:16]
-        lines.append(log_line(t, name, log["action_type"] + ": " + (log["description"] or "")))
-    text = f"{box('🔍 لاگ اقدامات')}\n\n" + "\n".join(lines)
+        lines.append(format_log_entry(t, name, log["action_type"], log["description"]))
+
+    text = "\n\n".join(lines)
+    keyboard = kb.kb_logs_search_list(page, total_pages)
+    return text, keyboard
+
+
+async def logs_search_range_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    hour_from = hour_to = None
+    if text != "-":
+        hour_from, hour_to = parse_hour_range(text)
+    ctx.user_data["logs_search_hour_from"] = hour_from
+    ctx.user_data["logs_search_hour_to"] = hour_to
+
+    view_text, keyboard = await _build_logs_search_view(ctx, 0)
     try:
-        await safe_edit_message_text(query, text, reply_markup=kb.kb_logs_filter(), parse_mode="Markdown")
+        await update.message.reply_text(view_text, reply_markup=keyboard, parse_mode="Markdown")
     except BadRequest:
-        await safe_edit_message_text(query, text, reply_markup=kb.kb_logs_filter())
+        await update.message.reply_text(view_text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+
+async def logs_search_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """دکمه‌ی صفحه‌ی بعد/قبل در نتایج جستجو: callback_data = logssearchpage_<page>"""
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split("_")[-1])
+    view_text, keyboard = await _build_logs_search_view(ctx, page)
+    try:
+        await safe_edit_message_text(query, view_text, reply_markup=keyboard, parse_mode="Markdown")
+    except BadRequest:
+        await safe_edit_message_text(query, view_text, reply_markup=keyboard)
 
 # ─── پیگیری بازی‌های شطرنج مدیران ──────────────────────────────
 # دلیلِ پایانِ هر بازی (status توی جدول chess_games) یکی از این‌هاست:

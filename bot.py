@@ -35,6 +35,7 @@ from config import (
     ST_RESTORE_FILE,
     ST_WORKHOURS_AUTOEND_MINUTES, ST_WORKHOURS_REMINDER_MINUTES,
     ST_CHESS_AI_BROADCAST_TEXT,
+    ST_LOGS_SEARCH_TERM, ST_LOGS_SEARCH_RANGE,
 )
 
 from auth import (
@@ -82,7 +83,8 @@ from matches import (
 from pishva import (
     pishva_status, set_status, pishva_settings, toggle_setting,
     pishva_dbstatus, dbstatus_on, dbstatus_off,
-    pishva_logs, show_logs, pishva_requests, pishva_backup,
+    pishva_logs, show_logs, logs_page, logs_search_start, logs_search_term_received,
+    logs_search_range_received, logs_search_page, pishva_requests, pishva_backup,
     pishva_chess_games, show_chess_games,
     backup_period_select, backup_format_select,
     pishva_repair, repair_on, repair_off,
@@ -667,8 +669,15 @@ def build_application():
             CallbackQueryHandler(update_announce_start, pattern="^update_announce$"),
             CallbackQueryHandler(admin_warn_start, pattern="^admin_warn_"),
             CallbackQueryHandler(admin_msg_start, pattern="^admin_msg_"),
+            CallbackQueryHandler(logs_search_start, pattern="^logs_search$"),
         ],
         states={
+            ST_LOGS_SEARCH_TERM: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, logs_search_term_received)
+            ],
+            ST_LOGS_SEARCH_RANGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, logs_search_range_received)
+            ],
             ST_PISHVA_NAME_CHANGE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, identity_pishva_save)
             ],
@@ -894,6 +903,8 @@ def build_application():
     app.add_handler(CallbackQueryHandler(toggle_setting, pattern="^setting_"))
     app.add_handler(CallbackQueryHandler(pishva_logs, pattern="^pishva_logs$"))
     app.add_handler(CallbackQueryHandler(show_logs, pattern="^logs_(today|week|month|all)$"))
+    app.add_handler(CallbackQueryHandler(logs_page, pattern="^logspage_"))
+    app.add_handler(CallbackQueryHandler(logs_search_page, pattern="^logssearchpage_"))
     app.add_handler(CallbackQueryHandler(pishva_chess_games, pattern="^pishva_chess_games$"))
     app.add_handler(CallbackQueryHandler(show_chess_games, pattern="^chessgames_(today|week|month|all)$"))
     app.add_handler(CallbackQueryHandler(pishva_requests, pattern="^pishva_requests$"))

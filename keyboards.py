@@ -409,9 +409,34 @@ def kb_logs_filter():
         [InlineKeyboardButton("📅 امروز", callback_data="logs_today"),
         InlineKeyboardButton("📆 این هفته", callback_data="logs_week")],
         [InlineKeyboardButton("🗓️ این ماه", callback_data="logs_month"),
-        InlineKeyboardButton("📚 کل اقدامات", callback_data="logs_all")],
+        InlineKeyboardButton("📚 کل تاریخ", callback_data="logs_all")],
+        [InlineKeyboardButton("🔍 جستجو", callback_data="logs_search")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
+
+def kb_logs_list(period, page, total_pages):
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"logspage_{period}_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"logspage_{period}_{page+1}"))
+    nav.append(InlineKeyboardButton("🔍 جستجو", callback_data="logs_search"))
+    rows = [nav]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_logs")])
+    return InlineKeyboardMarkup(rows)
+
+def kb_logs_search_list(page, total_pages):
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"logssearchpage_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"logssearchpage_{page+1}"))
+    rows = []
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton("🔍 جستجوی جدید", callback_data="logs_search")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت به فیلتر", callback_data="pishva_logs")])
+    return InlineKeyboardMarkup(rows)
 
 def kb_chess_games_filter():
     return InlineKeyboardMarkup([

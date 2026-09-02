@@ -248,7 +248,7 @@ async def admin_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     tasks = await db.get_tasks_for(tid)
-    logs = await db.get_action_logs("all", tid)
+    _logs_rows, logs_total = await db.get_action_logs("all", tid)
     warn_bar = warning_bar_admin(admin["warnings"])
     role_label = "🏆 مدیر مسابقات" if admin["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
 
@@ -260,7 +260,7 @@ async def admin_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🆔 آیدی: `{admin['telegram_id']}`\n"
         f"📅 تاریخ ثبت: `{str(admin['joined_at'])[:10]}`\n"
         f"⏱️ آخرین فعالیت: `{str(admin['last_active'] or '')[:16]}`\n"
-        f"📊 اقدامات: `{len(logs)}`\n"
+        f"📊 اقدامات: `{logs_total}`\n"
         f"📋 وظایف: `{len(tasks)}`\n"
         f"{'✅ فعال' if admin['is_active'] else '🔴 غیرفعال'}\n\n"
         f"{separator('⚠️ اخطارها')}\n"
@@ -390,7 +390,7 @@ async def admin_clear_warnings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     warn_bar = warning_bar_admin(admin2["warnings"])
     role_label = "🏆 مدیر مسابقات" if admin2["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
     tasks = await db.get_tasks_for(tid)
-    logs = await db.get_action_logs("all", tid)
+    _logs_rows, logs_total = await db.get_action_logs("all", tid)
     _name = admin2["display_name"] or admin2["full_name"]
     text = (
         f"{box("👤 پروفایل: " + _name + "")}\n\n"
@@ -399,7 +399,7 @@ async def admin_clear_warnings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🆔 آیدی: `{admin2['telegram_id']}`\n"
         f"📅 تاریخ ثبت: `{str(admin2['joined_at'])[:10]}`\n"
         f"⏱️ آخرین فعالیت: `{str(admin2['last_active'] or '')[:16]}`\n"
-        f"📊 اقدامات: `{len(logs)}`\n"
+        f"📊 اقدامات: `{logs_total}`\n"
         f"📋 وظایف: `{len(tasks)}`\n"
         f"{'✅ فعال' if admin2['is_active'] else '🔴 غیرفعال'}\n\n"
         f"{separator('⚠️ اخطارها')}\n"

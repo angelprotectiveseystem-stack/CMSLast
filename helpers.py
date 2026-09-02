@@ -110,6 +110,115 @@ def escape_md_legacy(text: str) -> str:
 def log_line(time_str: str, name: str, action: str) -> str:
     return f"⏱️ `{time_str}` | 👤 {escape_md_legacy(name)} ╼ {escape_md_legacy(action)} 📌"
 
+
+# ─── جستجوی لاگ: تبدیل ارقام و بازه‌ی ساعت ──────────────────────
+_DIGIT_MAP = {}
+for _f, _a, _e in zip("۰۱۲۳۴۵۶۷۸۹", "٠١٢٣٤٥٦٧٨٩", "0123456789"):
+    _DIGIT_MAP[_f] = _e
+    _DIGIT_MAP[_a] = _e
+
+
+def normalize_digits(text: str) -> str:
+    """ارقام فارسی/عربی توی متن ورودی کاربر رو به ارقام انگلیسی تبدیل می‌کنه
+    (مثلاً «۲۲ تا ۲۴» → «22 تا 24») تا جستجو/پارس کردن بازه درست کار کنه."""
+    if not text:
+        return text
+    return "".join(_DIGIT_MAP.get(ch, ch) for ch in text)
+
+
+def parse_hour_range(text: str):
+    """از یه متن آزاد مثل «۲۲ تا ۲۴» یا «22-24» یا فقط «22»، بازه‌ی ساعت
+    (from, to) بین ۰ تا ۲۳ استخراج می‌کنه. اگه چیزی پیدا نشه (None, None)."""
+    import re
+    text = normalize_digits((text or "").strip())
+    if not text or text == "-":
+        return None, None
+    nums = re.findall(r"\d+", text)
+    if not nums:
+        return None, None
+    a = int(nums[0])
+    b = int(nums[1]) if len(nums) > 1 else a
+    a = min(max(a, 0), 23)
+    b = min(max(b, 0), 23)
+    return a, b
+
+
+# ─── لاگ اقدامات: برچسب فارسی + اموجی برای هر نوع اقدام ─────────
+ACTION_LOG_LABELS = {
+    "create_match":              ("♟️", "ثبت مسابقه جدید"),
+    "match_result":               ("🏆", "ثبت نتیجه مسابقه"),
+    "delete_match":               ("🗑️", "حذف مسابقه"),
+    "eliminate_player":           ("❌", "حذف بازیکن از مسابقه"),
+    "create_player":              ("👤", "ثبت بازیکن جدید"),
+    "bulk_create_player":         ("👥", "ثبت گروهی بازیکن"),
+    "create_class":               ("🏫", "ثبت کلاس جدید"),
+    "player_warning":             ("⚠️", "اخطار به بازیکن"),
+    "kick_player":                ("🚫", "اخراج بازیکن"),
+    "suspend_player":             ("⏸️", "تعلیق بازیکن"),
+    "revive_player":              ("♻️", "احیای بازیکن"),
+    "create_tournament":          ("🏁", "ایجاد تورنمنت"),
+    "edit_tournament":            ("✏️", "ویرایش تورنمنت"),
+    "end_tournament":             ("🔚", "پایان تورنمنت"),
+    "pause_tournament":           ("⏯️", "تعویق تورنمنت"),
+    "delete_tournament":          ("🗑️", "حذف تورنمنت"),
+    "set_default_tournament":     ("⭐", "تنظیم تورنمنت پیش‌فرض"),
+    "adv_lottery":                ("🎲", "قرعه‌کشی پیشرفته"),
+    "create_team":                ("🤝", "ثبت تیم جدید"),
+    "delete_team":                ("🗑️", "حذف تیم"),
+    "assign_task":                ("📋", "اعطای وظیفه"),
+    "admin_warning":              ("⚠️", "اخطار به مدیر"),
+    "admin_clear_warnings":       ("✅", "پاک‌کردن اخطارهای مدیر"),
+    "kick_admin":                 ("🚷", "اخراج مدیر"),
+    "kick_admin_keyword":         ("🚷", "اخراج مدیر"),
+    "set_admin_keyword":          ("👮", "تنظیم مدیر"),
+    "override_strike":            ("🔁", "تغییر تعداد اخطار مدیر"),
+    "toggle_perm":                ("🔐", "تغییر دسترسی مدیر"),
+    "identity_change":            ("🪪", "تغییر نام مدیر ارشد"),
+    "admin_identity_change":      ("🪪", "تغییر نام مدیر"),
+    "login":                      ("🔑", "ورود مدیر ارشد"),
+    "set_status":                 ("🚦", "تغییر وضعیت سیستم"),
+    "toggle_setting":             ("⚙️", "تغییر تنظیمات"),
+    "backup":                     ("💾", "تهیه بکاپ"),
+    "backup_now":                 ("💾", "بکاپ اضطراری"),
+    "auto_backup":                ("🗄️", "بکاپ خودکار"),
+    "restore":                    ("📥", "بازگردانی بکاپ"),
+    "repair_on":                  ("🔧", "فعال‌سازی حالت تعمیر"),
+    "repair_off":                 ("✅", "غیرفعال‌سازی حالت تعمیر"),
+    "dbstatus_on":                ("🟢", "فعال‌سازی دستی دیتابیس"),
+    "dbstatus_off":               ("🔴", "غیرفعال‌سازی دستی دیتابیس"),
+    "new_year_reset":             ("🎓", "ریست سال تحصیلی"),
+    "set_group":                  ("📡", "تنظیم گروه اعلانات"),
+    "set_channel":                ("🆔", "تنظیم کانال اعلانات"),
+    "broadcast_toggle":           ("📢", "تغییر تنظیم پخش خودکار"),
+    "set_chess_ai_broadcast_text": ("🤖", "تنظیم متن اعلان هوش مصنوعی"),
+    "workhour_start":             ("🟢", "آغاز ساعت کاری"),
+    "workhour_end":               ("🔴", "پایان ساعت کاری"),
+    "queue_request":              ("⏳", "صف انتظار درخواست"),
+    "approve_from_queue":         ("✅", "تایید از صف انتظار"),
+    "release_from_queue":         ("↩️", "خروج از صف انتظار"),
+    "toggle_ai_online":           ("🤖", "تغییر وضعیت هوش مصنوعی"),
+    "panic":                      ("🚨", "فرمان اضطراری PANIC"),
+    "unpanic":                    ("✅", "بازگشت از PANIC"),
+    "freeze_all":                 ("🧊", "فعال‌سازی APS"),
+    "block_user":                 ("⛔", "بلاک کاربر"),
+    "unblock_user":               ("✅", "آنبلاک کاربر"),
+    "weekly_champion":            ("🏅", "قهرمان هفته"),
+}
+
+
+def action_log_label(action_type: str):
+    return ACTION_LOG_LABELS.get(action_type, ("📌", action_type or "اقدام نامشخص"))
+
+
+def format_log_entry(time_str: str, name: str, action_type: str, description: str) -> str:
+    """یه بلوکِ مرتب و با جزییات برای یک ردیف از لاگ اقدامات می‌سازه:
+    اموجی + عنوان فارسیِ اقدام، جزییات (توضیح ثبت‌شده)، ثبت‌کننده و زمان."""
+    emoji, label = action_log_label(action_type)
+    desc = escape_md_legacy(description) if description else ""
+    head = f"{emoji} *{label}*" + (f" — {desc}" if desc else "")
+    tail = f"    👤 {escape_md_legacy(name)}   ⏱ `{time_str}`"
+    return head + "\n" + tail
+
 # ─── Safe Telegram senders ────────────────────────────────────
 # نکته: توی این پروژه در ده‌ها جای مختلف parse_mode="Markdown" با متن‌های
 # دینامیک (نام کاربر، توضیح گزارش، متن فیدبک و ...) استفاده شده بدون اینکه

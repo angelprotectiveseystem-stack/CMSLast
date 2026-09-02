@@ -6,7 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import database as db
 import keyboards as kb
-from helpers import safe_edit_message_text, box, separator, now_shamsi
+from helpers import safe_edit_message_text, box, separator, now_shamsi, format_log_entry, escape_md_legacy
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER, BOT_USERNAME
 from panel_timeout import (
     schedule_panel_timeout, reset_panel_timeout, cancel_panel_timeout,
@@ -52,6 +52,7 @@ SIMPLE_KEYWORDS = {
     "درباره": "reply_info",        # مترادف اطلاعات
     "کیه": "reply_info",           # مترادف اطلاعات
     "آنلاین": "online_admins",     # لیست ادمین‌های آنلاین/فعال
+    "الان": "online_admins",       # مترادف آنلاین
     "ادمین‌ها": "admin_list",      # لیست همه ادمین‌ها
     "ادمینا": "admin_list",
     "مدیران": "admin_list",
@@ -447,34 +448,44 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("\n".join(text_lines), parse_mode="Markdown")
         raise ApplicationHandlerStop()
 
-    # ─── آنلاین (ادمین‌های فعال اخیر) ───
+    # ─── آنلاین / الان (وضعیت لحظه‌ایِ همه‌ی ادمین‌ها) ───
     if action == "online_admins":
         admins_all = await db.get_active_admins()
-        from datetime import datetime, timedelta
+        from datetime import datetime
         now_dt = datetime.now()
-        lines = [box("🟢 ادمین‌های فعال اخیر")]
-        found = False
+        ONLINE_THRESHOLD_MIN = 3  # زیر این چند دقیقه یعنی همین الان روی ربات فعاله
+
+        if not admins_all:
+            await update.message.reply_text("❗ هیچ مدیر فعالی ثبت نشده.")
+            raise ApplicationHandlerStop()
+
+        lines = [box("👥 وضعیت ادمین‌ها"), ""]
         for a in admins_all:
+            name = escape_md_legacy(a["display_name"] or a["full_name"])
+            role_lbl = "🏆" if a["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️"
             last = a.get("last_active")
+            status = "⚫️ هیچ‌وقت از ربات استفاده نکرده"
             if last:
                 try:
                     last_dt = datetime.fromisoformat(str(last))
                     diff = now_dt - last_dt
-                    if diff < timedelta(hours=24):
-                        mins = int(diff.total_seconds() // 60)
-                        if mins < 60:
-                            ago = f"{mins} دقیقه پیش"
-                        else:
-                            ago = f"{int(mins//60)} ساعت پیش"
-                        name = a["display_name"] or a["full_name"]
-                        role_lbl = "🏆" if a["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️"
-                        lines.append(f"{role_lbl} {name} — `{ago}`")
-                        found = True
+                    mins = int(diff.total_seconds() // 60)
+                    if mins < ONLINE_THRESHOLD_MIN:
+                        status = "🟢 آنلاین"
+                    elif mins < 60:
+                        status = f"🟡 آفلاین — `{mins} دقیقه پیش` فعال بوده"
+                    elif mins < 1440:
+                        status = f"🟠 آفلاین — `{int(mins // 60)} ساعت پیش` فعال بوده"
+                    else:
+                        status = f"🔴 آفلاین — `{int(mins // 1440)} روز پیش` فعال بوده"
                 except Exception:
                     pass
-        if not found:
-            lines.append("❗ هیچ ادمینی در ۲۴ ساعت اخیر فعال نبوده.")
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+            lines.append(f"{role_lbl} *{name}*\n    {status}")
+
+        try:
+            await update.message.reply_text("\n\n".join(lines), parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text("\n\n".join(lines))
         raise ApplicationHandlerStop()
 
     # ─── لیست مدیران ───
@@ -673,18 +684,24 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     # ─── لاگ / گزارش ───
     if action == "logs":
-        logs = await db.get_action_logs("today")
+        logs, total = await db.get_action_logs("today", page=0, page_size=15)
         admins_map = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
         pname = await db.get_setting("pishva_display_name", "مدیر ارشد")
         if not logs:
             await update.message.reply_text("❗ هیچ اقدامی امروز ثبت نشده.")
             return
-        lines = [box("🔍 لاگ اقدامات — امروز")]
-        for log in logs[:20]:
+        lines = [box(f"🔍 لاگ اقدامات — امروز ({total} مورد)"), ""]
+        for log in logs:
             name = pname if log["admin_id"] == PISHVA_ID else admins_map.get(log["admin_id"], str(log["admin_id"]))
             t = str(log["logged_at"] or "")[:16]
-            lines.append(f"`{t}` — {name}: {log['action_type']} — {log['description'] or ''}")
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+            lines.append(format_log_entry(t, name, log["action_type"], log["description"]))
+        if total > len(logs):
+            lines.append("")
+            lines.append("📌 برای دیدن کامل، فیلتر بازه‌ی زمانی، و جستجو، از پنل «🔍 پیگیری اقدامات» مدیر ارشد استفاده کنید.")
+        try:
+            await update.message.reply_text("\n\n".join(lines), parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text("\n\n".join(lines))
         raise ApplicationHandlerStop()
 
     # ─── راهنما / کمک ───

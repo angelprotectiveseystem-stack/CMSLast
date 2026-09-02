@@ -800,7 +800,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             a = await _find_admin_by_identifier(args["identifier"])
             if not a:
                 return f"مدیری با مشخصات «{args['identifier']}» پیدا نشد."
-            logs = await db.get_action_logs("all", a["telegram_id"])
+            _logs_rows, logs_total = await db.get_action_logs("all", a["telegram_id"])
             role_map = {ROLE_TOURNAMENT_MANAGER: "🏆 مدیر مسابقات", ROLE_SECURITY_MANAGER: "🛡️ مدیر امنیتی"}
             try:
                 import json as _json
@@ -814,7 +814,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 f"🆔 آیدی: {a['telegram_id']}\n"
                 f"وضعیت: {'✅ فعال' if a['is_active'] else '🔴 غیرفعال'} | اخطار: {a['warnings']}\n"
                 f"دسترسی به هوش مصنوعی: {ai_ok}\n"
-                f"تعداد اقدامات ثبت‌شده: {len(logs)}\n"
+                f"تعداد اقدامات ثبت‌شده: {logs_total}\n"
                 f"آخرین فعالیت: {str(a['last_active'] or '')[:16]}"
             )
 
