@@ -69,7 +69,10 @@ async def _resolve_avatar_url(user_id):
     api.telegram.org برای کاربرانِ داخلِ ایران؛ به کامنتِ روتِ
     avatar_proxy پایین‌تر نگاه کنید)، فقط داخلِ سرور برای پروکسی‌کردنِ
     بایت‌های عکس استفاده می‌شود."""
-    if not user_id or BOT is None:
+    if not user_id:
+        return None
+    if BOT is None:
+        logger.warning("[AVATAR-DEBUG] BOT instance is None — set_bot() was never called")
         return None
     cached = _avatar_cache.get(user_id)
     if cached and cached[1] > time.monotonic():
@@ -89,7 +92,14 @@ async def _resolve_avatar_url(user_id):
             # خطا نیست، پس با سطحِ debug (نه warning/error) لاگ می‌شود —
             # صرفاً برای این‌که موقعِ عیب‌یابی بشود فرق گذاشت بینِ «عکس
             # واقعاً وجود ندارد» و «درخواست خطا خورد».
-            logger.debug("No profile photo available for user %s", user_id)
+            # سطحِ لاگ موقتاً warning شده (نه debug) تا بشود از روی
+            # لاگ‌های Railway فهمید مشکلِ آواتار دقیقاً کجاست: این خط یعنی
+            # خودِ تلگرام صراحتاً گفته این کاربر عکسِ پروفایل ندارد (نه
+            # این‌که درخواست خطا خورده باشد) — اگر همیشه همین پیام برای
+            # همه‌ی کاربران دیده شود، یعنی مشکل اصلاً سمتِ شبکه/پروکسی
+            # نیست، بلکه یا آن حساب‌ها واقعاً عکسِ پروفایل ندارند، یا
+            # privacy-ی تلگرامشان به بات‌ها اجازه‌ی دیدنش را نمی‌دهد.
+            logger.warning("[AVATAR-DEBUG] no profile photo returned by Telegram for user %s", user_id)
     except TelegramError as e:
         logger.warning("Telegram error resolving avatar for user %s: %s", user_id, e)
         url = None
