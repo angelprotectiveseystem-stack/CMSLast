@@ -15,6 +15,13 @@ def kb_back(target="main"):
 def kb_back_row(target="main"):
     return [InlineKeyboardButton("🔙 بازگشت", callback_data=f"back_{target}")]
 
+# ─── صفحه‌ی خلاصه بعد از «بستن»/«خروج» — فقط خوش‌آمدگویی + ۲ دکمه ───
+def kb_panel_closed_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 لاگ‌ها", callback_data="pishva_logs"),
+        InlineKeyboardButton("🔓 ورود به پنل", callback_data="back_main")],
+    ])
+
 # ─── پنل مدیر ارشد (منوی اصلی کوتاه) ────────────────────────────
 def kb_pishva_main():
     return InlineKeyboardMarkup([

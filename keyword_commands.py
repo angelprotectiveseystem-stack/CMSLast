@@ -39,6 +39,8 @@ SIMPLE_KEYWORDS = {
     "انتقاد": "feedback",
     "شروع": "restart",
     # ─── کلمات جدید ───
+    "بستن": "close_panel",
+    "خروج": "close_panel",
     "مدیر ارشد": "pishva_panel",       # فقط برای مدیر ارشد پنلش رو باز می‌کنه
     "اطلاعات": "reply_info",       # ریپلای روی یه پیام → جزئیات کاربر
     "درباره": "reply_info",        # مترادف اطلاعات
@@ -346,6 +348,28 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     if action and action in PISHVA_ONLY_ACTIONS and not is_pishva:
         await update.message.reply_text("⛔ این دستور فقط برای مدیر ارشد است.")
+        raise ApplicationHandlerStop()
+
+    # ─── بستن پنل (کلمه‌ی «بستن» یا «خروج») ───
+    # پنلِ فعلی رو نمی‌بندد (چون در پیوی اصلاً چیزی برای ادیت‌کردن ثبت
+    # نشده — register_panel_owner فقط توی گروه کار می‌کنه)، بلکه یک
+    # پیامِ تازه با همون خوش‌آمدگوییِ همیشگی می‌فرستد ولی به‌جای کیبوردِ
+    # کاملِ پنل، فقط ۲ دکمه زیرش می‌ذاره: لاگ‌ها و ورود به پنل. با
+    # ۳ دقیقه بی‌فعالیتی (مثلِ هر پنلِ دیگه‌ای توی گروه) خودش هم بسته
+    # می‌شه.
+    if action == "close_panel":
+        from auth import time_greeting, get_weather_line
+        name = (await db.get_setting("pishva_display_name", "مدیر ارشد")) if is_pishva \
+            else (admin["display_name"] or admin["full_name"])
+        greeting = time_greeting(name)
+        weather = await get_weather_line()
+        text = greeting
+        if weather:
+            text += "\n" + weather
+        sent = await update.message.reply_text(
+            text, reply_markup=kb.kb_panel_closed_menu(), parse_mode="Markdown"
+        )
+        await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── پنل مدیر ارشد (کلمه «مدیر ارشد») ───
