@@ -84,7 +84,9 @@ from pishva import (
     pishva_status, set_status, pishva_settings, toggle_setting,
     pishva_dbstatus, dbstatus_on, dbstatus_off,
     pishva_logs, show_logs, logs_page, logs_search_start, logs_search_term_received,
-    logs_search_range_received, logs_search_page, pishva_requests, pishva_backup,
+    logs_search_range_received, logs_search_page, logs_search_term_skip, logs_search_range_skip,
+    admin_logs_menu, show_admin_logs, admin_logs_page, admin_logs_search_start, admin_logs_search_page,
+    pishva_requests, pishva_backup,
     pishva_chess_games, show_chess_games,
     backup_period_select, backup_format_select,
     pishva_repair, repair_on, repair_off,
@@ -670,12 +672,15 @@ def build_application():
             CallbackQueryHandler(admin_warn_start, pattern="^admin_warn_"),
             CallbackQueryHandler(admin_msg_start, pattern="^admin_msg_"),
             CallbackQueryHandler(logs_search_start, pattern="^logs_search$"),
+            CallbackQueryHandler(admin_logs_search_start, pattern="^adminlogssearch_"),
         ],
         states={
             ST_LOGS_SEARCH_TERM: [
+                CallbackQueryHandler(logs_search_term_skip, pattern="^logs_search_skip_term$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, logs_search_term_received)
             ],
             ST_LOGS_SEARCH_RANGE: [
+                CallbackQueryHandler(logs_search_range_skip, pattern="^logs_search_skip_range$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, logs_search_range_received)
             ],
             ST_PISHVA_NAME_CHANGE: [
@@ -905,6 +910,10 @@ def build_application():
     app.add_handler(CallbackQueryHandler(show_logs, pattern="^logs_(today|week|month|all)$"))
     app.add_handler(CallbackQueryHandler(logs_page, pattern="^logspage_"))
     app.add_handler(CallbackQueryHandler(logs_search_page, pattern="^logssearchpage_"))
+    app.add_handler(CallbackQueryHandler(admin_logs_menu, pattern="^adminlogsmenu_"))
+    app.add_handler(CallbackQueryHandler(show_admin_logs, pattern="^adminlogsperiod_"))
+    app.add_handler(CallbackQueryHandler(admin_logs_page, pattern="^adminlogspg_"))
+    app.add_handler(CallbackQueryHandler(admin_logs_search_page, pattern="^adminlogssearchpg_"))
     app.add_handler(CallbackQueryHandler(pishva_chess_games, pattern="^pishva_chess_games$"))
     app.add_handler(CallbackQueryHandler(show_chess_games, pattern="^chessgames_(today|week|month|all)$"))
     app.add_handler(CallbackQueryHandler(pishva_requests, pattern="^pishva_requests$"))

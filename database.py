@@ -1191,11 +1191,13 @@ async def get_action_logs(period="all", admin_id=None, page=0, page_size=10):
         return rows, total
 
 
-async def search_action_logs(term: str = "", hour_from=None, hour_to=None, page=0, page_size=10):
+async def search_action_logs(term: str = "", hour_from=None, hour_to=None, admin_id=None, page=0, page_size=10):
     """جستجو در لاگ اقدامات: term توی توضیحات/نوع اقدام/تاریخ-ساعت خام و
     همچنین نام/یوزرنیم مدیرِ ثبت‌کننده جستجو می‌شه. hour_from/hour_to
     (هر دو ۰ تا ۲۳) یه فیلترِ بازه‌ی ساعتِ رخداد رو اضافه می‌کنه — با
-    پشتیبانی از بازه‌ی پیچشی (مثلاً ۲۲ تا ۳ بامداد).
+    پشتیبانی از بازه‌ی پیچشی (مثلاً ۲۲ تا ۳ بامداد). admin_id اگه داده
+    بشه، جستجو فقط توی اقدامات همون مدیرِ مشخص انجام می‌شه (مثلاً از
+    صفحه‌ی پروفایل یه مدیر خاص).
     برمی‌گردونه: (ردیف‌ها, تعداد کل)."""
     term = (term or "").strip()
     conditions = []
@@ -1230,6 +1232,10 @@ async def search_action_logs(term: str = "", hour_from=None, hour_to=None, page=
                 "(CAST(substr(logged_at,12,2) AS INTEGER) >= ? OR CAST(substr(logged_at,12,2) AS INTEGER) <= ?)"
             )
             params.extend([hour_from, hour_to])
+
+    if admin_id:
+        conditions.append("admin_id = ?")
+        params.append(admin_id)
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     offset = max(page, 0) * page_size

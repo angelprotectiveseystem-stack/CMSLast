@@ -237,17 +237,46 @@ async def logs_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ─── جستجوی لاگ (دو مرحله‌ای: عبارت جستجو → بازه‌ی ساعت) ────────
+# این جستجو هم برای «کل لاگ» و هم برای «اقدامات یک مدیرِ خاص» به‌کار
+# می‌ره؛ محدوده (همه یا یک مدیر مشخص) توی ctx.user_data["logs_search_admin_id"]
+# نگه داشته می‌شه (None یعنی کل لاگ). به‌جای فرستادن «-» برای رد شدن از
+# هر مرحله، یه دکمه‌ی «رد شدن» هست.
 async def logs_search_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    ctx.user_data["logs_search_admin_id"] = None
     ctx.user_data.pop("logs_search_term", None)
     ctx.user_data.pop("logs_search_hour_from", None)
     ctx.user_data.pop("logs_search_hour_to", None)
     await safe_edit_message_text(
         query,
         f"{box('🔍 جستجو در لاگ')}\n\n"
-        "🔎 عبارت جستجو رو بفرستید — نام مدیر، نام بازیکن، نوع اقدام، تاریخ یا هر چیز مرتبط.\n"
-        "برای رد شدن از این مرحله «-» بفرستید.",
+        "🔎 عبارت جستجو رو بفرستید — نام مدیر، نام بازیکن، نوع اقدام، تاریخ یا هر چیز مرتبط.",
+        reply_markup=kb.kb_logs_search_skip_term(),
+        parse_mode="Markdown",
+    )
+    return ST_LOGS_SEARCH_TERM
+
+
+async def admin_logs_search_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """جستجوی اقدامات مخصوصِ یک مدیر — از دکمه‌ی 🔍 توی پروفایل همون مدیر."""
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    tid = int(query.data.split("_")[-1])
+    ctx.user_data["logs_search_admin_id"] = tid
+    ctx.user_data.pop("logs_search_term", None)
+    ctx.user_data.pop("logs_search_hour_from", None)
+    ctx.user_data.pop("logs_search_hour_to", None)
+    admin = await db.get_admin(tid)
+    name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
+    await safe_edit_message_text(
+        query,
+        f"{box('🔍 جستجو در اقدامات — ' + name)}\n\n"
+        "🔎 عبارت جستجو رو بفرستید — نام بازیکن، نوع اقدام، تاریخ یا هر چیز مرتبط.",
+        reply_markup=kb.kb_logs_search_skip_term(),
         parse_mode="Markdown",
     )
     return ST_LOGS_SEARCH_TERM
@@ -255,11 +284,26 @@ async def logs_search_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def logs_search_term_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    ctx.user_data["logs_search_term"] = "" if text == "-" else text
+    ctx.user_data["logs_search_term"] = text
     await update.message.reply_text(
         f"{box('⏳ بازه‌ی ساعت (اختیاری)')}\n\n"
-        "اگه می‌خوای فقط اتفاق‌های یه بازه‌ی ساعتِ مشخص رو ببینی، دو عدد بفرست، مثلاً: 22 تا 24\n"
-        "برای رد شدن از این مرحله «-» بفرست.",
+        "اگه می‌خوای فقط اتفاق‌های یه بازه‌ی ساعتِ مشخص رو ببینی، دو عدد بفرست، مثلاً: 22 تا 24",
+        reply_markup=kb.kb_logs_search_skip_range(),
+        parse_mode="Markdown",
+    )
+    return ST_LOGS_SEARCH_RANGE
+
+
+async def logs_search_term_skip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """دکمه‌ی «رد شدن» توی مرحله‌ی عبارت — بدون کلمه، مستقیم برو سراغ بازه."""
+    query = update.callback_query
+    await query.answer()
+    ctx.user_data["logs_search_term"] = ""
+    await safe_edit_message_text(
+        query,
+        f"{box('⏳ بازه‌ی ساعت (اختیاری)')}\n\n"
+        "اگه می‌خوای فقط اتفاق‌های یه بازه‌ی ساعتِ مشخص رو ببینی، دو عدد بفرست، مثلاً: 22 تا 24",
+        reply_markup=kb.kb_logs_search_skip_range(),
         parse_mode="Markdown",
     )
     return ST_LOGS_SEARCH_RANGE
@@ -269,52 +313,146 @@ async def _build_logs_search_view(ctx: ContextTypes.DEFAULT_TYPE, page: int):
     term = ctx.user_data.get("logs_search_term", "") or ""
     hf = ctx.user_data.get("logs_search_hour_from")
     ht = ctx.user_data.get("logs_search_hour_to")
-    rows, total = await db.search_action_logs(term=term, hour_from=hf, hour_to=ht, page=page, page_size=LOGS_PAGE_SIZE)
+    admin_id = ctx.user_data.get("logs_search_admin_id")
+
+    rows, total = await db.search_action_logs(
+        term=term, hour_from=hf, hour_to=ht, admin_id=admin_id, page=page, page_size=LOGS_PAGE_SIZE
+    )
+
+    scope_name = None
+    if admin_id:
+        a = await db.get_admin(admin_id)
+        scope_name = (a["display_name"] or a["full_name"]) if a else str(admin_id)
+    title = ("🔍 نتایج جستجو — " + scope_name) if scope_name else "🔍 نتایج جستجو"
 
     if not rows:
-        return f"{box('🔍 نتایج جستجو')}\n\n❗ نتیجه‌ای یافت نشد.", kb.kb_logs_search_list(0, 1)
+        text = f"{box(title)}\n\n❗ نتیجه‌ای یافت نشد."
+        keyboard = kb.kb_admin_logs_search_list(admin_id, 0, 1) if admin_id else kb.kb_logs_search_list(0, 1)
+        return text, keyboard
 
     admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
     pname = await pishva_display()
     total_pages = max(1, (total + LOGS_PAGE_SIZE - 1) // LOGS_PAGE_SIZE)
 
-    lines = [f"{box('🔍 نتایج جستجو')}", f"یافت‌شده: {total} مورد — صفحه {page + 1} از {total_pages}", ""]
+    lines = [f"{box(title)}", f"یافت‌شده: {total} مورد — صفحه {page + 1} از {total_pages}", ""]
     for log in rows:
         name = pname if log["admin_id"] == PISHVA_ID else admins.get(log["admin_id"], str(log["admin_id"]))
         t = str(log["logged_at"] or "")[:16]
         lines.append(format_log_entry(t, name, log["action_type"], log["description"]))
 
     text = "\n\n".join(lines)
-    keyboard = kb.kb_logs_search_list(page, total_pages)
+    keyboard = kb.kb_admin_logs_search_list(admin_id, page, total_pages) if admin_id else kb.kb_logs_search_list(page, total_pages)
     return text, keyboard
 
 
 async def logs_search_range_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    hour_from = hour_to = None
-    if text != "-":
-        hour_from, hour_to = parse_hour_range(text)
+    hour_from, hour_to = parse_hour_range(text)
     ctx.user_data["logs_search_hour_from"] = hour_from
     ctx.user_data["logs_search_hour_to"] = hour_to
 
     view_text, keyboard = await _build_logs_search_view(ctx, 0)
-    try:
-        await update.message.reply_text(view_text, reply_markup=keyboard, parse_mode="Markdown")
-    except BadRequest:
-        await update.message.reply_text(view_text, reply_markup=keyboard)
+    await safe_reply_text(update.message, view_text, reply_markup=keyboard, parse_mode="Markdown")
+    return ConversationHandler.END
+
+
+async def logs_search_range_skip(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """دکمه‌ی «رد شدن» توی مرحله‌ی بازه — بدون فیلتر ساعت، همین الان جستجو رو اجرا کن."""
+    query = update.callback_query
+    await query.answer()
+    ctx.user_data["logs_search_hour_from"] = None
+    ctx.user_data["logs_search_hour_to"] = None
+
+    view_text, keyboard = await _build_logs_search_view(ctx, 0)
+    await safe_edit_message_text(query, view_text, reply_markup=keyboard, parse_mode="Markdown")
     return ConversationHandler.END
 
 
 async def logs_search_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """دکمه‌ی صفحه‌ی بعد/قبل در نتایج جستجو: callback_data = logssearchpage_<page>"""
+    """دکمه‌ی صفحه‌ی بعد/قبل در نتایج جستجوی کل لاگ: callback_data = logssearchpage_<page>"""
     query = update.callback_query
     await query.answer()
     page = int(query.data.split("_")[-1])
     view_text, keyboard = await _build_logs_search_view(ctx, page)
-    try:
-        await safe_edit_message_text(query, view_text, reply_markup=keyboard, parse_mode="Markdown")
-    except BadRequest:
-        await safe_edit_message_text(query, view_text, reply_markup=keyboard)
+    await safe_edit_message_text(query, view_text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+async def admin_logs_search_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """دکمه‌ی صفحه‌ی بعد/قبل در نتایج جستجوی یک مدیر: callback_data = adminlogssearchpg_<tid>_<page>"""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split("_")
+    page = int(parts[-1])
+    view_text, keyboard = await _build_logs_search_view(ctx, page)
+    await safe_edit_message_text(query, view_text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+# ─── پیگیری اقدامات مخصوصِ یک مدیر (از دکمه‌ی 🔍 توی پروفایل مدیر) ──
+async def admin_logs_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """callback_data = adminlogsmenu_<tid> — دقیقاً مثل پنل کلیِ لاگ،
+    فقط مخصوصِ همون یک مدیر."""
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    tid = int(query.data.split("_")[-1])
+    admin = await db.get_admin(tid)
+    if not admin:
+        await query.answer("مدیر یافت نشد.", show_alert=True)
+        return
+    name = admin["display_name"] or admin["full_name"]
+    await safe_edit_message_text(
+        query,
+        f"{box('🔍 پیگیری اقدامات — ' + name)}\n\n📌 بازه زمانی را انتخاب کنید:",
+        reply_markup=kb.kb_admin_logs_filter(tid),
+        parse_mode="Markdown",
+    )
+
+
+async def _render_admin_logs_page(query, tid: int, period: str, page: int):
+    rows, total = await db.get_action_logs(period, admin_id=tid, page=page, page_size=LOGS_PAGE_SIZE)
+    admin = await db.get_admin(tid)
+    name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
+
+    if not rows:
+        await safe_edit_message_text(
+            query, f"❗ هیچ اقدامی از {name} در این بازه ثبت نشده.", reply_markup=kb.kb_admin_logs_filter(tid)
+        )
+        return
+
+    label = LOGS_PERIOD_LABEL.get(period, period)
+    total_pages = max(1, (total + LOGS_PAGE_SIZE - 1) // LOGS_PAGE_SIZE)
+
+    lines = [f"{box('🔍 اقدامات ' + name + ' — ' + label)}", f"یافت‌شده: {total} مورد — صفحه {page + 1} از {total_pages}", ""]
+    for log in rows:
+        t = str(log["logged_at"] or "")[:16]
+        lines.append(format_log_entry(t, name, log["action_type"], log["description"]))
+
+    text = "\n\n".join(lines)
+    keyboard = kb.kb_admin_logs_list(tid, period, page, total_pages)
+    await safe_edit_message_text(query, text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+async def show_admin_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """callback_data = adminlogsperiod_<tid>_<period>"""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split("_")
+    tid = int(parts[1])
+    period = parts[2]
+    await _render_admin_logs_page(query, tid, period, 0)
+
+
+async def admin_logs_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """callback_data = adminlogspg_<tid>_<period>_<page>"""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split("_")
+    tid = int(parts[1])
+    period = parts[2]
+    page = int(parts[3])
+    await _render_admin_logs_page(query, tid, period, page)
 
 # ─── پیگیری بازی‌های شطرنج مدیران ──────────────────────────────
 # دلیلِ پایانِ هر بازی (status توی جدول chess_games) یکی از این‌هاست:

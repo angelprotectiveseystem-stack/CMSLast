@@ -438,6 +438,53 @@ def kb_logs_search_list(page, total_pages):
     rows.append([InlineKeyboardButton("🔙 بازگشت به فیلتر", callback_data="pishva_logs")])
     return InlineKeyboardMarkup(rows)
 
+def kb_logs_search_skip_term():
+    """قدمِ اول جستجو: عبارت. به‌جای نوشتن «-»، دکمه‌ی رد شدن → می‌ره سراغ بازه."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭️ رد شدن — برو به تنظیم بازه", callback_data="logs_search_skip_term")],
+    ])
+
+def kb_logs_search_skip_range():
+    """قدمِ دوم جستجو: بازه‌ی ساعت. دکمه‌ی رد شدن → بدون فیلتر ساعت جستجو کن."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭️ رد شدن — بدون فیلتر ساعت", callback_data="logs_search_skip_range")],
+    ])
+
+# ─── پیگیریِ اقدامات مخصوص یک مدیر (از پروفایل همون مدیر) ────────
+def kb_admin_logs_filter(tid):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 امروز", callback_data=f"adminlogsperiod_{tid}_today"),
+        InlineKeyboardButton("📆 این هفته", callback_data=f"adminlogsperiod_{tid}_week")],
+        [InlineKeyboardButton("🗓️ این ماه", callback_data=f"adminlogsperiod_{tid}_month"),
+        InlineKeyboardButton("📚 کل تاریخ", callback_data=f"adminlogsperiod_{tid}_all")],
+        [InlineKeyboardButton("🔍 جستجو", callback_data=f"adminlogssearch_{tid}")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}")],
+    ])
+
+def kb_admin_logs_list(tid, period, page, total_pages):
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"adminlogspg_{tid}_{period}_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"adminlogspg_{tid}_{period}_{page+1}"))
+    nav.append(InlineKeyboardButton("🔍 جستجو", callback_data=f"adminlogssearch_{tid}"))
+    rows = [nav]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"adminlogsmenu_{tid}")])
+    return InlineKeyboardMarkup(rows)
+
+def kb_admin_logs_search_list(tid, page, total_pages):
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"adminlogssearchpg_{tid}_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"adminlogssearchpg_{tid}_{page+1}"))
+    rows = []
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton("🔍 جستجوی جدید", callback_data=f"adminlogssearch_{tid}")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت به فیلتر", callback_data=f"adminlogsmenu_{tid}")])
+    return InlineKeyboardMarkup(rows)
+
 def kb_chess_games_filter():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📅 امروز", callback_data="chessgames_today"),
@@ -467,7 +514,8 @@ def kb_admin_actions(tid):
         InlineKeyboardButton("🚫 اخراج", callback_data=f"admin_kick_{tid}")],
         [InlineKeyboardButton("💬 ارسال پیام", callback_data=f"admin_msg_{tid}"),
         InlineKeyboardButton("📋 اعطای وظیفه", callback_data=f"admin_task_{tid}")],
-        [InlineKeyboardButton("👁️ پروفایل", callback_data=f"admin_profile_{tid}")],
+        [InlineKeyboardButton("🔍 پیگیری اقدامات", callback_data=f"adminlogsmenu_{tid}"),
+        InlineKeyboardButton("👁️ پروفایل", callback_data=f"admin_profile_{tid}")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_admins")],
     ])
 
