@@ -293,7 +293,7 @@ async def _resolve_user_id(request_json):
     return None, None
 
 
-async def _game_to_state(game, viewer_id):
+async def _game_to_state(game, viewer_id, spectators=None):
     pgn = game["pgn"] or ""
     # هر دو عکسِ پروفایل موازی گرفته می‌شوند (نه پشتِ‌سرِهم) تا تاخیرِ
     # اضافه‌شده به هر درخواستِ /api/state حداکثر برابرِ یکی از این دو
@@ -328,7 +328,48 @@ async def _game_to_state(game, viewer_id):
         "white_elo_change": game["white_elo_change"],
         "black_elo_change": game["black_elo_change"],
         "you_id": viewer_id,
+        "spectators": spectators or [],
     }
+
+
+async def _maybe_announce_ai_hard_defeat(game, status, winner_id):
+    """اگر یک انسان، هوش مصنوعی را در سطح «سخت» شکست داده باشد (کیش‌ومات،
+    تسلیمِ هوش مصنوعی [که عملاً رخ نمی‌دهد ولی برای اطمینان چک می‌شود]، یا
+    اتمامِ زمانِ هوش مصنوعی)، به گروه/کانالِ اعلانات خبر می‌دهد. کاملاً
+    مستقل از پخشِ بیانیه‌ی معمولی است و از همان تنظیماتِ گروه/کانالِ
+    اعلانات استفاده می‌کند، ولی سوییچِ روشن/خاموشِ خودش را دارد (بخشِ
+    «📡 پخش خودکار به گروه/کانال» در پنل مدیر ارشد) — طبق درخواستِ کاربر
+    که این پخش باید جدا قابلِ خاموش‌کردن/شخصی‌سازی باشد."""
+    if BOT is None:
+        return
+    if AI_ID not in (game["white_id"], game["black_id"]):
+        return
+    if not winner_id or str(winner_id) == str(AI_ID):
+        return
+    if (game["ai_level"] or "") != "hard":
+        return
+
+    winner_name = game["white_name"] if str(winner_id) == str(game["white_id"]) else game["black_name"]
+    template = await db.get_setting(
+        "chess_ai_defeat_broadcast_text",
+        "🏆 *{name}* موفق شد هوش مصنوعیِ شطرنج را در سطحِ سخت شکست دهد!"
+    )
+    text = template.replace("{name}", winner_name).replace("{نام}", winner_name)
+
+    group_id = await db.get_setting("announcement_group_id", "")
+    channel_id = await db.get_setting("announcement_channel_id", "")
+    group_on = await db.get_setting("broadcast_chess_ai_defeat_group_enabled", "1")
+    channel_on = await db.get_setting("broadcast_chess_ai_defeat_channel_enabled", "1")
+    targets = []
+    if group_id and group_on == "1":
+        targets.append(group_id)
+    if channel_id and channel_on == "1":
+        targets.append(channel_id)
+    for tid in targets:
+        try:
+            await BOT.send_message(chat_id=int(tid), text=text, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            logger.exception("Failed to send AI-hard-defeat broadcast to %s", tid)
 
 
 async def _finish_with_elo(token, status, game, winner_id):
@@ -353,6 +394,10 @@ async def _finish_with_elo(token, status, game, winner_id):
         await _notify_players_game_finished(game, status, winner_id)
     except Exception:
         logger.exception("Failed to send post-game panel for %s", token)
+    try:
+        await _maybe_announce_ai_hard_defeat(game, status, winner_id)
+    except Exception:
+        logger.exception("Failed to check/send AI hard-defeat broadcast for %s", token)
 
 
 def _load_board(game):
@@ -586,7 +631,19 @@ async def api_state(request):
         return web.json_response({"ok": False, "error": "بازی پیدا نشد یا منقضی شده است."})
     if await _game_locked_for_viewing(game):
         return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
-    viewer_id = request.query.get("uid")
+    viewer_id_raw = request.query.get("uid")
+    viewer_id = None
+    if viewer_id_raw:
+        try:
+            viewer_id = int(viewer_id_raw)
+        except (TypeError, ValueError):
+            viewer_id = None
+    # اگر بیننده یکی از دو بازیکنِ همین بازی نباشد، به‌عنوانِ «تماشاگرِ
+    # فعال» ثبتش می‌کنیم تا طرفِ بازیکن‌ها ببینند چه کسی الان تماشا می‌کند.
+    if viewer_id is not None and viewer_id not in (game["white_id"], game["black_id"]):
+        viewer_name = request.query.get("name") or "تماشاگر"
+        _touch_spectator(token, viewer_id, f"👁 {viewer_name}")
+    spectators = _active_spectator_names(token, exclude_id=viewer_id)
     game = _apply_clock_decay(game)
     if game["status"] == "active":
         loser = None
@@ -599,7 +656,7 @@ async def api_state(request):
             game["status"] = "timeout"
             game["winner_id"] = winner
             await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": await _game_to_state(game, viewer_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(game, viewer_id, spectators)})
 
 
 @routes.post("/api/move")
@@ -668,7 +725,7 @@ async def api_move(request):
 
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id, _active_spectator_names(token))})
 
 
 @routes.post("/api/resign")
@@ -687,7 +744,7 @@ async def api_resign(request):
     await _finish_with_elo(token, "resigned", game, winner)
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id, _active_spectator_names(token))})
 
 
 @routes.post("/api/draw_offer")
@@ -722,7 +779,7 @@ async def api_draw_offer(request):
 
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id, _active_spectator_names(token))})
 
 
 @routes.post("/api/draw_response")
@@ -750,7 +807,7 @@ async def api_draw_response(request):
         await db.clear_chess_draw_offer(token)
     fresh = await db.get_chess_game(token)
     await _notify_state_changed(token)
-    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id)})
+    return web.json_response({"ok": True, "state": await _game_to_state(fresh, user_id, _active_spectator_names(token))})
 
 
 @routes.post("/api/game_over")
@@ -763,6 +820,44 @@ async def api_game_over(request):
 _last_chat_at = {}  # token -> {user_id: monotonic_time}, ساده و در حافظه (کافی برای این حجم)
 CHAT_MAX_LEN = 300
 CHAT_MIN_INTERVAL = 1.5  # ثانیه بین دو پیام هر کاربر
+
+# ─── حضورِ لحظه‌ایِ بیننده‌ها («فلانی در حال تماشاست») ───────────────
+# سرور برای این‌که با WebSocket به‌روز نمی‌شود، به poll دوره‌ایِ کلاینت
+# (هر ۴ ثانیه، در apiGet وب‌اپ) تکیه می‌کند: هر بار یک بیننده (نه یکی
+# از دو بازیکن) وضعیت را می‌خواند، حضورش اینجا (به‌همراه اسمش) ثبت/تازه
+# می‌شود؛ اگر بیشتر از PRESENCE_TTL ثانیه از آخرین poistش نگذشته باشد،
+# «هنوز حاضر» حساب می‌شود. این حافظه‌ایست (نه دیتابیس) چون کاملاً
+# گذراست و با ری‌استارتِ سرور یا بسته‌شدنِ مینی‌اپ خودش منقضی می‌شود.
+_spectator_presence = {}  # token -> {viewer_id: (name, last_seen_monotonic)}
+PRESENCE_TTL = 12  # ثانیه — کمی بیشتر از ۴ ثانیه‌ی poll، برای تحملِ چند poll ازدست‌رفته
+
+
+def _touch_spectator(token, viewer_id, name):
+    if not viewer_id or not name:
+        return
+    bucket = _spectator_presence.setdefault(token, {})
+    bucket[viewer_id] = (name, time.monotonic())
+
+
+def _active_spectator_names(token, exclude_id=None):
+    bucket = _spectator_presence.get(token)
+    if not bucket:
+        return []
+    now = time.monotonic()
+    names = []
+    dead = []
+    for vid, (name, seen_at) in bucket.items():
+        if now - seen_at > PRESENCE_TTL:
+            dead.append(vid)
+            continue
+        if exclude_id is not None and str(vid) == str(exclude_id):
+            continue
+        names.append(name)
+    for vid in dead:
+        bucket.pop(vid, None)
+    if not bucket:
+        _spectator_presence.pop(token, None)
+    return names
 
 
 @routes.post("/api/chat")

@@ -719,6 +719,8 @@ def kb_broadcast_menu(items):
             InlineKeyboardButton(f"{g_icon} گروه", callback_data=f"broadcast_toggle_{group_key}"),
             InlineKeyboardButton(f"{c_icon} کانال", callback_data=f"broadcast_toggle_{channel_key}"),
         ])
+        if key == "chess_ai_defeat":
+            rows.append([InlineKeyboardButton("✏️ ویرایش متنِ اعلان", callback_data="pishva_chess_ai_broadcast_text")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")])
     return InlineKeyboardMarkup(rows)
 

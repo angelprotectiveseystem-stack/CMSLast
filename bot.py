@@ -34,6 +34,7 @@ from config import (
     ST_ADV_LOTTERY_SCOPE, ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT,
     ST_RESTORE_FILE,
     ST_WORKHOURS_AUTOEND_MINUTES, ST_WORKHOURS_REMINDER_MINUTES,
+    ST_CHESS_AI_BROADCAST_TEXT,
 )
 
 from auth import (
@@ -92,6 +93,7 @@ from pishva import (
     update_announce_start, update_version_received, update_desc_received,
     pishva_group, group_id_save, pishva_channel, channel_id_save,
     pishva_broadcast, broadcast_toggle, pishva_vault,
+    pishva_chess_ai_broadcast_text, chess_ai_broadcast_text_save,
     pishva_auto_backup, auto_backup_toggle, auto_backup_interval_menu,
     auto_backup_set_interval, auto_backup_fmt_toggle, auto_backup_period_toggle,
     pishva_restore_start, restore_file_received, restore_confirm_apply, restore_cancel,
@@ -144,7 +146,7 @@ from reminders import (
     reminder_interval_menu, reminder_set_interval
 )
 from keyword_commands import handle_keyword_command, kw_announce_start, kw_news_start, panel_ownership_guard, open_panel_here
-from chess_challenge import chess_menu, chess_pick_time, chess_pick_color, chess_send_request, chess_accept, chess_decline, chess_elo_board, chess_ai_menu, chess_ai_pick_time, chess_ai_pick_color, chess_ai_start
+from chess_challenge import chess_menu, chess_pick_time, chess_pick_color, chess_send_request, chess_accept, chess_decline, chess_elo_board, chess_ai_menu, chess_ai_pick_time, chess_ai_pick_color, chess_ai_start, chess_active_games
 from security import (
     security_panel, security_queue_list, security_queue_item,
     request_to_queue, queue_approve, queue_release, queue_block_ask,
@@ -362,6 +364,7 @@ def _register_back_targets():
         "pishva_panel": menu_pishva,
         "pishva_status": pishva_status,
         "pishva_backup": pishva_backup,
+        "pishva_broadcast": pishva_broadcast,
         "pishva_repair": pishva_repair,
         "pishva_identity": pishva_identity,
         "pishva_update": pishva_update,
@@ -660,6 +663,7 @@ def build_application():
             CallbackQueryHandler(repair_reason_start, pattern="^repair_reason$"),
             CallbackQueryHandler(pishva_group, pattern="^pishva_group$"),
             CallbackQueryHandler(pishva_channel, pattern="^pishva_channel$"),
+            CallbackQueryHandler(pishva_chess_ai_broadcast_text, pattern="^pishva_chess_ai_broadcast_text$"),
             CallbackQueryHandler(update_announce_start, pattern="^update_announce$"),
             CallbackQueryHandler(admin_warn_start, pattern="^admin_warn_"),
             CallbackQueryHandler(admin_msg_start, pattern="^admin_msg_"),
@@ -682,6 +686,9 @@ def build_application():
             ],
             ST_CHANNEL_ID: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, channel_id_save)
+            ],
+            ST_CHESS_AI_BROADCAST_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, chess_ai_broadcast_text_save)
             ],
             ST_UPDATE_VERSION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, update_version_received)
@@ -982,6 +989,7 @@ def build_application():
 
     # شطرنج زنده (مینی‌اپ)
     app.add_handler(CallbackQueryHandler(chess_menu, pattern="^chess_menu$"))
+    app.add_handler(CallbackQueryHandler(chess_active_games, pattern="^chess_active_games$"))
     app.add_handler(CallbackQueryHandler(chess_pick_time, pattern="^chess_req_"))
     app.add_handler(CallbackQueryHandler(chess_pick_color, pattern="^chess_time_"))
     app.add_handler(CallbackQueryHandler(chess_send_request, pattern="^chess_go_"))

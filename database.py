@@ -1705,6 +1705,20 @@ async def get_active_chess_game_for(telegram_id: int):
             return await cur.fetchone()
 
 
+async def get_all_active_chess_games():
+    """همه‌ی بازی‌های شطرنج زنده‌ی در حال انجام — شاملِ بازی‌های «هوش
+    مصنوعی» هم می‌شود (برخلافِ get_active_chess_games_excluding که فقط
+    برای پیشنهادِ تماشا به شخص ثالث، بازی‌های تک‌نفره را کنار می‌گذارد).
+    برای بخشِ «📋 بازی‌های فعال» در منوی شطرنج که باید همه‌ی ترکیب‌ها
+    (مدیر×مدیر، مدیر×پیشوا، هرکدام×هوش‌مصنوعی) را یک‌جا نشان بدهد."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM chess_games WHERE status='active' ORDER BY id DESC"
+        ) as cur:
+            return await cur.fetchall()
+
+
 async def get_active_chess_games_excluding(telegram_id: int):
     """همه‌ی بازی‌های شطرنج زنده‌ای که الان در جریانند و طرف داده‌شده در
     آن‌ها بازیکن نیست — برای پیشنهاد «تماشا» به شخص ثالث در پنل شطرنج زنده.

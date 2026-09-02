@@ -9,7 +9,7 @@ from config import (PISHVA_ID, STATUS_NORMAL, STATUS_BAD, STATUS_DANGER, STATUS_
     ST_TOURNAMENT_NAME, ST_PISHVA_NAME_CHANGE, ST_ADMIN_NAME_CHANGE,
     ST_NEW_YEAR_CONFIRM, ST_NEW_YEAR_PASSWORD, ST_REPAIR_REASON,
     ST_GROUP_ID, ST_CHANNEL_ID, ST_UPDATE_VERSION, ST_UPDATE_DESC,
-    ST_RESTORE_FILE, NEW_YEAR_PASSWORD)
+    ST_RESTORE_FILE, ST_CHESS_AI_BROADCAST_TEXT, NEW_YEAR_PASSWORD)
 from telegram.ext import ConversationHandler
 import io
 
@@ -802,6 +802,7 @@ BROADCAST_ITEMS = [
     ("result", "♟️ نتیجه مسابقات", "broadcast_result_group_enabled", "broadcast_result_channel_enabled"),
     ("champion", "🏆 قهرمان هفتگی", "broadcast_champion_group_enabled", "broadcast_champion_channel_enabled"),
     ("reminder", "⏰ یادآورها", "reminder_broadcast_group_enabled", "reminder_broadcast_channel_enabled"),
+    ("chess_ai_defeat", "🤖 شکستِ هوش‌مصنوعی (سخت)", "broadcast_chess_ai_defeat_group_enabled", "broadcast_chess_ai_defeat_channel_enabled"),
 ]
 
 async def pishva_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -839,6 +840,41 @@ async def broadcast_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await db.set_setting(key, new_val)
         await db.log_action(PISHVA_ID, "broadcast_toggle", f"{key} -> {new_val}")
     await pishva_broadcast(update, ctx)
+
+# ─── شخصی‌سازیِ متنِ اعلانِ «شکستِ هوش‌مصنوعیِ سخت» ───────────────
+DEFAULT_CHESS_AI_DEFEAT_TEXT = "🏆 *{name}* موفق شد هوش مصنوعیِ شطرنج را در سطحِ سخت شکست دهد!"
+
+async def pishva_chess_ai_broadcast_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    current = await db.get_setting("chess_ai_defeat_broadcast_text", DEFAULT_CHESS_AI_DEFEAT_TEXT)
+    await safe_edit_message_text(query, 
+        f"{box('🤖 متنِ اعلانِ شکستِ هوش‌مصنوعی (سخت)')}\n\n"
+        f"متنِ فعلی:\n{current}\n\n"
+        f"متنِ جدید را بفرستید؛ جای نامِ برنده را با `{{name}}` بگذارید.\n"
+        f"برای بازگشت به متنِ پیش‌فرض، کلمه‌ی «پیش‌فرض» را بفرستید.",
+        parse_mode="Markdown"
+    )
+    return ST_CHESS_AI_BROADCAST_TEXT
+
+async def chess_ai_broadcast_text_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text in ("پیش‌فرض", "پیشفرض", "/default"):
+        await db.set_setting("chess_ai_defeat_broadcast_text", DEFAULT_CHESS_AI_DEFEAT_TEXT)
+        await update.message.reply_text(
+            "✅ متن به پیش‌فرض بازگشت.", reply_markup=kb.kb_back("pishva_broadcast")
+        )
+        return ConversationHandler.END
+    await db.set_setting("chess_ai_defeat_broadcast_text", text)
+    await db.log_action(PISHVA_ID, "set_chess_ai_broadcast_text", "تنظیم متنِ اعلانِ شکستِ هوش‌مصنوعی")
+    await update.message.reply_text(
+        f"✅ متنِ اعلان ذخیره شد:\n\n{text}",
+        reply_markup=kb.kb_back("pishva_broadcast"),
+    )
+    return ConversationHandler.END
 
 # ─── Vault ────────────────────────────────────────────────────
 async def pishva_vault(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

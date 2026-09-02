@@ -147,6 +147,7 @@ async def _chess_menu_content(uid: int, chat_type: str = "private", bot=None):
 
     rows = []
     rows.append([InlineKeyboardButton("🤖 بازی با هوش مصنوعی", callback_data="chessai_menu")])
+    rows.append([InlineKeyboardButton("📋 بازی‌های فعال", callback_data="chess_active_games")])
     for opp_id, name in opponents:
         label = ("👑 " if opp_id == PISHVA_ID else "🎖️ ") + name
         rows.append([InlineKeyboardButton(label, callback_data=f"chess_req_{opp_id}")])
@@ -198,6 +199,38 @@ async def chess_menu_from_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(reason, parse_mode=ParseMode.MARKDOWN)
         return None
     return await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+
+
+async def chess_active_games(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """بخشِ «📋 بازی‌های فعال»: همه‌ی بازی‌های شطرنجِ زنده‌ی در حال انجام
+    را یک‌جا نشان می‌دهد — چه مدیر×مدیر، چه مدیر×پیشوا، چه هرکدام در
+    مقابلِ هوش مصنوعی (برخلافِ لیستِ «تماشا»ی داخلِ منوی اصلی که فقط
+    بازی‌های انسان×انسانِ دیگران را نشان می‌داد)."""
+    query = update.callback_query
+    uid = query.from_user.id
+    await query.answer()
+
+    chat_type = query.message.chat.type if query.message else "private"
+    is_group = chat_type in ("group", "supergroup")
+    bot_username = await _resolve_bot_username(ctx.bot) if is_group else None
+
+    games = await db.get_all_active_chess_games()
+    rows = []
+    if not games:
+        text = f"{box('📋 بازی‌های فعال')}\n\nدر حال حاضر هیچ بازیِ در جریانی وجود ندارد."
+    else:
+        text = f"{box('📋 بازی‌های فعال')}\n\n📌 همه‌ی بازی‌های شطرنجِ زنده‌ی در حال انجام:"
+        for g in games:
+            is_mine = str(uid) in (str(g["white_id"]), str(g["black_id"]))
+            label = f"{'▶️ ادامه' if is_mine else '👁 تماشا'}: ⚪ {g['white_name']}  ×  ⚫ {g['black_name']}"
+            btn = (_play_button if is_mine else _watch_button)(label, g["token"], is_group, bot_username)
+            if btn:
+                rows.append([btn])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="chess_menu")])
+
+    await safe_edit_message_text(
+        query, text, reply_markup=InlineKeyboardMarkup(rows), parse_mode=ParseMode.MARKDOWN,
+    )
 
 
 async def chess_elo_board(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -638,6 +671,12 @@ async def chess_ai_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         # کاربر وارد مینی‌اپ می‌شود، صفحه از قبل حرکتِ اول را نشان بدهد.
         await maybe_play_ai_move(token)
 
+    # مثلِ بازیِ انسان×انسان، به بقیه‌ی مدیران/پیشوا هم خبر بده که این
+    # بازی (این‌بار مقابلِ هوش مصنوعی) شروع شد — طبقِ درخواستِ کاربر که
+    # این اعلان باید برای هر ترکیبی (مدیر/پیشوا × مدیر/پیشوا/هوش‌مصنوعی)
+    # فرستاده شود، نه فقط بازی‌های انسان×انسان.
+    await _announce_game_to_others(ctx, uid, CHESS_AI_ID, white_name, black_name, token)
+
 
 def _kb_play(token: str) -> InlineKeyboardMarkup:
     if not WEBAPP_URL:
@@ -701,6 +740,21 @@ def _kb_spectate_for_chat(token: str, is_group: bool, bot_username: str = None) 
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔒 تماشای بازی (در پیوی)", url=f"https://t.me/{bot_username}?start=chess_watch_{token}")],
     ])
+
+
+def _play_button(label: str, token: str, is_group: bool, bot_username: str = None):
+    """دکمه‌ی «ادامه/ورود به بازیِ خودم» در لیستِ «📋 بازی‌های فعال» —
+    نسخه‌ی تک‌دکمه‌ایِ _kb_play_for_chat، برای وقتی که این دکمه باید
+    کنارِ دکمه‌های بازی‌های دیگران در یک لیست بیاید (نه به‌تنهایی یک
+    کیبورد کامل)."""
+    if is_group:
+        if not bot_username:
+            return None
+        return InlineKeyboardButton(label, url=f"https://t.me/{bot_username}?start=chess_enter_{token}")
+    if not WEBAPP_URL:
+        return None
+    url = f"{WEBAPP_URL}/webapp/?token={token}"
+    return InlineKeyboardButton(label, web_app=WebAppInfo(url=url))
 
 
 def _watch_button(label: str, token: str, is_group: bool, bot_username: str = None):
