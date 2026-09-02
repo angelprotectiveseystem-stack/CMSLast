@@ -740,7 +740,16 @@ function apiPost(path, body){
   }).then(function(r){ return r.json(); });
 }
 function apiGet(path){
-  return fetch(API + path + "?token=" + encodeURIComponent(TOKEN)).then(function(r){ return r.json(); });
+  // uid/name هم فرستاده می‌شوند (فقط برای «بیننده‌ی فعال»؛ اعتبارسنجیِ
+  // امنیتیِ حرکت همچنان روی init_data در apiPost انجام می‌شود، نه اینجا) —
+  // تا سرور بتواند حضورِ لحظه‌ایِ بیننده‌ها را در /api/state ثبت کند و به
+  // دو بازیکن نشان دهد چه کسی الان دارد تماشا می‌کند.
+  var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  var extra = "";
+  if(u && u.id){
+    extra = "&uid=" + encodeURIComponent(u.id) + "&name=" + encodeURIComponent(u.first_name || u.username || "");
+  }
+  return fetch(API + path + "?token=" + encodeURIComponent(TOKEN) + extra).then(function(r){ return r.json(); });
 }
 
 function sendMove(move){
@@ -877,6 +886,7 @@ function applyServerState(s, fromPoll){
   updateClocks();
   updateTurnBanner();
   updateDrawOfferUI(s);
+  updateSpectatorsBanner(s.spectators);
   if(s.status !== "active" && !state.gameOverShown){
     state.status = s.status;
     showGameOver(s.status, s.winner_id, s.white_elo_change, s.black_elo_change);
@@ -1278,6 +1288,32 @@ document.querySelectorAll(".theme-opt").forEach(function(btn){
   refresh();
 })();
 
+// ─── بنرِ «فلانی در حال تماشاست» برای دو بازیکن ──────────────────
+// وقتی یک شخصِ سوم (نه هیچ‌کدام از دو بازیکن) صفحه‌ی بازی را باز
+// کرده و در حالِ poll کردنِ /api/state است، سرور او را به‌عنوانِ
+// «بیننده‌ی فعال» ثبت می‌کند (به apiGet نگاه کنید که uid/name را هم
+// می‌فرستد) و لیستِ اسامیِ بیننده‌های فعال را در state.spectators
+// برمی‌گرداند. این تابع همان لیست را برای دو بازیکن (نه برای خودِ
+// بیننده) به‌صورتِ یک بنر + آیکون کوچک نشان می‌دهد.
+function updateSpectatorsBanner(list){
+  var el = $("spectators-banner");
+  if(!el) return;
+  if(state.isSpectator || !list || !list.length){
+    el.classList.add("hidden");
+    return;
+  }
+  var text;
+  if(list.length === 1){
+    text = list[0] + " در حال تماشای این بازی است";
+  } else {
+    var shown = list.slice(0, 2).join("، ");
+    var extra = list.length - 2;
+    text = shown + (extra > 0 ? " و " + extra + " نفر دیگر" : "") + " در حال تماشای این بازی هستند";
+  }
+  $("spectators-text").textContent = text;
+  el.classList.remove("hidden");
+}
+
 // ─── Chat ───────────────────────────────────────────────────
 function renderChatMessage(m, pending){
   var list = $("chat-list");
@@ -1446,6 +1482,7 @@ function init(){
     updateTurnBanner();
     updateClocks();
     updateDrawOfferUI(s);
+    updateSpectatorsBanner(s.spectators);
     showScreen("screen-game");
     sizeBoard();
     setTimeout(sizeBoard, 100); // اجرای دوباره بعد از استقرار کامل layout (رفع باگ سایز اشتباه در بار اول)
