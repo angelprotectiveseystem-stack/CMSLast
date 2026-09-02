@@ -16,6 +16,7 @@ from urllib.parse import parse_qsl
 
 import asyncio
 
+import aiohttp
 import chess as pychess
 from aiohttp import web
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -63,6 +64,11 @@ _AVATAR_CACHE_TTL_EMPTY = 30  # ثانیه — برای نتیجه‌ی خالی
 
 
 async def _resolve_avatar_url(user_id):
+    """آدرسِ مستقیمِ تلگرام برای عکسِ پروفایل را برمی‌گرداند — این تابع
+    دیگر مستقیماً به کلاینت داده نمی‌شود (به‌خاطرِ فیلترشدنِ احتمالیِ
+    api.telegram.org برای کاربرانِ داخلِ ایران؛ به کامنتِ روتِ
+    avatar_proxy پایین‌تر نگاه کنید)، فقط داخلِ سرور برای پروکسی‌کردنِ
+    بایت‌های عکس استفاده می‌شود."""
     if not user_id or BOT is None:
         return None
     cached = _avatar_cache.get(user_id)
@@ -93,6 +99,12 @@ async def _resolve_avatar_url(user_id):
     ttl = _AVATAR_CACHE_TTL if url else _AVATAR_CACHE_TTL_EMPTY
     _avatar_cache[user_id] = (url, time.monotonic() + ttl)
     return url
+
+
+def _avatar_proxy_path(user_id):
+    """مسیرِ داخلیِ خودِ مینی‌اپ که کلاینت باید عکسِ پروفایل را از آن
+    بگیرد — هم‌دامنه با بقیه‌ی /api و /webapp، نه api.telegram.org."""
+    return f"/api/avatar/{user_id}" if user_id else None
 
 
 def _kb_after_game() -> InlineKeyboardMarkup:
@@ -251,10 +263,15 @@ async def _game_to_state(game, viewer_id):
     # هر دو عکسِ پروفایل موازی گرفته می‌شوند (نه پشتِ‌سرِهم) تا تاخیرِ
     # اضافه‌شده به هر درخواستِ /api/state حداکثر برابرِ یکی از این دو
     # فراخوانی باشد، نه مجموعِ هر دو.
-    white_avatar, black_avatar = await asyncio.gather(
+    # نکته: اینجا فقط چک می‌شود که آیا اصلاً عکسی وجود دارد (تا فقط در
+    # آن صورت لینکِ پروکسی فرستاده شود)؛ خودِ URLِ خام تلگرام هرگز به
+    # کلاینت نمی‌رود — به کامنتِ بالای avatar_proxy نگاه کنید.
+    white_has_photo, black_has_photo = await asyncio.gather(
         _resolve_avatar_url(game["white_id"]),
         _resolve_avatar_url(game["black_id"]),
     )
+    white_avatar = _avatar_proxy_path(game["white_id"]) if white_has_photo else None
+    black_avatar = _avatar_proxy_path(game["black_id"]) if black_has_photo else None
     return {
         "fen": game["fen"],
         "status": game["status"],
@@ -492,6 +509,58 @@ async def static_files(request):
 @routes.get("/webapp")
 async def webapp_root(request):
     return _index_response()
+
+
+# ─── پروکسیِ سمت‌سرورِ عکسِ پروفایل ────────────────────────────────
+# ریشه‌ی واقعیِ باگِ «آواتار نمی‌آید»: قبلاً لینکِ مستقیمِ
+# api.telegram.org/file/bot<TOKEN>/... به کلاینت فرستاده می‌شد تا
+# مرورگرِ خودِ کاربر مستقیماً از آن‌جا عکس را بگیرد. سرور (Railway) به
+# api.telegram.org دسترسی دارد (برای همین get_user_profile_photos/
+# get_file از قبل کار می‌کردند)، اما این یک درخواستِ کاملاً جداگانه از
+# مرورگرِ کلاینت است — و برای کاربرانِ داخلِ ایران، دسترسیِ مستقیمِ
+# HTTPS به api.telegram.org از داخلِ مرورگر همیشه ممکن نیست (دقیقاً
+# همان کلاسِ مشکلی که قبلاً باعثِ فیل‌شدنِ chess.js از cdnjs.cloudflare.com
+# شده بود). راه‌حل: این route عکس را همین‌جا (سمتِ سرور) دانلود می‌کند و
+# از همان دامنه‌ی خودِ مینی‌اپ (که کلاینت از قبل به آن وصل است) پاس
+# می‌دهد؛ توکنِ بات هم هرگز در src یک <img> به کلاینت لو نمی‌رود.
+_avatar_http_session = None
+
+
+async def _get_avatar_http_session():
+    global _avatar_http_session
+    if _avatar_http_session is None or _avatar_http_session.closed:
+        _avatar_http_session = aiohttp.ClientSession()
+    return _avatar_http_session
+
+
+@routes.get("/api/avatar/{user_id}")
+async def avatar_proxy(request):
+    try:
+        user_id = int(request.match_info["user_id"])
+    except (TypeError, ValueError):
+        raise web.HTTPBadRequest()
+    tg_url = await _resolve_avatar_url(user_id)
+    if not tg_url:
+        raise web.HTTPNotFound()
+    try:
+        session = await _get_avatar_http_session()
+        async with session.get(tg_url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                raise web.HTTPNotFound()
+            data = await resp.read()
+            content_type = resp.headers.get("Content-Type", "image/jpeg")
+    except web.HTTPException:
+        raise
+    except Exception:
+        logger.warning("Avatar proxy fetch failed for user %s", user_id)
+        raise web.HTTPNotFound()
+    return web.Response(
+        body=data,
+        content_type=content_type,
+        # ۵ دقیقه، هم‌راستا با TTLِ کشِ خودِ _resolve_avatar_url — بعد از
+        # آن اگر عکسِ پروفایل واقعاً عوض شود، درخواستِ بعدی آن را می‌گیرد.
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @routes.get("/api/state")
