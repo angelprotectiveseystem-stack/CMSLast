@@ -7,9 +7,11 @@ chess_challenge.py
 
 import logging
 import random
+import time
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ParseMode
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 import database as db
@@ -21,6 +23,41 @@ from helpers import safe_edit_message_text, box, pishva_display
 logger = logging.getLogger(__name__)
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+# ─── نامِ واقعیِ پروفایلِ تلگرامی (نه نامِ ثبت‌شده‌ی ادمین) ──────────
+# قبلاً نام/آواتاری که در شطرنج زنده نشان داده می‌شد از روی display_name/
+# full_name ثبت‌شده در جدولِ admins بود (همان اسمی که موقعِ ثبت‌نام در ربات
+# وارد شده)، نه پروفایلِ واقعیِ تلگرامِ کاربر. آواتار از قبل با
+# get_user_profile_photos درست از تلگرام گرفته می‌شد؛ این تابع همان کار را
+# برای «نام» هم انجام می‌دهد (get_chat → first_name/last_name/username) تا
+# نام و عکس هر دو دقیقاً همان چیزی باشند که کاربر الان در تلگرامش دارد.
+# با همان الگوی کش TTL کوتاه (مثل آواتار در game_server.py) تا هر
+# فراخوانی باعثِ یک درخواستِ جدید به تلگرام نشود.
+_name_cache = {}  # user_id -> (name_or_None, monotonic_expiry)
+_NAME_CACHE_TTL = 300
+_NAME_CACHE_TTL_EMPTY = 30
+
+
+async def _telegram_profile_name(bot, user_id: int):
+    if bot is None or not user_id:
+        return None
+    cached = _name_cache.get(user_id)
+    if cached and cached[1] > time.monotonic():
+        return cached[0]
+    name = None
+    try:
+        chat = await bot.get_chat(user_id)
+        first = (chat.first_name or "").strip()
+        last = (chat.last_name or "").strip()
+        full = (first + " " + last).strip()
+        name = full or (f"@{chat.username}" if chat.username else None)
+    except TelegramError as e:
+        logger.debug("Telegram error resolving live profile name for %s: %s", user_id, e)
+    except Exception:
+        logger.exception("Failed to resolve live Telegram profile name for %s", user_id)
+    ttl = _NAME_CACHE_TTL if name else _NAME_CACHE_TTL_EMPTY
+    _name_cache[user_id] = (name, time.monotonic() + ttl)
+    return name
 
 
 async def _chess_block_reason(uid: int) -> str:
@@ -47,9 +84,12 @@ async def _chess_block_reason(uid: int) -> str:
     return ""
 
 
-async def _display_name(user_id: int) -> str:
+async def _display_name(user_id: int, bot=None) -> str:
     if user_id == PISHVA_ID:
         return await pishva_display()
+    tg_name = await _telegram_profile_name(bot, user_id)
+    if tg_name:
+        return tg_name
     admin = await db.get_admin(user_id)
     if admin:
         return admin["display_name"] or admin["full_name"]
@@ -257,7 +297,7 @@ async def chess_send_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     await query.answer("درخواست ارسال شد ✅")
     req_id = await db.create_chess_request(uid, target_id, time_control, color)
-    requester_name = await _display_name(uid)
+    requester_name = await _display_name(uid, ctx.bot)
     time_label = next((lbl for s, lbl in TIME_CONTROLS if s == time_control), f"{time_control // 60} دقیقه")
 
     kb = InlineKeyboardMarkup([[
@@ -280,7 +320,7 @@ async def chess_send_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await safe_edit_message_text(
         query,
         f"{box('♟️ شطرنج زنده')}\n\n"
-        f"⏳ درخواست بازی برای {await _display_name(target_id)} ارسال شد.\n"
+        f"⏳ درخواست بازی برای {await _display_name(target_id, ctx.bot)} ارسال شد.\n"
         f"به محض پاسخ ایشان به شما اطلاع داده می‌شود.",
         reply_markup=_kb_back(),
         parse_mode=ParseMode.MARKDOWN,
@@ -323,8 +363,8 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # منقضی‌اش می‌کنیم تا برای همیشه به‌عنوان «در انتظار پاسخ» گیر نکند.
     await db.expire_other_chess_requests(requester_id, uid, req_id)
 
-    requester_name = await _display_name(requester_id)
-    accepter_name = await _display_name(uid)
+    requester_name = await _display_name(requester_id, ctx.bot)
+    accepter_name = await _display_name(uid, ctx.bot)
     time_control = req["time_control"] or 300
     req_color = req["requester_color"] or "random"
     if req_color == "random":
@@ -427,7 +467,7 @@ async def chess_decline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         await ctx.bot.send_message(
             chat_id=req["requester_id"],
-            text=f"{box('♟️ درخواست رد شد')}\n\n{await _display_name(uid)} درخواست بازی شما را رد کرد.",
+            text=f"{box('♟️ درخواست رد شد')}\n\n{await _display_name(uid, ctx.bot)} درخواست بازی شما را رد کرد.",
         )
     except Exception:
         logger.exception("Failed to notify decline to %s", req["requester_id"])
@@ -530,7 +570,7 @@ async def chess_ai_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         color = random.choice(["w", "b"])
 
     await query.answer("بازی ساخته شد ✅")
-    human_name = await _display_name(uid)
+    human_name = await _display_name(uid, ctx.bot)
     ai_name = ai_display_name(level)
     if color == "w":
         white_id, black_id = uid, CHESS_AI_ID
