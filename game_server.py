@@ -551,18 +551,30 @@ async def avatar_proxy(request):
         raise web.HTTPBadRequest()
     tg_url = await _resolve_avatar_url(user_id)
     if not tg_url:
+        logger.warning("[AVATAR-DEBUG] proxy: no tg_url resolved for user %s", user_id)
         raise web.HTTPNotFound()
     try:
         session = await _get_avatar_http_session()
         async with session.get(tg_url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
             if resp.status != 200:
+                # قبلاً این حالت بی‌سروصدا 404 می‌داد و هیچ لاگی ثبت نمی‌شد
+                # (چون HTTPNotFound خودش یک HTTPException است و توسط
+                # except بعدی، بدون لاگ، دوباره raise می‌شد) — همین باعث
+                # شده بود که علتِ واقعیِ «چرا عکس نمی‌آید» نامعلوم بماند.
+                # فقط دمِ آدرس (بعد از آخرین /) لاگ می‌شود، نه کلِ URL، تا
+                # توکنِ بات هرگز داخل لاگ‌ها هم نیفتد.
+                url_tail = tg_url.rsplit("/", 1)[-1]
+                logger.warning(
+                    "[AVATAR-DEBUG] Telegram file fetch failed for user %s: status=%s path_tail=%s",
+                    user_id, resp.status, url_tail,
+                )
                 raise web.HTTPNotFound()
             data = await resp.read()
             content_type = resp.headers.get("Content-Type", "image/jpeg")
     except web.HTTPException:
         raise
-    except Exception:
-        logger.warning("Avatar proxy fetch failed for user %s", user_id)
+    except Exception as e:
+        logger.warning("[AVATAR-DEBUG] Avatar proxy fetch raised %s for user %s: %s", type(e).__name__, user_id, e)
         raise web.HTTPNotFound()
     return web.Response(
         body=data,
