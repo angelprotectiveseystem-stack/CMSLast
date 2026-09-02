@@ -42,6 +42,19 @@ BOT = None
 def set_bot(bot):
     global BOT
     BOT = bot
+    # چک یک‌بارِ سلامتِ توکن: اگر BOT_TOKEN داخلِ config.py (که برای
+    # ساختنِ دستیِ لینکِ دانلودِ عکس در _resolve_avatar_url استفاده
+    # می‌شود) با توکنِ واقعیِ همین شیِ bot یکی نباشد — مثلاً به‌خاطرِ یک
+    # کاراکترِ فاصله/newlineِ اضافه در متغیرِ محیطیِ Railway — لینکِ
+    # عکس همیشه ۴۰۴ می‌دهد ولی بقیه‌ی کارهای بات (که از خودِ bot.token
+    # استفاده می‌کنند) درست کار می‌کنند و مشکل مخفی می‌ماند.
+    if getattr(bot, "token", None) and bot.token != BOT_TOKEN:
+        logger.warning(
+            "[AVATAR-DEBUG] MISMATCH: config.BOT_TOKEN (len=%d) != bot.token (len=%d) "
+            "— avatar download links are built from config.BOT_TOKEN and will 404 "
+            "if it doesn't exactly match the running bot's token.",
+            len(BOT_TOKEN), len(bot.token),
+        )
 
 
 # ─── آدرسِ عکسِ پروفایلِ تلگرامیِ بازیکن‌ها ──────────────────────
@@ -69,7 +82,12 @@ async def _resolve_avatar_url(user_id):
     api.telegram.org برای کاربرانِ داخلِ ایران؛ به کامنتِ روتِ
     avatar_proxy پایین‌تر نگاه کنید)، فقط داخلِ سرور برای پروکسی‌کردنِ
     بایت‌های عکس استفاده می‌شود."""
-    if not user_id:
+    if not user_id or user_id == AI_ID or user_id < 0:
+        # هوش مصنوعی (AI_ID == -1) و هر آی‌دیِ منفیِ دیگر عکسِ پروفایلِ
+        # تلگرامی ندارند — قبلاً اینجا رد نمی‌شد و هر poll یک درخواستِ
+        # get_user_profile_photos(-1) به تلگرام می‌رفت که همیشه با خطای
+        # "Invalid user_id specified" شکست می‌خورد (لاگِ آن را در
+        # screenshot با user -1 می‌بینید).
         return None
     if BOT is None:
         logger.warning("[AVATAR-DEBUG] BOT instance is None — set_bot() was never called")
@@ -549,33 +567,51 @@ async def avatar_proxy(request):
         user_id = int(request.match_info["user_id"])
     except (TypeError, ValueError):
         raise web.HTTPBadRequest()
-    tg_url = await _resolve_avatar_url(user_id)
-    if not tg_url:
-        logger.warning("[AVATAR-DEBUG] proxy: no tg_url resolved for user %s", user_id)
-        raise web.HTTPNotFound()
-    try:
-        session = await _get_avatar_http_session()
-        async with session.get(tg_url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-            if resp.status != 200:
-                # قبلاً این حالت بی‌سروصدا 404 می‌داد و هیچ لاگی ثبت نمی‌شد
-                # (چون HTTPNotFound خودش یک HTTPException است و توسط
-                # except بعدی، بدون لاگ، دوباره raise می‌شد) — همین باعث
-                # شده بود که علتِ واقعیِ «چرا عکس نمی‌آید» نامعلوم بماند.
-                # فقط دمِ آدرس (بعد از آخرین /) لاگ می‌شود، نه کلِ URL، تا
-                # توکنِ بات هرگز داخل لاگ‌ها هم نیفتد.
-                url_tail = tg_url.rsplit("/", 1)[-1]
-                logger.warning(
-                    "[AVATAR-DEBUG] Telegram file fetch failed for user %s: status=%s path_tail=%s",
-                    user_id, resp.status, url_tail,
-                )
+    # قبلاً اگر لینکِ کش‌شده (که ۵ دقیقه معتبر فرض می‌شد) در عمل ۴۰۴ می‌داد،
+    # همان لینکِ خراب تا پایانِ همان ۵ دقیقه دوباره و دوباره امتحان می‌شد
+    # (چون _resolve_avatar_url فقط از کش می‌خواند). حالا حداکثر ۲ تلاش:
+    # اگر اولی شکست خورد، کش پاک می‌شود و یک‌بار کاملاً تازه از تلگرام
+    # می‌گیریم — همینِ یک تغییر ممکن است خودش مشکل را حل کند، چون معلوم
+    # نیست لینکِ اول اصلاً چرا شکست خورده.
+    data = None
+    content_type = "image/jpeg"
+    session = await _get_avatar_http_session()
+    for attempt in (1, 2):
+        tg_url = await _resolve_avatar_url(user_id)
+        if not tg_url:
+            logger.warning("[AVATAR-DEBUG] proxy: no tg_url resolved for user %s (attempt %s)", user_id, attempt)
+            raise web.HTTPNotFound()
+        try:
+            async with session.get(tg_url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status != 200:
+                    # فقط دمِ آدرس (بعد از آخرین /) و بدنه‌ی پاسخِ تلگرام لاگ
+                    # می‌شود (نه کلِ URL)، تا توکنِ بات هرگز داخلِ لاگ‌ها
+                    # نیفتد؛ بدنه معمولاً دلیلِ دقیقِ ۴۰۴/۴۰۳ را از زبانِ خودِ
+                    # تلگرام می‌گوید (مثلاً "file is too big" یا واقعاً
+                    # invalid file_id) و تا الان اصلاً ثبت نمی‌شد.
+                    url_tail = tg_url.rsplit("/", 1)[-1]
+                    body_snippet = (await resp.text())[:200]
+                    logger.warning(
+                        "[AVATAR-DEBUG] Telegram file fetch failed for user %s: status=%s path_tail=%s attempt=%s body=%r",
+                        user_id, resp.status, url_tail, attempt, body_snippet,
+                    )
+                    _avatar_cache.pop(user_id, None)
+                    if attempt == 2:
+                        raise web.HTTPNotFound()
+                    continue
+                data = await resp.read()
+                content_type = resp.headers.get("Content-Type", "image/jpeg")
+                break
+        except web.HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(
+                "[AVATAR-DEBUG] Avatar proxy fetch raised %s for user %s (attempt %s): %s",
+                type(e).__name__, user_id, attempt, e,
+            )
+            _avatar_cache.pop(user_id, None)
+            if attempt == 2:
                 raise web.HTTPNotFound()
-            data = await resp.read()
-            content_type = resp.headers.get("Content-Type", "image/jpeg")
-    except web.HTTPException:
-        raise
-    except Exception as e:
-        logger.warning("[AVATAR-DEBUG] Avatar proxy fetch raised %s for user %s: %s", type(e).__name__, user_id, e)
-        raise web.HTTPNotFound()
     return web.Response(
         body=data,
         content_type=content_type,
