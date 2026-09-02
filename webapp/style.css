@@ -188,7 +188,13 @@ html,body{
   flex-shrink: 0;
 }
 
-.square{ position:relative; display:flex; align-items:center; justify-content:center; }
+/* contain:layout ‌paint هر خانه را برای مرورگر یک واحدِ جداگانه‌ی
+   لِی‌آوت/رسم اعلام می‌کند؛ یعنی وقتی مهره‌ای داخلِ یک خانه با transform
+   جابه‌جا می‌شود یا رنگِ هایلایتِ .selected/.check عوض می‌شود، مرورگر
+   لازم نیست ۶۳ خانه‌ی دیگر را هم برای احتمالِ تغییرِ لِی‌آوت بررسی کند —
+   این دقیقاً همان چیزی است که در طولِ انیمیشنِ حرکتِ مهره فریم‌ریت را
+   پایین می‌آورد، مخصوصاً روی WebViewِ ضعیف‌ترِ اندروید. */
+.square{ position:relative; display:flex; align-items:center; justify-content:center; contain: layout paint; }
 .square.light{ background: var(--light-sq); }
 .square.dark{ background: var(--dark-sq); }
 .square::before{
@@ -310,11 +316,26 @@ html,body{
 .turn-banner.theirs{ color: var(--text-3); }
 
 .spectator-note{
+  display:flex; align-items:center; justify-content:center; gap:7px;
   text-align:center; font-size:13px; font-weight:600; color: var(--text-2);
   background: var(--surface); border:1px solid var(--border);
   border-radius:10px; padding:8px 0;
 }
 .spectator-note.hidden{ display:none; }
+/* چراغِ ضربان‌دارِ آرام به‌جای یک اموجیِ چشمِ دوم (کنارِ اموجیِ چشمِ
+   spectators-banner که تعدادِ بیننده‌ها را نشان می‌دهد) — تا وقتی کسی
+   در حال تماشا است دو اموجیِ چشم پشتِ‌سرِهم دیده نشود. سرعتِ pulse
+   کندتر از چراغِ وضعیتِ اتصال (که ۱٫۸s است) انتخاب شده تا حسِ «ضربانِ
+   آرام» بدهد، نه چشمک‌زدنِ عصبی. */
+.spectator-pulse{
+  width:8px; height:8px; border-radius:50%; flex:none;
+  background: var(--accent); box-shadow: 0 0 7px var(--accent);
+  animation: spectatorPulse 2.6s ease-in-out infinite;
+}
+@keyframes spectatorPulse{
+  0%,100%{ opacity:1; transform:scale(1); }
+  50%{ opacity:.35; transform:scale(.82); }
+}
 
 .spectators-banner{
   display:flex; align-items:center; justify-content:center; gap:6px;

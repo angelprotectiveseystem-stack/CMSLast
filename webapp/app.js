@@ -135,7 +135,7 @@ var state = {
   clockTimer: null,
   whiteTime: 300, blackTime: 300,
   turn: "w",
-  myId: null, oppId: null,
+  myId: null, oppId: null, whiteId: null, blackId: null,
   myName: "شما", oppName: "حریف",
   gameOverShown: false,
   boardEls: {},
@@ -484,7 +484,19 @@ function renderPieces(animateFrom, animateTo, silent){
     moves.forEach(function(m){ m.el.classList.add("moving"); });
     state.pendingAnimFrame = requestAnimationFrame(function(){
       state.pendingAnimFrame = null;
-      moves.forEach(function(m){
+      // رفعِ افتِ فریم‌ریت روی حرکاتِ چندمهره‌ای (قلعه، یا چند حرکتِ
+      // هم‌زمانِ رسیده از سرور): قبلاً برای هر مهره، خواندنِ rect
+      // (getBoundingClientRect) و نوشتنِ transform و خواندنِ اجباریِ
+      // بعدیِ offsetWidth پشتِ‌سرِ‌هم و به‌ازای *هرکدام* جداگانه انجام
+      // می‌شد. چون خواندن بعد از نوشتنِ روی مهره‌ی قبلی می‌آید، مرورگر
+      // مجبور بود لِی‌آوت را بارها در همان فریم از نو محاسبه کند
+      // (layout thrashing) — دقیقاً همان‌جایی که خطرِ افتِ فریم واقعی
+      // است. حالا همه‌ی خواندن‌ها اول و یک‌جا انجام می‌شوند، بعد همه‌ی
+      // نوشتن‌ها، و فقط یک reflowِ اجباریِ مشترک برای کلِ دسته — نه یکی
+      // به‌ازای هر مهره.
+      var toRects = moves.map(function(m){ return m.el.getBoundingClientRect(); }); // فازِ خواندن
+      var prepared = [];
+      moves.forEach(function(m, i){
         // باگِ «تکونِ عجیب هنگام نشستن روی خانه‌ی مقصد»: اینجا قبلاً rect خودِ
         // خانه‌ی مقصد (state.boardEls[m.toSq]) اندازه‌گیری می‌شد، نه rect خودِ
         // مهره. چون .piece داخل خانه‌اش width:92%/height:92%/margin:auto دارد
@@ -497,88 +509,99 @@ function renderPieces(animateFrom, animateTo, silent){
         // (چند خط بالاتر) با appendChild داخل خانه‌ی مقصد قرار گرفته، پس
         // گرفتنِ rect مستقیماً از خودِ m.el (نه از خانه) دقیقاً همان موقعیتِ
         // واقعیِ نهایی‌اش را می‌دهد و این خطا را کاملاً حذف می‌کند.
-        var toRect = m.el.getBoundingClientRect();
+        var toRect = toRects[i];
         if(!m.fromRect){ m.el.classList.remove("moving"); return; }
         var dx = m.fromRect.left - toRect.left;
         var dy = m.fromRect.top - toRect.top;
         if(!dx && !dy){ m.el.classList.remove("moving"); return; }
-        var dist = Math.sqrt(dx*dx + dy*dy);
-        // مدت‌زمانِ حرکت: chess.com از یک مدتِ نسبتاً کوتاه و تقریباً ثابت
-        // استفاده می‌کند (حسِ «سریع و قاطع»، نه «آهسته و رویایی») که فقط
-        // برای فاصله‌های خیلی بلند (مثل قلعه یا حرکتِ وزیر سرتاسرِ صفحه)
-        // کمی بلندتر می‌شود. عدد پایه و سقف نسبت به قبل کاهش یافت.
-        var dur = Math.max(160, Math.min(260, 130 + dist * 0.22));
-        var el = m.el;
-        el.style.transition = "none";
-        // نکته: برخلاف نسخه‌ی قبلی، اینجا هیچ scale-ای در حینِ حرکت اعمال
-        // نمی‌شود — فقط translate خالص. chess.com مهره را در طول حرکت
-        // بزرگ/کوچک نمی‌کند؛ فقط با یک سایه‌ی نرم (که در CSS اضافه شد)
-        // حسِ «بلندشدن از سطح تخته» را می‌دهد، و اندازه ثابت می‌ماند.
-        el.style.transform = "translate(" + dx + "px," + dy + "px)";
-        void el.offsetWidth; // reflow اجباری — نقطه‌ی شروع را قفل می‌کند
-        // یک requestAnimationFrame دوم و تودرتو لازم است: reflow فقط
-        // layout را محاسبه می‌کند، نه اینکه تضمین کند مرورگر واقعاً یک
-        // فریم را رسم (paint) کرده باشد. اگر وصل‌کردن transition و
-        // نوشتنِ مقصد در همان تسکِ همزمانِ جاوااسکریپت انجام شود، روی
-        // بعضی WebViewها (به‌خصوص اندرویدِ داخلِ تلگرام) هر دو تغییر با
-        // هم در یک فریم ادغام می‌شوند و مرورگر مستقیم به state نهایی
-        // می‌پرد. با این rAF دوم، موقعیتِ شروع تضمین می‌شود که واقعاً
-        // رسم شده باشد، و فقط بعد از آن transition وصل و مقصد نوشته شود.
-        requestAnimationFrame(function(){
+        prepared.push({ m: m, dx: dx, dy: dy, dist: Math.sqrt(dx*dx + dy*dy) });
+      });
+      // فازِ نوشتن: همه‌ی مهره‌ها بدونِ transition به موقعیتِ قبلی‌شان
+      // (نقطه‌ی شروعِ بصریِ انیمیشن) منتقل می‌شوند — بین این نوشتن‌ها هیچ
+      // خواندنی وجود ندارد، پس لِی‌آوت هنوز invalidate نشده و مرورگر
+      // نوشتن‌ها را دسته‌جمعی صف می‌کند، نه یکی‌یکی.
+      prepared.forEach(function(p){
+        p.m.el.style.transition = "none";
+        p.m.el.style.transform = "translate(" + p.dx + "px," + p.dy + "px)";
+      });
+      // یک reflow اجباریِ مشترک برای کلِ دسته (نه یکی به‌ازای هر مهره) —
+      // نقطه‌ی شروع را برای همه‌ی مهره‌ها هم‌زمان قفل می‌کند.
+      if(prepared.length) void prepared[0].m.el.offsetWidth;
+      // یک requestAnimationFrame دوم و تودرتو لازم است: reflow فقط
+      // layout را محاسبه می‌کند، نه اینکه تضمین کند مرورگر واقعاً یک
+      // فریم را رسم (paint) کرده باشد. اگر وصل‌کردن transition و
+      // نوشتنِ مقصد در همان تسکِ همزمانِ جاوااسکریپت انجام شود، روی
+      // بعضی WebViewها (به‌خصوص اندرویدِ داخلِ تلگرام) هر دو تغییر با
+      // هم در یک فریم ادغام می‌شوند و مرورگر مستقیم به state نهایی
+      // می‌پرد. با این rAF دوم، موقعیتِ شروع تضمین می‌شود که واقعاً
+      // رسم شده باشد، و فقط بعد از آن transition وصل و مقصد نوشته شود.
+      requestAnimationFrame(function(){
+        prepared.forEach(function(p){
+          var m = p.m, el = m.el;
+          // مدت‌زمانِ حرکت: chess.com از یک مدتِ نسبتاً کوتاه و تقریباً ثابت
+          // استفاده می‌کند (حسِ «سریع و قاطع»، نه «آهسته و رویایی») که فقط
+          // برای فاصله‌های خیلی بلند (مثل قلعه یا حرکتِ وزیر سرتاسرِ صفحه)
+          // کمی بلندتر می‌شود. عدد پایه و سقف نسبت به قبل کاهش یافت.
+          var dur = Math.max(160, Math.min(260, 130 + p.dist * 0.22));
+          // نکته: برخلاف نسخه‌ی قبلی، اینجا هیچ scale-ای در حینِ حرکت اعمال
+          // نمی‌شود — فقط translate خالص. chess.com مهره را در طول حرکت
+          // بزرگ/کوچک نمی‌کند؛ فقط با یک سایه‌ی نرم (که در CSS اضافه شد)
+          // حسِ «بلندشدن از سطح تخته» را می‌دهد، و اندازه ثابت می‌ماند.
           // ease-out قاطع: شروعِ نسبتاً سریع، فرود بسیار نرم — دقیقاً حسِ
           // حرکتِ مهره‌ی chess.com، بدون هیچ overshoot/بانسی در مسیر.
           el.style.transition = "transform " + dur + "ms cubic-bezier(.22,.61,.36,1)";
           el.style.transform = "translate(0px,0px)";
-        });
 
-        var entry = { el: el, done: false };
-        var finish = function(){
-          if(entry.done) return;
-          entry.done = true;
-          el.removeEventListener("transitionend", onEnd);
-          clearTimeout(fallbackTimer);
-          el.style.transition = "";
-          el.style.transform = "";
-          // رفعِ باگِ «لرزش/سکته‌ی لحظه‌ی فرود»: قبلاً همین‌جا، بلافاصله بعد
-          // از برداشتنِ moving، کلاسِ just-arrived اضافه می‌شد که یک
-          // انیمیشنِ کوچکِ scale (به اسمِ settle) اجرا می‌کرد. حتی بعد از
-          // فیکسِ will-change (که مشکلِ دموت/پروموتِ لایه‌ی GPU را حل کرد)،
-          // خودِ همین پالسِ بعد-از-فرود — هرچند ظریف — دقیقاً همان تکونی
-          // بود که حسِ سکته می‌داد. چون مشکل خودِ این انیمیشنِ بعد از
-          // نشستن بود (نه انیمیشنِ آمدن/سُرخوردن)، ساده‌ترین رفع این است
-          // که اصلاً اضافه نشود: دیگر هیچ کلاس/انیمیشنی بعد از فرودِ مهره
-          // اجرا نمی‌شود، فقط moving برداشته می‌شود و مهره دقیقاً در حالتِ
-          // ثابتِ نهایی‌اش می‌ماند.
-          el.classList.remove("moving");
-          // اگر این خانه محلِ گرفتنِ یک مهره بود، همین الان (لحظه‌ی واقعیِ
-          // رسیدنِ مهاجم) مهره‌ی گرفته‌شده را محو کن — نه زودتر.
-          var capFns = captureFinishersBySquare[m.toSq];
-          if(capFns) capFns.forEach(function(fn){ fn(); });
-          var i = state.activeAnims.indexOf(entry);
-          if(i >= 0) state.activeAnims.splice(i, 1);
-          if(!state.activeAnims.length){
-            state.animating = false;
-            // sizeBoard() فوراً همین‌جا صدا زده نمی‌شود، بلکه با کمی تأخیر:
-            // اگر resizeِ واقعیِ --board-size دقیقاً همان فریمی رخ بدهد که
-            // moving برداشته می‌شود، آن هم‌زمانی خودش می‌تواند حسِ تکون
-            // بدهد. با این تأخیرِ کوتاه از آن لحظه‌ی حساس دور می‌شویم؛ خودِ
-            // sizeBoard هم اگر تا آن موقع حرکتِ دیگری شروع شده باشد
-            // (state.animating دوباره true شود) کاری نمی‌کند، پس هیچ
-            // ری‌سایزِ واقعی از دست نمی‌رود.
-            setTimeout(sizeBoard, 220);
-          }
-        };
-        function onEnd(ev){ if(ev.target === el && ev.propertyName === "transform") finish(); }
-        el.addEventListener("transitionend", onEnd);
-        // محافظ: اگر به هر دلیلی (مثل قطع‌شدن transition وسط راه توسط
-        // یک رندر جدید که خودش settleActiveAnimations را صدا می‌زند)
-        // transitionend هرگز نرسد، حداکثر کمی بعد از پایانِ مدتِ مورد
-        // انتظار خودمان finish را صدا می‌زنیم تا مهره هیچ‌وقت گیر نکند.
-        var fallbackTimer = setTimeout(finish, dur + 150); // ۵۰ms اضافه برای تأخیرِ rAF دوم
-        entry.finish = finish;
-        state.activeAnims.push(entry);
+          var entry = { el: el, done: false };
+          var finish = function(){
+            if(entry.done) return;
+            entry.done = true;
+            el.removeEventListener("transitionend", onEnd);
+            clearTimeout(fallbackTimer);
+            el.style.transition = "";
+            el.style.transform = "";
+            // رفعِ باگِ «لرزش/سکته‌ی لحظه‌ی فرود»: قبلاً همین‌جا، بلافاصله بعد
+            // از برداشتنِ moving، کلاسِ just-arrived اضافه می‌شد که یک
+            // انیمیشنِ کوچکِ scale (به اسمِ settle) اجرا می‌کرد. حتی بعد از
+            // فیکسِ will-change (که مشکلِ دموت/پروموتِ لایه‌ی GPU را حل کرد)،
+            // خودِ همین پالسِ بعد-از-فرود — هرچند ظریف — دقیقاً همان تکونی
+            // بود که حسِ سکته می‌داد. چون مشکل خودِ این انیمیشنِ بعد از
+            // نشستن بود (نه انیمیشنِ آمدن/سُرخوردن)، ساده‌ترین رفع این است
+            // که اصلاً اضافه نشود: دیگر هیچ کلاس/انیمیشنی بعد از فرودِ مهره
+            // اجرا نمی‌شود، فقط moving برداشته می‌شود و مهره دقیقاً در حالتِ
+            // ثابتِ نهایی‌اش می‌ماند.
+            el.classList.remove("moving");
+            // اگر این خانه محلِ گرفتنِ یک مهره بود، همین الان (لحظه‌ی واقعیِ
+            // رسیدنِ مهاجم) مهره‌ی گرفته‌شده را محو کن — نه زودتر.
+            var capFns = captureFinishersBySquare[m.toSq];
+            if(capFns) capFns.forEach(function(fn){ fn(); });
+            var i2 = state.activeAnims.indexOf(entry);
+            if(i2 >= 0) state.activeAnims.splice(i2, 1);
+            if(!state.activeAnims.length){
+              state.animating = false;
+              // sizeBoard() فوراً همین‌جا صدا زده نمی‌شود، بلکه با کمی تأخیر:
+              // اگر resizeِ واقعیِ --board-size دقیقاً همان فریمی رخ بدهد که
+              // moving برداشته می‌شود، آن هم‌زمانی خودش می‌تواند حسِ تکون
+              // بدهد. با این تأخیرِ کوتاه از آن لحظه‌ی حساس دور می‌شویم؛ خودِ
+              // sizeBoard هم اگر تا آن موقع حرکتِ دیگری شروع شده باشد
+              // (state.animating دوباره true شود) کاری نمی‌کند، پس هیچ
+              // ری‌سایزِ واقعی از دست نمی‌رود.
+              setTimeout(sizeBoard, 220);
+            }
+          };
+          function onEnd(ev){ if(ev.target === el && ev.propertyName === "transform") finish(); }
+          el.addEventListener("transitionend", onEnd);
+          // محافظ: اگر به هر دلیلی (مثل قطع‌شدن transition وسط راه توسط
+          // یک رندر جدید که خودش settleActiveAnimations را صدا می‌زند)
+          // transitionend هرگز نرسد، حداکثر کمی بعد از پایانِ مدتِ مورد
+          // انتظار خودمان finish را صدا می‌زنیم تا مهره هیچ‌وقت گیر نکند.
+          var fallbackTimer = setTimeout(finish, dur + 150); // ۵۰ms اضافه برای تأخیرِ rAF دوم
+          entry.finish = finish;
+          state.activeAnims.push(entry);
+        });
+        if(!state.activeAnims.length) state.animating = false;
       });
-      if(!state.activeAnims.length) state.animating = false;
+      if(!prepared.length) state.animating = false;
       // شبکه‌ی ایمنیِ نهایی: هر مهره‌ی گرفته‌شده‌ای که هنوز محو نشده
       // (مثلاً en passant — جایی که مهره‌ی گرفته‌شده در toSq مهاجم
       // نیست، بلکه یک خانه‌ی کناری است) با تأخیرِ کوتاهی همراستا با
@@ -1135,11 +1158,23 @@ function _showGameOverModal(status, winnerId, whiteEloChange, blackEloChange){
   // نامِ طرفِ بازنده (برای تسلیم/اتمامِ‌وقت) — از رویِ winnerId و رنگ‌ها
   // محاسبه می‌شود، نه فقط «شما»/«حریف»، چون بیننده (spectator) اصلاً
   // «شما»یی ندارد و باید اسمِ واقعیِ طرفِ بازنده را ببیند.
-  var winnerName = winnerId ? (String(winnerId) === String(state.myId) ? state.myName : state.oppName) : null;
-  var loserName = winnerId ? (String(winnerId) === String(state.myId) ? state.oppName : state.myName) : null;
-  if(state.isSpectator && winnerId){
-    // در حالتِ بیننده myName/oppName به سفید/سیاه نگاشت شده‌اند (نه به
-    // خودِ کاربر)، پس winnerName/loserName بر همان مبنا از قبل درست است.
+  //
+  // رفعِ باگ: برای بیننده، state.myId همان آی‌دیِ تلگرامِ خودِ بیننده است
+  // (نه یکی از دو بازیکن)، پس مقایسه‌ی «winnerId === state.myId» برای او
+  // همیشه نادرست (false) بود و در نتیجه winnerName همیشه روی oppName
+  // (=black_name) قفل می‌ماند — مثلاً وقتی سفید (انسان) هوش مصنوعیِ سیاه
+  // را می‌برد، به بیننده نشان داده می‌شد «هوش مصنوعی برنده شد»، دقیقاً
+  // برعکسِ واقعیت. برای بیننده باید winnerId با state.whiteId مقایسه شود،
+  // نه با state.myId؛ چون در حالتِ بیننده myName/oppName از قبل به
+  // سفید/سیاه نگاشت شده‌اند (نه به خودِ کاربر).
+  var winnerName, loserName;
+  if(state.isSpectator){
+    var winnerIsWhite = winnerId && String(winnerId) === String(state.whiteId);
+    winnerName = winnerId ? (winnerIsWhite ? state.myName : state.oppName) : null;
+    loserName = winnerId ? (winnerIsWhite ? state.oppName : state.myName) : null;
+  } else {
+    winnerName = winnerId ? (String(winnerId) === String(state.myId) ? state.myName : state.oppName) : null;
+    loserName = winnerId ? (String(winnerId) === String(state.myId) ? state.oppName : state.myName) : null;
   }
 
   if(isDraw){
@@ -1450,6 +1485,10 @@ function init(){
     var isWhite = String(s.white_id) === String(myId);
     var isBlack = String(s.black_id) === String(myId);
     state.isSpectator = !isWhite && !isBlack;
+    // برای تشخیصِ درستِ برنده در پایانِ بازی از دیدِ بیننده لازم است
+    // (نگاه کنید به _showGameOverModal).
+    state.whiteId = s.white_id;
+    state.blackId = s.black_id;
 
     if(state.isSpectator){
       // شخص سوم (ناظر): تخته همیشه از دید سفید نشان داده می‌شود و امکان
