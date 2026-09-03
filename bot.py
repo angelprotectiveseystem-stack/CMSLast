@@ -149,7 +149,7 @@ from reminders import (
     reminder_job, pishva_reminders, reminder_toggle,
     reminder_interval_menu, reminder_set_interval
 )
-from keyword_commands import handle_keyword_command, kw_announce_start, kw_news_start, panel_ownership_guard, open_panel_here
+from keyword_commands import handle_keyword_command, kw_announce_start, kw_news_start, panel_ownership_guard, open_panel_here, stranger_info_callback
 from chess_challenge import chess_menu, chess_pick_time, chess_pick_color, chess_send_request, chess_accept, chess_decline, chess_elo_board, chess_ai_menu, chess_ai_pick_time, chess_ai_pick_color, chess_ai_start, chess_active_games
 from security import (
     security_panel, security_queue_list, security_queue_item,
@@ -423,6 +423,7 @@ def build_application():
     # 🔒 محافظ مالکیت پنل در گروه — قبل از همه‌ی CallbackQueryHandler‌ها
     app.add_handler(CallbackQueryHandler(panel_ownership_guard, pattern=".*"), group=-2)
     app.add_handler(CallbackQueryHandler(open_panel_here, pattern="^open_panel_here_"), group=0)
+    app.add_handler(CallbackQueryHandler(stranger_info_callback, pattern="^strangerinfo_"))
 
 
     # Auth

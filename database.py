@@ -304,6 +304,15 @@ async def init_db():
             text TEXT,
             sent_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS stranger_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER,
+            username TEXT,
+            full_name TEXT,
+            action TEXT,
+            ts TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_stranger_log_tid_ts ON stranger_log(telegram_id, ts);
         """)
 
         # ─── Lightweight migrations (add columns if missing) ──────────
@@ -433,6 +442,75 @@ async def update_admin_activity(telegram_id):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE admins SET last_active=? WHERE telegram_id=?", (now, telegram_id))
         await db.commit()
+    _invalidate_admin_cache(telegram_id)
+
+
+# ─── ردیابیِ فعالیتِ کاربرهای «غریبه» (نه مدیر ارشد، نه ادمینِ ثبت‌شده) ──
+# هر پیام یا دکمه‌ای که این‌جور کاربرها بزنن، این‌جا لاگ می‌شه؛ هم برای این‌که
+# توی لیست «آنلاین/الان» دیده بشن، هم برای این‌که با زدن دکمه‌ی جزییات دقیقاً
+# معلوم بشه کی هستن و چیکار کردن.
+async def record_stranger_activity(telegram_id: int, username: str, full_name: str, action: str):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO stranger_log(telegram_id, username, full_name, action, ts) VALUES (?,?,?,?,?)",
+            (telegram_id, username or "", full_name or "", action or "", now)
+        )
+        await db.commit()
+
+
+async def get_recent_strangers(minutes: int = 60, limit: int = 20):
+    """لیست غریبه‌های اخیراً فعال (آخرین فعالیتشون در N دقیقه‌ی گذشته)، جدیدترین اول.
+    برای هر کدوم آخرین username/full_name شناخته‌شده و تعداد کل اقدامات ثبت‌شده رو هم برمی‌گردونه."""
+    threshold = (datetime.now() - timedelta(minutes=minutes)).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT telegram_id,
+                   (SELECT username FROM stranger_log s2 WHERE s2.telegram_id = s1.telegram_id ORDER BY s2.id DESC LIMIT 1) AS username,
+                   (SELECT full_name FROM stranger_log s2 WHERE s2.telegram_id = s1.telegram_id ORDER BY s2.id DESC LIMIT 1) AS full_name,
+                   MAX(ts) AS last_active,
+                   COUNT(*) AS action_count
+            FROM stranger_log s1
+            WHERE ts >= ?
+            GROUP BY telegram_id
+            ORDER BY last_active DESC
+            LIMIT ?
+            """,
+            (threshold, limit)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def get_stranger_log(telegram_id: int, limit: int = 15):
+    """ریزِ اقدامات یک غریبه‌ی خاص، جدیدترین اول — برای دکمه‌ی «جزییات»."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM stranger_log WHERE telegram_id=? ORDER BY id DESC LIMIT ?",
+            (telegram_id, limit)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def get_stranger_summary(telegram_id: int):
+    """اولین و آخرین فعالیت + تعداد کل اقدامات یک غریبه (مستقل از بازه‌ی زمانی)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT
+                (SELECT username FROM stranger_log WHERE telegram_id=? ORDER BY id DESC LIMIT 1) AS username,
+                (SELECT full_name FROM stranger_log WHERE telegram_id=? ORDER BY id DESC LIMIT 1) AS full_name,
+                MIN(ts) AS first_seen,
+                MAX(ts) AS last_active,
+                COUNT(*) AS action_count
+            FROM stranger_log WHERE telegram_id=?
+            """,
+            (telegram_id, telegram_id, telegram_id)
+        ) as cur:
+            return await cur.fetchone()
 
 
 async def get_admin_permission(telegram_id: int, perm: str) -> bool:

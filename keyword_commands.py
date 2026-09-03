@@ -454,12 +454,11 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         from datetime import datetime
         now_dt = datetime.now()
         ONLINE_THRESHOLD_MIN = 3  # زیر این چند دقیقه یعنی همین الان روی ربات فعاله
-
-        if not admins_all:
-            await update.message.reply_text("❗ هیچ مدیر فعالی ثبت نشده.")
-            raise ApplicationHandlerStop()
+        STRANGER_WINDOW_MIN = 60  # غریبه‌هایی که توی این بازه فعالیت داشتن رو نشون بده
 
         lines = [box("👥 وضعیت ادمین‌ها"), ""]
+        if not admins_all:
+            lines.append("❗ هیچ مدیر فعالی ثبت نشده.")
         for a in admins_all:
             name = escape_md_legacy(a["display_name"] or a["full_name"])
             role_lbl = "🏆" if a["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️"
@@ -482,10 +481,35 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
                     pass
             lines.append(f"{role_lbl} *{name}*\n    {status}")
 
+        # ─── غریبه‌هایی که اخیراً با ربات کار کردن (نه مدیر ارشد، نه ادمین ثبت‌شده) ───
+        strangers = await db.get_recent_strangers(minutes=STRANGER_WINDOW_MIN)
+        keyboard_rows = []
+        if strangers:
+            lines.append("")
+            lines.append(separator("👥 غریبه‌های اخیراً فعال"))
+            lines.append(f"_(فعالیت در {STRANGER_WINDOW_MIN} دقیقه‌ی گذشته — برای جزییات روی دکمه بزن)_")
+            for s in strangers:
+                uname = s["username"] or ""
+                fname = s["full_name"] or ""
+                tid = s["telegram_id"]
+                label_bits = []
+                if fname:
+                    label_bits.append(fname[:20])
+                if uname:
+                    label_bits.append(f"@{uname}")
+                label_bits.append(f"#{tid}")
+                label = "🙍 " + " | ".join(label_bits)
+                keyboard_rows.append([InlineKeyboardButton(label[:64], callback_data=f"strangerinfo_{tid}")])
+        else:
+            lines.append("")
+            lines.append("👥 هیچ کاربر غریبه‌ای اخیراً با ربات کار نکرده.")
+
+        text = "\n\n".join(lines)
+        markup = InlineKeyboardMarkup(keyboard_rows) if keyboard_rows else None
         try:
-            await update.message.reply_text("\n\n".join(lines), parse_mode="Markdown")
+            await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
         except Exception:
-            await update.message.reply_text("\n\n".join(lines))
+            await update.message.reply_text(text, reply_markup=markup)
         raise ApplicationHandlerStop()
 
     # ─── لیست مدیران ───
@@ -847,7 +871,50 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         raise ApplicationHandlerStop()
 
 
-# ─── اطلاعات کاربر هنگام ریپلای ────────────────────────────
+# ─── جزییات یک کاربر «غریبه» (دکمه‌ی شیشه‌ای زیر لیست آنلاین) ───
+async def stranger_info_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """callback_data = strangerinfo_<telegram_id> — فقط مدیر ارشد و مدیر امنیتی می‌بینن."""
+    query = update.callback_query
+    uid = query.from_user.id
+    is_pishva = (uid == PISHVA_ID)
+    admin = None if is_pishva else await db.get_admin(uid)
+    allowed = is_pishva or (admin and admin["is_active"] and admin["role"] == ROLE_SECURITY_MANAGER)
+    if not allowed:
+        await query.answer("⛔ فقط مدیر ارشد یا مدیر امنیتی می‌تونه جزییات غریبه‌ها رو ببینه.", show_alert=True)
+        return
+    await query.answer()
+
+    tid = int(query.data.split("_")[-1])
+    summary = await db.get_stranger_summary(tid)
+    log_rows = await db.get_stranger_log(tid, limit=15)
+
+    if not summary or not summary["action_count"]:
+        await query.message.reply_text("❗ اطلاعاتی از این کاربر پیدا نشد.")
+        return
+
+    uname = summary["username"] or ""
+    fname = summary["full_name"] or "بی‌نام"
+    lines = [
+        box("🙍 جزییات کاربر غریبه"),
+        "",
+        f"👤 نام: *{escape_md_legacy(fname)}*",
+        f"🪪 یوزرنیم: {('@' + uname) if uname else '—'}",
+        f"🆔 آیدی عددی: `{tid}`",
+        f"📊 تعداد کل اقدامات ثبت‌شده: {summary['action_count']}",
+        f"🕐 اولین فعالیت: `{str(summary['first_seen'] or '')[:16]}`",
+        f"🕐 آخرین فعالیت: `{str(summary['last_active'] or '')[:16]}`",
+        "",
+        separator("📋 آخرین اقدامات (جدیدترین اول)"),
+    ]
+    for row in log_rows:
+        ts = str(row["ts"] or "")[:16]
+        lines.append(f"⏱️ `{ts}` — {escape_md_legacy(row['action'] or '')}")
+
+    text = "\n".join(lines)
+    try:
+        await query.message.reply_text(text, parse_mode="Markdown")
+    except Exception:
+        await query.message.reply_text(text)
 async def _build_user_info(target_id: int, target_name: str, target_username: str) -> list:
     from datetime import datetime, timedelta
     lines = [box(f"🔍 اطلاعات — {target_name}")]

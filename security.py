@@ -1,3 +1,5 @@
+import logging
+
 from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.ext import ApplicationHandlerStop
@@ -19,6 +21,43 @@ QUEUE_MESSAGE = (
     "درخواست شما در حال بررسی توسط واحد امنیتی APS است.\n"
     "تا اطلاع ثانویه امکان ارسال درخواست جدید برای شما وجود ندارد. لطفاً صبور باشید."
 )
+
+# ─── وضعیت لحظه‌ای فعالیت (برای «آنلاین/الان») ────────────────
+# روی هر آپدیتی که به ربات می‌رسه اجرا می‌شه — پیام متنی، دستور، یا هر
+# دکمه‌ای — چه توی پیوی چه توی گروه. اگه فرستنده یه ادمینِ ثبت‌شده باشه،
+# last_active اون به‌روز می‌شه؛ اگه نه مدیر ارشده نه ادمین («غریبه»)،
+# فعالیتش توی stranger_log ثبت می‌شه تا هم توی لیست آنلاین دیده بشه هم
+# جزییات کارش با یه دکمه قابل مشاهده باشه.
+async def _track_activity(update: Update):
+    user = update.effective_user
+    if user is None:
+        return
+    uid = user.id
+    if uid == PISHVA_ID:
+        return  # مدیر ارشد نیازی به رهگیری نداره
+
+    try:
+        admin = await db.get_admin(uid)
+        if admin and admin["is_active"]:
+            await db.update_admin_activity(uid)
+            return
+
+        # ─── غریبه: نه مدیر ارشد، نه ادمینِ فعال ───
+        action = None
+        if update.callback_query is not None:
+            action = f"دکمه: {(update.callback_query.data or '')[:80]}"
+        else:
+            msg = update.effective_message
+            if msg is not None and msg.text:
+                text = msg.text.strip()
+                action = f"دستور: {text[:80]}" if text.startswith("/") else f"پیام: {text[:80]}"
+            elif msg is not None:
+                action = "پیام بدون متن (عکس/فایل/غیره)"
+        if action:
+            await db.record_stranger_activity(uid, user.username or "", user.full_name or "", action)
+    except Exception:
+        logging.getLogger(__name__).exception("activity tracking failed")
+
 
 # ─── پیام دروازه‌ی «وضعیت امنیتی APS» ─────────────────────────
 # وقتی وضعیت سیستم روی APS باشد، برای هیچ ادمینی (به‌جز مدیر ارشد)
@@ -58,7 +97,10 @@ async def block_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             pass
         raise ApplicationHandlerStop()
 
-    # کاربر بلاک نیست؛ حالا دروازه‌ی وضعیت امنیتی APS را بررسی می‌کنیم.
+    # کاربر بلاک نیست — فعالیتش رو برای «آنلاین/الان» ثبت می‌کنیم.
+    await _track_activity(update)
+
+    # حالا دروازه‌ی وضعیت امنیتی APS را بررسی می‌کنیم.
     await aps_gate(update, ctx, user)
 
 
