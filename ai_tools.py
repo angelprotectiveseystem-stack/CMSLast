@@ -19,11 +19,13 @@ ai_tools.py — تعریف «ابزارهای» دستیار هوشمند + ما
 """
 import logging
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 import database as db
 import workhours
 import comms
 import ai_scheduler
-from helpers import broadcast_to_admins, now_shamsi, notify_pishva
+from helpers import broadcast_to_admins, now_shamsi, notify_pishva, box, pishva_display
 from config import ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
 
 logger = logging.getLogger(__name__)
@@ -59,7 +61,7 @@ ACTION_TOOL_NAMES = frozenset({
     "start_workhours", "end_workhours",
     "register_player", "warn_player", "kick_player", "revive_player",
     "create_tournament", "record_match", "edit_match_result", "delete_match",
-    "send_announcement", "send_news",
+    "send_announcement", "send_news", "message_admin", "assign_task",
     "warn_admin", "clear_admin_warnings", "set_admin_role",
     "block_user", "unblock_user",
     "set_system_status", "toggle_ai_online", "toggle_admin_ai_access", "toggle_bot_setting",
@@ -76,7 +78,7 @@ SCHEDULABLE_TOOL_NAMES = frozenset({
     "create_tournament", "list_tournaments", "record_match", "edit_match_result",
     "delete_match", "recent_matches",
     "quick_stats", "system_status",
-    "send_announcement", "send_news",
+    "send_announcement", "send_news", "message_admin", "assign_task",
     "list_admins", "warn_admin", "clear_admin_warnings", "set_admin_role",
     "block_user", "unblock_user",
     "get_admin_profile", "set_system_status",
@@ -115,6 +117,8 @@ TOOL_PERMISSIONS = {
     # ── ارتباطات — فقط مدیر ارشد ──
     "send_announcement":  [ROLE_PISHVA],
     "send_news":          [ROLE_PISHVA],
+    "message_admin":      [ROLE_PISHVA],
+    "assign_task":        [ROLE_PISHVA],
 
     # ── مدیریت ادمین‌ها — فقط مدیر ارشد ──
     "list_admins":        [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
@@ -335,6 +339,39 @@ TOOL_DECLARATIONS = [
             "type": "object",
             "properties": {"text": {"type": "string", "description": "متن خبر"}},
             "required": ["text"],
+        },
+    },
+    {
+        "name": "message_admin",
+        "description": (
+            "ارسال مستقیم یک پیام متنی به یک مدیر خاص (نه بیانیه‌ی عمومی برای همه، فقط برای همون یک نفر). "
+            "برای درخواست‌هایی مثل «به فلان مدیر بگو ...» یا «به مدیر مسابقات پیام بده که ...» از این استفاده کن. "
+            "اگه لازم بود چند نفر جدا خبردار بشن، این تابع رو چند بار (برای هر مدیر یک‌بار) صدا بزن."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "identifier": {"type": "string", "description": "آیدی عددی، یوزرنیم یا نام کامل مدیر"},
+                "text": {"type": "string", "description": "متن پیام"},
+            },
+            "required": ["identifier", "text"],
+        },
+    },
+    {
+        "name": "assign_task",
+        "description": (
+            "اعطای یک وظیفه‌ی مشخص (با عنوان و توضیح) به یک مدیر خاص. همون مدیر یه پیام وظیفه با دکمه‌ی "
+            "«تأیید دریافت» می‌گیره و می‌تونه بعداً از پنل وظایفش پیگیریش کنه. برای درخواست‌هایی مثل "
+            "«به فلان مدیر بگو فلان کار رو انجام بده» یا «برای مدیر امنیتی یه وظیفه ثبت کن» از این استفاده کن."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "identifier": {"type": "string", "description": "آیدی عددی، یوزرنیم یا نام کامل مدیر"},
+                "title": {"type": "string", "description": "عنوان کوتاه وظیفه"},
+                "description": {"type": "string", "description": "توضیح کامل وظیفه"},
+            },
+            "required": ["identifier", "title", "description"],
         },
     },
     {
@@ -717,6 +754,67 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             await broadcast_to_admins(ctx.bot, f"📰 خبر:\n\n{args['text']}")
             await db.create_news(args["text"])
             return "📰 خبر برای همه‌ی مدیران ارسال شد."
+
+        elif name == "message_admin":
+            a = await _find_admin_by_identifier(args["identifier"])
+            if not a:
+                return f"مدیری با مشخصات «{args['identifier']}» پیدا نشد."
+            text = (args.get("text") or "").strip()
+            if not text:
+                return "متن پیام نمی‌تونه خالی باشه."
+            tid = a["telegram_id"]
+            await db.send_message_db(caller_id, tid, text)
+            pname = await pishva_display()
+            ts = now_shamsi()
+            notif = (
+                f"{box('📨 پیام جدید')}\n\n"
+                f"📬 شما یک پیام جدید دارید.\n"
+                f"👤 از: {pname}\n"
+                f"⏱️ `{ts}`\n\n"
+                f"💬 متن: _{text}_"
+            )
+            try:
+                await ctx.bot.send_message(
+                    chat_id=tid, text=notif,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ تأیید مطالعه", callback_data="msg_ack")]]),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                return f"⚠️ پیام ثبت شد ولی ارسالش به {a['full_name']} با خطا مواجه شد (شاید ربات رو بلاک/استارت نکرده)."
+            return f"✅ پیام برای {a['full_name']} ارسال شد."
+
+        elif name == "assign_task":
+            a = await _find_admin_by_identifier(args["identifier"])
+            if not a:
+                return f"مدیری با مشخصات «{args['identifier']}» پیدا نشد."
+            title = (args.get("title") or "").strip()
+            desc = (args.get("description") or "").strip()
+            if not title:
+                return "عنوان وظیفه نمی‌تونه خالی باشه."
+            tid = a["telegram_id"]
+            task_id = await db.create_task(tid, caller_id, title, desc)
+            ts = now_shamsi()
+            notif = (
+                f"{box('📋 وظیفه جدید')}\n\n"
+                f"👤 {a['full_name']} عزیز،\n"
+                f"یک وظیفه جدید به شما اعطا شد.\n\n"
+                f"📌 عنوان: *{title}*\n"
+                f"📝 توضیح: _{desc or '—'}_\n"
+                f"⏱️ زمان اعطا: `{ts}`"
+            )
+            try:
+                await ctx.bot.send_message(
+                    chat_id=tid, text=notif,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("👁️ مشاهده وظیفه", callback_data=f"task_view_{task_id}"),
+                         InlineKeyboardButton("✅ تأیید دریافت", callback_data=f"task_ack_{task_id}")]
+                    ]),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                pass
+            await db.log_action(caller_id, "assign_task", f"اعطای وظیفه: {title} (دستیار هوشمند)", tid)
+            return f"✅ وظیفه‌ی «{title}» برای {a['full_name']} ثبت و ارسال شد."
 
         # ── مدیریت ادمین‌ها ──
         elif name == "list_admins":
