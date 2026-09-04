@@ -10,7 +10,6 @@ import logging
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from telegram.error import BadRequest
 
 import database as db
 from helpers import safe_edit_message_text, box, get_user_role
@@ -37,13 +36,7 @@ def _session_label(sess) -> str:
 # ────────────────────────────────────────────────────────────────
 async def ai_exit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    try:
-        await query.answer()
-    except BadRequest:
-        # دکمه‌ی کهنه/منقضی‌شده (مثلاً بعد از تاخیر زیاد یا ری‌استارت ربات) —
-        # نادیده می‌گیریم و ادامه می‌دیم، چون خروج از حالت دستیار و پیام پایینی
-        # به این جواب‌دادن به callback نیازی ندارن.
-        pass
+    await query.answer()
     ctx.user_data["ai_mode"] = False
     ctx.user_data.pop("ai_history", None)
     ctx.user_data.pop("ai_session_id", None)
