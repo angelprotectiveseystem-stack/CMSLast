@@ -17,6 +17,7 @@ ai_tools.py — تعریف «ابزارهای» دستیار هوشمند + ما
   ۲) نقش‌های مجازش رو به TOOL_PERMISSIONS اضافه کن
   ۳) یه شاخه‌ی elif به دیسپچر dispatch() اضافه کن
 """
+import asyncio
 import logging
 from datetime import datetime, timedelta
 
@@ -1196,13 +1197,19 @@ async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx)
             logger.exception(f"Failed to notify pishva about action '{name}'")
 
     if name in AUTO_MEMORY_TOOL_NAMES and not result.startswith(("❌", "⛔", "⚠️")):
-        try:
-            fact, subject = _auto_memory_fact(name, args, result)
-            if fact:
-                actor = await _actor_label(caller_id, caller_role)
-                await db.ai_memory_add(f"{fact} (ثبت‌کننده: {actor})", subject=subject, source="auto",
-                                        created_by=caller_id, created_by_role=caller_role)
-        except Exception:
-            logger.exception(f"Failed to auto-save memory for action '{name}'")
+        fact, subject = _auto_memory_fact(name, args, result)
+        if fact:
+            # عمداً await نمی‌شه: ثبت حافظه یه اثر جانبیه که کاربر منتظرش نیست؛
+            # اگه اینجا await بشه یعنی یه رفت‌وبرگشتِ شبکه‌ایِ اضافه به Turso
+            # جلوی جوابِ کاربر رو می‌گیره — دقیقاً همون کندیِ حس‌شده‌ای که این
+            # پروژه قبلاً یه بار (توی شطرنج زنده) باهاش دست‌وپنجه نرم کرده.
+            async def _save_memory():
+                try:
+                    actor = await _actor_label(caller_id, caller_role)
+                    await db.ai_memory_add(f"{fact} (ثبت‌کننده: {actor})", subject=subject, source="auto",
+                                            created_by=caller_id, created_by_role=caller_role)
+                except Exception:
+                    logger.exception(f"Failed to auto-save memory for action '{name}'")
+            asyncio.create_task(_save_memory())
 
     return result

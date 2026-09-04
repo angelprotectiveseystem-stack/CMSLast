@@ -27,6 +27,13 @@ _SETTING_CACHE_TTL = 4  # ثانیه
 _setting_cache = {}   # key -> (value, expires_at_monotonic)
 _admin_cache = {}     # telegram_id -> (row, expires_at_monotonic)
 
+# حافظه‌ی بلندمدت AI هم دقیقاً همین مشکل رو داشت: ai_memory_recent() یه
+# رفت‌وبرگشتِ شبکه‌ای اضافه به Turso بود که تازه به مسیرِ هر تک پیامِ دستیار
+# هوشمند (نه فقط شطرنج زنده) اضافه شده بود، و همون کندیِ حس‌شده رو این‌بار
+# رو کل دستیار آورد. با همون منطقِ بالا: چند ثانیه کش کافیه، چون حافظه‌ی
+# جمعی بین دو پیامِ پشتِ‌سرِهم تقریباً هیچ‌وقت عوض نمی‌شه.
+_ai_memory_cache = {}  # limit -> (rows, expires_at_monotonic)
+
 
 def _cache_get(store, key):
     import time
@@ -1782,11 +1789,18 @@ async def ai_memory_add(fact: str, subject: str = None, source: str = "manual",
             ((subject or None), fact, source, created_by, created_by_role, now, expires_at)
         )
         await db.commit()
-        return cur.lastrowid
+    _ai_memory_cache.clear()
+    return cur.lastrowid
 
 
 async def ai_memory_recent(limit: int = 25):
-    """آخرین حقایق حافظه که هنوز منقضی نشدن — برای تزریق به پرامپت سیستمی."""
+    """آخرین حقایق حافظه که هنوز منقضی نشدن — برای تزریق به پرامپت سیستمی.
+    این تابع سرِ راهِ هر تک پیامِ دستیار هوشمنده، برای همین (دقیقاً مثل
+    get_setting/get_admin بالا) با یه کشِ چندثانیه‌ای از رفت‌وبرگشتِ شبکه‌ایِ
+    تکراری به Turso جلوگیری می‌کنه."""
+    cached = _cache_get(_ai_memory_cache, limit)
+    if cached is not None:
+        return cached
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -1796,7 +1810,9 @@ async def ai_memory_recent(limit: int = 25):
             (now, limit)
         ) as cur:
             rows = await cur.fetchall()
-    return list(reversed(rows))  # قدیمی‌ترین بالا، تازه‌ترین پایین (ترتیب طبیعی روایت)
+    rows = list(reversed(rows))  # قدیمی‌ترین بالا، تازه‌ترین پایین (ترتیب طبیعی روایت)
+    _cache_set(_ai_memory_cache, limit, rows)
+    return rows
 
 
 async def ai_memory_search(query: str, limit: int = 15):
@@ -1826,6 +1842,7 @@ async def ai_memory_forget_subject(subject: str) -> int:
         if n:
             await db.execute("DELETE FROM ai_memory WHERE subject LIKE ? OR fact LIKE ?", (like, like))
             await db.commit()
+            _ai_memory_cache.clear()
         return n
 
 
