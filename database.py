@@ -27,13 +27,6 @@ _SETTING_CACHE_TTL = 4  # ثانیه
 _setting_cache = {}   # key -> (value, expires_at_monotonic)
 _admin_cache = {}     # telegram_id -> (row, expires_at_monotonic)
 
-# حافظه‌ی بلندمدت AI هم دقیقاً همین مشکل رو داشت: ai_memory_recent() یه
-# رفت‌وبرگشتِ شبکه‌ای اضافه به Turso بود که تازه به مسیرِ هر تک پیامِ دستیار
-# هوشمند (نه فقط شطرنج زنده) اضافه شده بود، و همون کندیِ حس‌شده رو این‌بار
-# رو کل دستیار آورد. با همون منطقِ بالا: چند ثانیه کش کافیه، چون حافظه‌ی
-# جمعی بین دو پیامِ پشتِ‌سرِهم تقریباً هیچ‌وقت عوض نمی‌شه.
-_ai_memory_cache = {}  # limit -> (rows, expires_at_monotonic)
-
 
 def _cache_get(store, key):
     import time
@@ -323,15 +316,11 @@ async def init_db():
         CREATE TABLE IF NOT EXISTS ai_memory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             subject TEXT,
-            fact TEXT,
-            source TEXT DEFAULT 'manual',
+            content TEXT,
+            visibility TEXT DEFAULT 'pishva',
             created_by INTEGER,
-            created_by_role TEXT,
-            created_at TEXT,
-            expires_at TEXT
+            created_at TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_ai_memory_subject ON ai_memory(subject);
-        CREATE INDEX IF NOT EXISTS idx_ai_memory_created_at ON ai_memory(created_at);
         """)
 
         # ─── Lightweight migrations (add columns if missing) ──────────
@@ -530,6 +519,48 @@ async def get_stranger_summary(telegram_id: int):
             (telegram_id, telegram_id, telegram_id)
         ) as cur:
             return await cur.fetchone()
+
+
+# ─── حافظه‌ی بلندمدتِ دستیار هوشمند ────────────────────────────
+# مستقل از تاریخچه‌ی هر گفتگو (که با هر «چت جدید»/بستن دستیار پاک می‌شه)،
+# این‌جا یادداشت‌ها/مسائلی که دستیار درباره‌ی یه مدیر یا موضوع ثبت می‌کنه
+# نگه‌داری می‌شه تا توی هر چتِ دیگه‌ای هم (حتی روزها بعد) در دسترسش باشه.
+# visibility='all' یعنی محتوایی که همین الان هم برای همه‌ی مدیران عمومی
+# بوده (بیانیه/خبر)، پس توی حافظه‌ی هر نقشی نشون داده می‌شه؛ visibility='pishva'
+# یعنی یادداشت‌های خصوصی‌تر (پیام به یه مدیر خاص، اخطار، وظیفه) که فقط توی
+# چتِ خودِ مدیر ارشد به‌عنوان زمینه برگردونده می‌شه.
+async def add_memory_note(subject: str, content: str, visibility: str = "pishva", created_by: int = None):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO ai_memory(subject, content, visibility, created_by, created_at) VALUES (?,?,?,?,?)",
+            ((subject or "عمومی").strip() or "عمومی", (content or "").strip(), visibility, created_by, now)
+        )
+        await db.commit()
+
+
+async def get_recent_memory(visibility_levels, limit: int = 8):
+    placeholders = ",".join("?" * len(visibility_levels))
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"SELECT * FROM ai_memory WHERE visibility IN ({placeholders}) ORDER BY id DESC LIMIT ?",
+            (*visibility_levels, limit)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def search_memory(query: str, visibility_levels, limit: int = 10):
+    like = f"%{query}%"
+    placeholders = ",".join("?" * len(visibility_levels))
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"SELECT * FROM ai_memory WHERE (subject LIKE ? OR content LIKE ?) AND visibility IN ({placeholders}) "
+            f"ORDER BY id DESC LIMIT ?",
+            (like, like, *visibility_levels, limit)
+        ) as cur:
+            return await cur.fetchall()
 
 
 async def get_admin_permission(telegram_id: int, perm: str) -> bool:
@@ -1770,80 +1801,6 @@ async def ai_get_messages(session_id: int, limit: int = 200):
             (session_id, limit)
         ) as cur:
             return await cur.fetchall()
-
-
-# ─── AI Assistant — Long-term shared memory ────────────────────
-# این جدول مستقل از ai_chat_sessions/ai_chat_messages (تاریخچه‌ی خام هر
-# چت) است: اینجا فقط «حقایق فشرده»ای ذخیره می‌شن که قراره بین همه‌ی
-# چت‌ها و همه‌ی مدیرها مشترک باشن — نه کل متن مکالمه. دو منبع دارن:
-# 'auto' (خودکار، از ai_tools.dispatch بعد از اقدام‌های مهم) و
-# 'manual' (خودِ مدل با ابزار remember_fact ثبتش کرده).
-async def ai_memory_add(fact: str, subject: str = None, source: str = "manual",
-                         created_by: int = None, created_by_role: str = None,
-                         expires_at: str = None) -> int:
-    now = datetime.now().isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            """INSERT INTO ai_memory(subject, fact, source, created_by, created_by_role, created_at, expires_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            ((subject or None), fact, source, created_by, created_by_role, now, expires_at)
-        )
-        await db.commit()
-    _ai_memory_cache.clear()
-    return cur.lastrowid
-
-
-async def ai_memory_recent(limit: int = 25):
-    """آخرین حقایق حافظه که هنوز منقضی نشدن — برای تزریق به پرامپت سیستمی.
-    این تابع سرِ راهِ هر تک پیامِ دستیار هوشمنده، برای همین (دقیقاً مثل
-    get_setting/get_admin بالا) با یه کشِ چندثانیه‌ای از رفت‌وبرگشتِ شبکه‌ایِ
-    تکراری به Turso جلوگیری می‌کنه."""
-    cached = _cache_get(_ai_memory_cache, limit)
-    if cached is not None:
-        return cached
-    now = datetime.now().isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT * FROM ai_memory WHERE expires_at IS NULL OR expires_at > ?
-               ORDER BY created_at DESC LIMIT ?""",
-            (now, limit)
-        ) as cur:
-            rows = await cur.fetchall()
-    rows = list(reversed(rows))  # قدیمی‌ترین بالا، تازه‌ترین پایین (ترتیب طبیعی روایت)
-    _cache_set(_ai_memory_cache, limit, rows)
-    return rows
-
-
-async def ai_memory_search(query: str, limit: int = 15):
-    """جست‌وجوی ساده‌ی متنی روی موضوع/متن حافظه، برای وقتی چیزی توی خلاصه‌ی تزریق‌شده نبود."""
-    now = datetime.now().isoformat()
-    like = f"%{(query or '').strip()}%"
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT * FROM ai_memory
-               WHERE (expires_at IS NULL OR expires_at > ?) AND (subject LIKE ? OR fact LIKE ?)
-               ORDER BY created_at DESC LIMIT ?""",
-            (now, like, like, limit)
-        ) as cur:
-            return await cur.fetchall()
-
-
-async def ai_memory_forget_subject(subject: str) -> int:
-    """حذف همه‌ی رکوردهای حافظه‌ی مرتبط با یک موضوع خاص (مثلاً وقتی یه خبر اشتباه بوده).
-    توجه: کرسر turso_db سراسری rowcount نداره، برای همین قبل از حذف خودمون می‌شماریم."""
-    like = f"%{(subject or '').strip()}%"
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT id FROM ai_memory WHERE subject LIKE ? OR fact LIKE ?", (like, like)) as cur:
-            rows = await cur.fetchall()
-        n = len(rows)
-        if n:
-            await db.execute("DELETE FROM ai_memory WHERE subject LIKE ? OR fact LIKE ?", (like, like))
-            await db.commit()
-            _ai_memory_cache.clear()
-        return n
 
 
 # ─── Chess mini-app ─────────────────────────────────────────────

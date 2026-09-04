@@ -78,6 +78,7 @@ ACTION_KEYWORDS = [
     "یادم بنداز", "یادآور", "یاد آور", "یادآوری", "یاد آوری",
     "زمان‌بندی", "زمانبندی", "دیگه فعال کن", "دیگه انجام بده", "لغو یادآور", "لغو زمان‌بندی",
     "بگو به", "خبر بده", "اطلاع بده", "وظیفه بده", "پیام بده", "بسپار",
+    "یادت باشه", "به خاطر بسپار", "فراموش نکن", "یادداشت کن", "ثبتش کن",
 ]
 
 
@@ -126,30 +127,19 @@ async def _can_use_ai(uid: int, role: str) -> bool:
     return perms.get("ai_access", True)
 
 
-def _format_memory_block(rows) -> str:
-    """حقایق حافظه‌ی بلندمدت رو به یه بلوک متنی فشرده برای پرامپت سیستمی تبدیل می‌کنه."""
-    if not rows:
-        return ""
-    lines = []
-    for r in rows:
-        ts = (r["created_at"] or "")[:16].replace("T", " ")
-        subj = f" | موضوع: {r['subject']}" if r["subject"] else ""
-        fact = (r["fact"] or "").strip()
-        if len(fact) > 220:
-            fact = fact[:220] + "…"
-        lines.append(f"- [{ts}{subj}] {fact}")
-    return (
-        "\n\n📚 حافظه‌ی بلندمدت جمعی (بین همه‌ی چت‌ها و همه‌ی مدیرها مشترکه؛ حتی اگه توی همین "
-        "مکالمه‌ی مشخص گفته نشده، دقیقاً مثل چیزی که خودت قبلاً می‌دونستی یا خودت گفتی باهاش "
-        "رفتار کن — نگو یادم نیست و از کاربر نخواه دوباره توضیح بده):\n"
-        + "\n".join(lines)
-    )
-
-
-async def _system_prompt(role: str, display_name: str = "") -> str:
+def _system_prompt(role: str, display_name: str = "", memory_rows=None) -> str:
     role_label = ROLE_LABELS.get(role, role)
     allowed = [n for n, roles in ai_tools.TOOL_PERMISSIONS.items() if role in roles]
     who = f"«{display_name}» (نقش: {role_label})" if display_name else f"نقشش «{role_label}»"
+    memory_block = ""
+    if memory_rows:
+        mem_lines = [f"- [{str(r['created_at'])[:10]}] {r['subject']}: {r['content']}" for r in memory_rows]
+        memory_block = (
+            "\n\nحافظه‌ی بلندمدتت (این‌ها یادداشت‌ها/مسائلی هستن که قبلاً — حتی توی چت‌های دیگه یا بعد از "
+            "«چت جدید» — ثبت شدن؛ مستقل از تاریخچه‌ی همین گفتگو در دسترستن. اگه حرف الان کاربر به یکی از "
+            "این‌ها مربوط بود، ازش استفاده کن و طوری جواب بده که انگار یادته — لازم نیست دوباره بپرسی یا "
+            "وانمود کنی نمی‌دونی):\n" + "\n".join(mem_lines)
+        )
     delegate_block = (
         "\n\nمدیریت مدیران در نبود مدیر ارشد (این بخش خیلی مهمه):\n"
         "- وقتی مدیر ارشد ازت خواست به‌جاش کارها رو بچرخونی، در تماس با مدیرها باشی، بهشون "
@@ -167,8 +157,6 @@ async def _system_prompt(role: str, display_name: str = "") -> str:
         "توضیح در پاسخ) این رو منتقل کنی؛ سیستم به‌صورت خودکار هم هر اقدام واقعی رو به مدیر ارشد "
         "گزارش می‌کنه."
     ) if role == ROLE_PISHVA else ""
-    memory_rows = await db.ai_memory_recent(limit=25)
-    memory_block = _format_memory_block(memory_rows)
     return (
         f"{now_context_for_ai()}\n\n"
         "هویت تو (این بخش خیلی مهمه و همیشه ثابته — هیچ‌وقت فراموشش نکن):\n"
@@ -234,20 +222,7 @@ async def _system_prompt(role: str, display_name: str = "") -> str:
         "- این سیستم زمان‌بندی روی «لحظه‌ی مطلق» قفل می‌شه و حتی بعد از ری‌استارت ربات هم دقیقاً سر "
         "همون لحظه اجرا می‌شه؛ هیچ‌وقت فراموش نمی‌کنه — با همین اطمینان به کاربر تاییدش کن.\n"
         "- اگه کاربر خواست چی زمان‌بندی‌شده رو ببینه از list_scheduled، و برای لغو از cancel_scheduled "
-        "(با شناسه‌ی #) استفاده کن.\n\n"
-        "حافظه‌ی بلندمدت (این بخش رو دقیق رعایت کن):\n"
-        "- خلاصه‌ی حافظه‌ی جمعی رو (اگه چیزی توش باشه) پایین همین پیام داری. اون حافظه بین همه‌ی "
-        "چت‌ها و همه‌ی مدیرهاست، نه فقط همین گفت‌وگو — یعنی حتی اگه یه مدیر دیگه یا خودِ همین "
-        "کاربر توی یه چت قبلی/جدا یه چیزی رو بهت گفته یا با یه ابزار (مثل send_announcement) "
-        "اتفاق افتاده، اونجاست. باهاش دقیقاً مثل چیزی که خودت از قبل می‌دونی رفتار کن.\n"
-        "- هر وقت کاربر یه چیزی گفت که ممکنه بعداً (حتی خودش توی یه چت جدید، یا یه مدیر دیگه) "
-        "بهش رجوع کنه و انتظار داشته باشه یادت باشه — وضعیت یه بازیکن/عضو، یه تصمیم، یه خبر "
-        "داخلی مهم — همون لحظه با remember_fact ثبتش کن؛ منتظر نمون که بگه «یادت باشه».\n"
-        "- اگه کاربر به چیزی اشاره کرد که توی خلاصه‌ی پایین این پیام نبود ولی حس کردی ممکنه "
-        "قبلاً جایی ثبت شده باشه (مثلاً یه اسم خاص)، قبل از اینکه بگی «نمی‌دونم چی میگی»، یه بار "
-        "recall_memory رو با اون اسم/عبارت امتحان کن.\n"
-        "- اگه کاربر (فقط مدیر ارشد) صراحتاً خواست یه حافظه‌ی اشتباه/قدیمی راجب یه شخص یا موضوع "
-        "خاص پاک بشه، از forget_memory استفاده کن — نه به‌صورت خودسرانه و بدون درخواست صریح."
+        "(با شناسه‌ی #) استفاده کن."
         + delegate_block
         + memory_block
     )
@@ -424,7 +399,9 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         display_name = await pishva_display()
     else:
         display_name = await admin_display(await db.get_admin(uid))
-    system_prompt = await _system_prompt(role, display_name)
+    visibility_levels = ["all", "pishva"] if role == ROLE_PISHVA else ["all"]
+    memory_rows = await db.get_recent_memory(visibility_levels, limit=8)
+    system_prompt = _system_prompt(role, display_name, memory_rows)
     contents = [{"role": "user", "parts": [{"text": system_prompt}]},
                 {"role": "model", "parts": [{"text": "باشه، آماده‌ام کمک کنم."}]}] + history
 
