@@ -9,8 +9,11 @@
 دقیقاً همون‌طور که هست کار می‌کنه.
 """
 
+import logging
 import os
 from libsql_client import create_client
+
+logger = logging.getLogger("turso_db")
 
 _client = None
 
@@ -122,10 +125,27 @@ class _ExecuteAwaitable:
     async def _run(self):
         if self._cursor is None:
             client = _get_client()
-            if self._params is None:
-                result = await client.execute(self._query)
-            else:
-                result = await client.execute(self._query, list(self._params))
+            try:
+                if self._params is None:
+                    result = await client.execute(self._query)
+                else:
+                    result = await client.execute(self._query, list(self._params))
+            except Exception as exc:
+                # کتابخانه‌ی libsql_client وقتی Turso یک خطای SQL برمی‌گردونه
+                # (مثلاً "no such column"، "UNIQUE constraint failed"، تعداد
+                # پارامترهای اشتباه و ...) به‌جای خطای واضح، یک KeyError('result')
+                # خام پرت می‌کنه که دلیل واقعی رو مخفی می‌کنه. این‌جا کوئری و
+                # پارامترها رو لاگ می‌کنیم تا خطای واقعی توی لاگ‌ها معلوم بشه،
+                # بعد یک خطای خواناتر بالا می‌بریم.
+                logger.error(
+                    "Turso query failed | query=%r | params=%r | error=%r",
+                    self._query, self._params, exc,
+                )
+                raise RuntimeError(
+                    f"Turso query failed: {exc!r}\n"
+                    f"query={self._query!r}\n"
+                    f"params={self._params!r}"
+                ) from exc
             self._cursor = _Cursor(result)
         return self._cursor
 
@@ -180,7 +200,11 @@ class _Connection:
     async def executescript(self, script):
         client = _get_client()
         for stmt in _split_sql_script(script):
-            await client.execute(stmt)
+            try:
+                await client.execute(stmt)
+            except Exception as exc:
+                logger.error("Turso executescript failed | stmt=%r | error=%r", stmt, exc)
+                raise RuntimeError(f"Turso executescript failed: {exc!r}\nstmt={stmt!r}") from exc
 
     async def commit(self):
         # Turso هر دستور رو فوری ثبت می‌کنه، نیازی به commit جدا نیست
@@ -209,7 +233,11 @@ class _BatchCM:
             libsql_client.Statement(q, list(p) if p is not None else [])
             for q, p in stmts
         ]
-        await client.batch(batch_items)
+        try:
+            await client.batch(batch_items)
+        except Exception as exc:
+            logger.error("Turso batch failed | stmts=%r | error=%r", stmts, exc)
+            raise RuntimeError(f"Turso batch failed: {exc!r}\nstmts={stmts!r}") from exc
         return False
 
 
