@@ -121,6 +121,7 @@ TOOL_PERMISSIONS = {
     "assign_task":        [ROLE_PISHVA],
     "remember_note":      [ROLE_PISHVA],
     "recall_notes":       [ROLE_PISHVA],
+    "forget_note":        [ROLE_PISHVA],
 
     # ── مدیریت ادمین‌ها — فقط مدیر ارشد ──
     "list_admins":        [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
@@ -406,6 +407,24 @@ TOOL_DECLARATIONS = [
             "type": "object",
             "properties": {"query": {"type": "string", "description": "نام شخص یا موضوعی که می‌خوای درباره‌ش جست‌وجو کنی"}},
             "required": ["query"],
+        },
+    },
+    {
+        "name": "forget_note",
+        "description": (
+            "یه یادداشت رو از حافظه‌ی بلندمدتت واقعاً و برای همیشه پاک می‌کنه. وقتی مدیر ارشد گفت "
+            "«فلان چیز رو از حافظه/خاطرت پاک کن»، «دیگه یادت نباشه فلانی چی گفته بود»، یا مشابهش، "
+            "این تابع رو صدا بزن — فقط قول نده که فراموشش می‌کنی، واقعاً حذفش کن.\n"
+            "اول با query دنبالش بگرد. اگه دقیقاً یه یادداشت پیدا شد، همون‌جا با id همون یادداشت "
+            "این تابع رو دوباره صدا بزن تا واقعاً حذف بشه. اگه چند تا یادداشت مشابه پیدا شد، لیستشون "
+            "رو (با id هرکدوم) به کاربر نشون بده و بپرس کدوم رو دقیقاً منظورشه — خودسرانه یکی رو حدس نزن."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "متن جست‌وجو برای پیدا کردن یادداشت موردنظر (اسم شخص/موضوع)"},
+                "memory_id": {"type": "integer", "description": "شناسه‌ی دقیق یادداشتی که باید حذف بشه (وقتی از قبل مطمئنی کدومه)"},
+            },
         },
     },
     {
@@ -1067,6 +1086,28 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 return f"یادداشتی درباره‌ی «{query}» توی حافظه پیدا نشد."
             lines = [f"- [{str(r['created_at'])[:10]}] {r['subject']}: {r['content']}" for r in rows]
             return "یادداشت‌های پیدا‌شده:\n" + "\n".join(lines)
+
+        elif name == "forget_note":
+            memory_id = args.get("memory_id")
+            query = (args.get("query") or "").strip()
+            if memory_id is not None:
+                try:
+                    memory_id = int(memory_id)
+                except (TypeError, ValueError):
+                    return "❌ memory_id باید یه عدد باشه."
+                deleted = await db.delete_memory_note(memory_id)
+                return f"🗑️ یادداشت #{memory_id} پاک شد." if deleted else f"❌ یادداشتی با شناسه‌ی #{memory_id} پیدا نشد."
+            if not query:
+                return "بگو دنبال چه شخص یا موضوعی می‌گردی تا از حافظه پاکش کنم."
+            rows = await db.search_memory(query, visibility_levels=["all", "pishva"], limit=10)
+            if not rows:
+                return f"یادداشتی درباره‌ی «{query}» توی حافظه پیدا نشد — چیزی برای پاک‌کردن نیست."
+            if len(rows) == 1:
+                deleted = await db.delete_memory_note(rows[0]["id"])
+                return f"🗑️ یادداشت پاک شد — موضوع: «{rows[0]['subject']}»."
+            lines = [f"- #{r['id']} [{str(r['created_at'])[:10]}] {r['subject']}: {r['content']}" for r in rows]
+            return ("چند تا یادداشت مشابه پیدا شد، دقیق بگو کدوم رو پاک کنم (با شناسه‌ی #):\n"
+                     + "\n".join(lines))
 
         return f"❌ تابع «{name}» تعریف نشده."
 

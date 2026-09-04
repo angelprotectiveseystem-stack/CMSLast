@@ -337,6 +337,13 @@ async def init_db():
             "ALTER TABLE chess_games ADD COLUMN black_msg_id INTEGER",
             "ALTER TABLE chess_games ADD COLUMN ai_level TEXT",
             "ALTER TABLE ai_memory ADD COLUMN visibility TEXT DEFAULT 'pishva'",
+            # این یکی رو دیر اضافه کردیم: جدول ai_memory قبلاً روی دیتابیس واقعی
+            # (Turso) بدون ستون content ساخته شده بود، و چون CREATE TABLE IF NOT
+            # EXISTS وقتی جدول از قبل هست هیچ کاری نمی‌کنه، content هیچ‌وقت واقعاً
+            # اضافه نمی‌شد — نتیجه‌ش این بود که هر ثبتِ حافظه (remember_note،
+            # send_announcement، message_admin و...) با خطای «no column named
+            # content» شکست می‌خورد و عملاً کل قابلیت حافظه‌ی بلندمدت کار نمی‌کرد.
+            "ALTER TABLE ai_memory ADD COLUMN content TEXT",
         ):
             try:
                 await db.execute(stmt)
@@ -562,6 +569,15 @@ async def search_memory(query: str, visibility_levels, limit: int = 10):
             (like, like, *visibility_levels, limit)
         ) as cur:
             return await cur.fetchall()
+
+
+async def delete_memory_note(memory_id: int) -> bool:
+    """یه یادداشت مشخص رو با شناسه‌ش از حافظه‌ی بلندمدت پاک می‌کنه.
+    True برمی‌گردونه اگه واقعاً چیزی حذف شده باشه، False اگه اون id وجود نداشت."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("DELETE FROM ai_memory WHERE id = ?", (memory_id,))
+        await db.commit()
+        return cur.rowcount > 0
 
 
 async def get_admin_permission(telegram_id: int, perm: str) -> bool:
