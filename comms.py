@@ -197,11 +197,17 @@ async def comms_announce_file_received(update: Update, ctx: ContextTypes.DEFAULT
     await update.message.reply_text("✅ بیانیه با پیوست ارسال شد.", reply_markup=kb.kb_back("comms"))
     return ConversationHandler.END
 
-async def _send_announcement(bot, text: str, file_id: str, file_type: str):
+async def _send_announcement(bot, text: str, file_id: str, file_type: str, via_assistant: bool = False):
     ann_id = await db.create_announcement(text, file_id, file_type)
     pname = await db.get_setting("pishva_display_name", "مدیر ارشد")
     ts = now_shamsi()
-    full_text = f"📢 *بیانیه رسمی*\n\n{text}\n\n⏱️ `{ts}`\n👑 {pname}"
+    footer = f"⏱️ `{ts}`\n👑 {pname}"
+    if via_assistant:
+        # وقتی بیانیه از طریق دستیار هوشمند (نه مستقیم از پنل) فرستاده می‌شه،
+        # صراحتاً بگو که ارسالش کار دستیار بوده — نه اینکه انگار خودِ مدیر
+        # ارشد لحظه‌به‌لحظه پشت پنل نشسته و تایپ کرده.
+        footer += "\n🤖 ارسال‌شده توسط دستیار هوشمند"
+    full_text = f"📢 *بیانیه رسمی*\n\n{text}\n\n{footer}"
     notif_on = await db.get_setting("notifications_enabled", "1")
     if notif_on != "1":
         return

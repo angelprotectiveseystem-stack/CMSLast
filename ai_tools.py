@@ -800,16 +800,18 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
 
         # ── ارتباطات ──
         elif name == "send_announcement":
-            await comms._send_announcement(ctx.bot, args["text"], "", "")
+            await comms._send_announcement(ctx.bot, args["text"], "", "", via_assistant=True)
             await db.create_announcement(args["text"], "", "")
             await db.add_memory_note("عمومی", f"بیانیه: {args['text']}", visibility="all", created_by=caller_id)
-            return "📢 بیانیه برای همه‌ی مدیران ارسال شد."
+            return "📢 بیانیه برای همه‌ی مدیران ارسال شد (با علامت اینکه از طریق دستیار فرستاده شده)."
 
         elif name == "send_news":
-            await broadcast_to_admins(ctx.bot, f"📰 خبر:\n\n{args['text']}")
+            ts = now_shamsi()
+            news_text = f"✨ *خبر فوری از سیستم✨*\n\n{args['text']}\n\n⏱️ `{ts}`\n🤖 ارسال‌شده توسط دستیار هوشمند"
+            await broadcast_to_admins(ctx.bot, news_text)
             await db.create_news(args["text"])
             await db.add_memory_note("عمومی", f"خبر: {args['text']}", visibility="all", created_by=caller_id)
-            return "📰 خبر برای همه‌ی مدیران ارسال شد."
+            return "📰 خبر برای همه‌ی مدیران ارسال شد (با علامت اینکه از طریق دستیار فرستاده شده)."
 
         elif name == "message_admin":
             a = await _find_admin_by_identifier(args["identifier"])

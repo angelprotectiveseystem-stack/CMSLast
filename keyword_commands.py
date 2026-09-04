@@ -65,7 +65,7 @@ SIMPLE_KEYWORDS = {
 
 PISHVA_ONLY_ACTIONS = {
     "security", "status", "backup", "requests", "logs", "reminders", "settings",
-    "pishva_panel",
+    "pishva_panel", "online_admins",
 }
 
 
