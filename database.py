@@ -336,6 +336,7 @@ async def init_db():
             "ALTER TABLE chess_games ADD COLUMN white_msg_id INTEGER",
             "ALTER TABLE chess_games ADD COLUMN black_msg_id INTEGER",
             "ALTER TABLE chess_games ADD COLUMN ai_level TEXT",
+            "ALTER TABLE ai_memory ADD COLUMN visibility TEXT DEFAULT 'pishva'",
         ):
             try:
                 await db.execute(stmt)
