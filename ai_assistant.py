@@ -36,10 +36,13 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # بود در تشخیص «الان باید تابع صدا بزنم یا نه» (function calling) — همون چیزی که باعث می‌شد
 # کاربر چند بار پشت‌سرهم دستور بده تا بالاخره یه بار درست اجرا بشه. gemini-2.5-flash کمی
 # کندتره ولی خیلی پایدارتر تصمیم می‌گیره؛ برای یه دستیار اجرایی این مهم‌تر از چند صدم ثانیه سرعته.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-# اگه مدل اصلی موقتاً شلوغ بود (خطای 503) یا از رده خارج شد (404)، این‌ها رو به‌ترتیب امتحان می‌کنیم.
-# flash-lite به‌عنوان فال‌بک آخر نگه داشته شده (سریع ولی کمتر قابل‌اعتماد)، نه انتخاب اول.
-FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-2.5-flash-lite"]
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
+# نکته (۲۰۲۶-۰۹): gemini-2.5-flash قبل از تاریخ رسمی shutdown (اکتبر ۲۰۲۶) با 404 از
+# سرویس گوگل حذف شد (این رفتار رو خیلی‌های دیگه هم گزارش کردن) — برای همین از پیش‌فرض
+# اول حذف شد. اگه مدل اصلی موقتاً شلوغ بود (503) یا از رده خارج شد (404)، این‌ها رو
+# به‌ترتیب امتحان می‌کنیم. flash-lite به‌عنوان فال‌بک آخر نگه داشته شده (سریع ولی کمتر
+# قابل‌اعتماد)، نه انتخاب اول.
+FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"]
 if GEMINI_MODEL in FALLBACK_MODELS:
     FALLBACK_MODELS.remove(GEMINI_MODEL)
 MODEL_CHAIN = [GEMINI_MODEL] + FALLBACK_MODELS
@@ -280,6 +283,15 @@ async def _call_gemini(contents: list, tools, tool_config=None):
                     resp = await client.post(url, headers=headers, json=payload)
                     resp.raise_for_status()
                     return resp.json()
+                except httpx.TimeoutException as e:
+                    # قبلاً این نوع خطا اصلاً catch نمی‌شد و کل زنجیره‌ی فال‌بک رو
+                    # فوری قطع می‌کرد (حتی اگه مدل بعدی سالم بود). حالا مثل بقیه‌ی
+                    # خطاهای موقت، مدل بعدی رو امتحان می‌کنیم.
+                    last_error = e
+                    logger.warning(f"Gemini {model} attempt {attempt+1} timed out, {'retrying' if attempt+1 < RETRIES_PER_MODEL else 'trying next model'}...")
+                    if attempt + 1 < RETRIES_PER_MODEL:
+                        continue
+                    break
                 except httpx.HTTPStatusError as e:
                     last_error = e
                     code = e.response.status_code
