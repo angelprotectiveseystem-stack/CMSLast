@@ -18,6 +18,7 @@ ai_tools.py — تعریف «ابزارهای» دستیار هوشمند + ما
   ۳) یه شاخه‌ی elif به دیسپچر dispatch() اضافه کن
 """
 import logging
+from datetime import datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -89,6 +90,64 @@ SCHEDULABLE_TOOL_NAMES = frozenset({
 # ثبت می‌کنن، جزو ACTION_TOOL_NAMES حساب می‌شن تا مدیر ارشد ازش باخبر بشه.
 ACTION_TOOL_NAMES = ACTION_TOOL_NAMES | frozenset({"schedule_action", "cancel_scheduled"})
 
+# forget_memory هم چون یه پاک‌سازی واقعی و برگشت‌ناپذیر از حافظه‌ی مشترکه، جزو
+# اقدام‌های گزارش‌شونده به مدیر ارشد حساب می‌شه.
+ACTION_TOOL_NAMES = ACTION_TOOL_NAMES | frozenset({"forget_memory"})
+
+# ────────────────────────────────────────────────────────────────
+# حافظه‌ی بلندمدت — این تابع‌ها فقط برای remember_fact/recall_memory
+# نیستن؛ بعد از اجرای موفق هرکدوم از این تابع‌ها (مستقل از این‌که خود
+# مدل remember_fact رو صدا زده باشه یا نه)، dispatch() پایین یه خلاصه‌ی
+# خودکار توی حافظه‌ی مشترک ثبت می‌کنه. این همون چیزیه که باعث می‌شه مثلاً
+# یه بیانیه که به همه‌ی مدیران ارسال شده، بعداً توی یه چت دیگه (حتی با
+# یه مدیر دیگه) هم قابل رجوع باشه — نه فقط توی همون یه مکالمه‌ای که
+# صادر شده.
+# ────────────────────────────────────────────────────────────────
+AUTO_MEMORY_TOOL_NAMES = frozenset({
+    "send_announcement", "send_news",
+    "warn_player", "kick_player", "revive_player",
+    "warn_admin", "set_admin_role", "block_user", "unblock_user",
+    "set_system_status", "assign_task",
+})
+
+
+def _auto_memory_fact(name: str, args: dict, result: str):
+    """برای یه اقدام موفق، خلاصه‌ی فارسی‌ای که باید توی حافظه‌ی بلندمدت ثبت بشه
+    رو برمی‌گردونه، به‌همراه «موضوع» (برای جست‌وجوی بعدی با recall_memory).
+    خروجی (fact_text یا None, subject یا None)."""
+    args = args or {}
+    if name == "send_announcement":
+        return (f"📢 این بیانیه برای همه‌ی مدیران ارسال شد: «{args.get('text', '')}»", None)
+    if name == "send_news":
+        return (f"📰 این خبر برای همه‌ی مدیران ارسال شد: «{args.get('text', '')}»", None)
+    if name == "warn_player":
+        subj = args.get("full_name")
+        return (f"⚠️ به بازیکن {subj} اخطار ثبت شد. دلیل: {args.get('reason', '')}", subj)
+    if name == "kick_player":
+        subj = args.get("full_name")
+        return (f"🚫 بازیکن {subj} از سیستم اخراج شد.", subj)
+    if name == "revive_player":
+        subj = args.get("full_name")
+        return (f"✅ بازیکن {subj} به حالت فعال بازگشت.", subj)
+    if name == "warn_admin":
+        subj = args.get("identifier")
+        return (f"⚠️ به مدیر {subj} اخطار داده شد. دلیل: {args.get('reason', '')}", subj)
+    if name == "set_admin_role":
+        subj = args.get("identifier")
+        return (f"🔁 نقش مدیر {subj} به «{args.get('new_role', '')}» تغییر کرد.", subj)
+    if name == "block_user":
+        subj = args.get("identifier")
+        return (f"🚫 کاربر {subj} مسدود شد. دلیل: {args.get('reason', '')}", subj)
+    if name == "unblock_user":
+        subj = args.get("identifier")
+        return (f"✅ کاربر {subj} از مسدودیت خارج شد.", subj)
+    if name == "set_system_status":
+        return (f"🖥️ وضعیت سیستم به «{args.get('status', '')}» تغییر کرد.", None)
+    if name == "assign_task":
+        subj = args.get("identifier")
+        return (f"📋 وظیفه‌ی «{args.get('title', '')}» به {subj} محول شد.", subj)
+    return (None, None)
+
 # ────────────────────────────────────────────────────────────────
 # ماتریس دسترسی — کلید = اسم تابع، مقدار = لیست نقش‌های مجاز
 # ────────────────────────────────────────────────────────────────
@@ -152,6 +211,13 @@ TOOL_PERMISSIONS = {
     "schedule_action":     ALL_ROLES,
     "list_scheduled":      ALL_ROLES,
     "cancel_scheduled":    ALL_ROLES,
+
+    # ── حافظه‌ی بلندمدت جمعی — ثبت/جست‌وجو برای همه‌ی نقش‌ها آزاده،
+    # چون هرکسی ممکنه یه خبر مهم بدونه؛ ولی پاک‌کردن (برگشت‌ناپذیر) فقط
+    # با تایید مدیر ارشد انجام می‌شه ──
+    "remember_fact":       ALL_ROLES,
+    "recall_memory":       ALL_ROLES,
+    "forget_memory":       [ROLE_PISHVA],
 }
 
 # ────────────────────────────────────────────────────────────────
@@ -570,6 +636,53 @@ TOOL_DECLARATIONS = [
             "type": "object",
             "properties": {"job_id": {"type": "integer", "description": "شناسه‌ی عددی رویداد (# جلوی هر ردیف در list_scheduled)"}},
             "required": ["job_id"],
+        },
+    },
+    {
+        "name": "remember_fact",
+        "description": (
+            "یه اتفاق، تصمیم، وضعیت یا خبر مهم رو توی حافظه‌ی بلندمدت و مشترک ثبت می‌کنه — "
+            "حافظه‌ای که بین همه‌ی چت‌ها و همه‌ی مدیرها مشترکه، نه فقط همین مکالمه. هر وقت کاربر "
+            "یه چیزی گفت که ممکنه بعداً (حتی خودش توی یه چت جدید، یا یه مدیر دیگه) بهش اشاره کنه "
+            "و انتظار داره یادت باشه — مثلاً وضعیت یه بازیکن/عضو، یه تصمیم گرفته‌شده، یه خبر داخلی — "
+            "همون لحظه با این تابع ثبتش کن؛ منتظر نمون که صراحتاً بگه «یادت باشه»."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "fact": {"type": "string", "description": "متن فشرده و دقیق چیزی که باید یادت بمونه (فارسی، خودمونی، مثل یه یادداشت واقعی)"},
+                "subject": {"type": "string", "description": "اختیاری: اسم شخص/موضوع مرتبط (مثلاً اسم یه بازیکن یا مدیر)، برای جست‌وجوی بعدی آسون‌تر"},
+                "expires_in_days": {"type": "integer", "description": "اختیاری: بعد از چند روز این حافظه دیگه معتبر نباشه (برای چیزهای موقتی؛ اگه همیشگیه خالی بذار)"},
+            },
+            "required": ["fact"],
+        },
+    },
+    {
+        "name": "recall_memory",
+        "description": (
+            "توی حافظه‌ی بلندمدت و مشترک جست‌وجو می‌کنه. خلاصه‌ای از تازه‌ترین حافظه همیشه بالای "
+            "همین پیام سیستمی بهت داده شده؛ فقط وقتی به این تابع نیاز داری که حس کردی به یه "
+            "اطلاعات قدیمی‌تر یا خاص‌تر نیاز داری که توی اون خلاصه نیومده (مثلاً یه اسم خاص که "
+            "کاربر ازت پرسید و مطمئن نیستی قبلاً چی راجبش ثبت شده)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "اسم شخص یا عبارت کلیدی برای جست‌وجو در حافظه"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "forget_memory",
+        "description": (
+            "همه‌ی رکوردهای حافظه‌ی بلندمدت مرتبط با یه موضوع/شخص خاص رو برای همیشه پاک می‌کنه — "
+            "برای وقتی یه خبر ثبت‌شده اشتباه بوده یا دیگه معتبر نیست (مثلاً بازیکنی که قبلاً اخراج "
+            "ثبت شده بود ولی برگشته و می‌خوای سابقه‌ی قبلی گم‌راه‌کننده پاک بشه). فقط مدیر ارشد "
+            "اجازه‌ش رو داره؛ برگشت‌ناپذیره، پس فقط وقتی کاربر صراحتاً همین رو خواست استفاده کن."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"subject": {"type": "string", "description": "اسم شخص/موضوعی که حافظه‌ی مرتبط باهاش باید پاک بشه"}},
+            "required": ["subject"],
         },
     },
 ]
@@ -1009,6 +1122,46 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             is_pishva = caller_role == ROLE_PISHVA
             return await ai_scheduler.cancel(ctx.job_queue, job_id, caller_id, is_pishva)
 
+        # ── حافظه‌ی بلندمدت جمعی ──
+        elif name == "remember_fact":
+            fact = str(args.get("fact") or "").strip()
+            if not fact:
+                return "❌ متنی برای ثبت توی حافظه ندادی."
+            subject = str(args.get("subject") or "").strip() or None
+            expires_at = None
+            raw_days = args.get("expires_in_days")
+            if raw_days:
+                try:
+                    expires_at = (datetime.now() + timedelta(days=int(raw_days))).isoformat()
+                except (TypeError, ValueError):
+                    expires_at = None
+            await db.ai_memory_add(fact, subject=subject, source="manual",
+                                    created_by=caller_id, created_by_role=caller_role,
+                                    expires_at=expires_at)
+            return "🧠 توی حافظه‌ی بلندمدت ثبت شد" + (f" (موضوع: {subject})." if subject else ".")
+
+        elif name == "recall_memory":
+            query = str(args.get("query") or "").strip()
+            if not query:
+                return "❌ عبارت جست‌وجو خالی بود."
+            rows = await db.ai_memory_search(query, limit=15)
+            if not rows:
+                return f"چیزی توی حافظه درباره‌ی «{query}» پیدا نشد."
+            lines = []
+            for r in rows:
+                ts = (r["created_at"] or "")[:10]
+                lines.append(f"- [{ts}] {r['fact']}")
+            return "نتایج جست‌وجوی حافظه:\n" + "\n".join(lines)
+
+        elif name == "forget_memory":
+            subject = str(args.get("subject") or "").strip()
+            if not subject:
+                return "❌ باید بگی حافظه‌ی مربوط به چه موضوع/اسمی پاک بشه."
+            n = await db.ai_memory_forget_subject(subject)
+            if not n:
+                return f"چیزی توی حافظه درباره‌ی «{subject}» پیدا نشد که پاک بشه."
+            return f"🗑️ {n} مورد حافظه درباره‌ی «{subject}» برای همیشه پاک شد."
+
         return f"❌ تابع «{name}» تعریف نشده."
 
     except Exception as e:
@@ -1041,5 +1194,15 @@ async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx)
             await notify_pishva(ctx.bot, notif)
         except Exception:
             logger.exception(f"Failed to notify pishva about action '{name}'")
+
+    if name in AUTO_MEMORY_TOOL_NAMES and not result.startswith(("❌", "⛔", "⚠️")):
+        try:
+            fact, subject = _auto_memory_fact(name, args, result)
+            if fact:
+                actor = await _actor_label(caller_id, caller_role)
+                await db.ai_memory_add(f"{fact} (ثبت‌کننده: {actor})", subject=subject, source="auto",
+                                        created_by=caller_id, created_by_role=caller_role)
+        except Exception:
+            logger.exception(f"Failed to auto-save memory for action '{name}'")
 
     return result
