@@ -9,13 +9,130 @@
 دقیقاً همون‌طور که هست کار می‌کنه.
 """
 
+import base64
 import logging
 import os
-from libsql_client import create_client
+
+import httpx
 
 logger = logging.getLogger("turso_db")
 
 _client = None
+
+
+# ─── کلاینت مستقیم HTTP برای Turso (Hrana-over-HTTP v2) ────────────────
+# قبلاً این‌جا از پکیج libsql_client استفاده می‌شد، ولی اون پکیج یک باگ
+# شناخته‌شده داره: وقتی Turso به یک statement با خطا جواب می‌ده (مثلاً
+# "no such table"، "no such column"، تعداد پارامتر اشتباه و ...)، پاسخ
+# دیکشنری‌ای که برمی‌گرده {"type": "error", "error": {...}} هست، نه
+# {"type": "ok", "response": {"result": ...}}. libsql_client به‌جای چک
+# کردن "type" مستقیم می‌ره سراغ response["result"] که چون اصلاً وجود
+# نداره، یک KeyError('result') خام پرت می‌کنه و پیام واقعی خطای SQL
+# (که دقیقاً همون چیزیه که برای دیباگ لازمه) گم می‌شه.
+# با پیاده‌سازی مستقیمِ خودِ پروتکل (که مستنداته و ساده‌ست) این مشکل کلاً
+# حل می‌شه: خطای واقعیِ Turso رو می‌خونیم و با پیام روشن بالا می‌بریم.
+class _TursoHttpClient:
+    def __init__(self, url: str, token: str):
+        if url.startswith("libsql://"):
+            url = "https://" + url[len("libsql://"):]
+        self._base_url = url.rstrip("/")
+        self._token = token
+        self._http = httpx.AsyncClient(timeout=30.0)
+
+    async def _pipeline(self, requests):
+        endpoint = f"{self._base_url}/v2/pipeline"
+        headers = {"Authorization": f"Bearer {self._token}"}
+        resp = await self._http.post(endpoint, json={"requests": requests}, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+
+    @staticmethod
+    def _check_pipeline_error(entry, sql, args):
+        if entry.get("type") == "error":
+            err = entry.get("error") or {}
+            raise RuntimeError(
+                f"Turso SQL error: {err.get('message', 'unknown error')} "
+                f"(code={err.get('code')}) | sql={sql!r} args={args!r}"
+            )
+
+    async def execute(self, sql: str, args=None):
+        args = list(args) if args is not None else []
+        requests = [
+            {"type": "execute", "stmt": {"sql": sql, "args": [_encode_value(a) for a in args]}},
+            {"type": "close"},
+        ]
+        data = await self._pipeline(requests)
+        results = data.get("results") or []
+        if not results:
+            raise RuntimeError(f"Turso: empty pipeline response | sql={sql!r} args={args!r}")
+        entry = results[0]
+        self._check_pipeline_error(entry, sql, args)
+        response = entry.get("response") or {}
+        result = response.get("result")
+        if result is None:
+            raise RuntimeError(
+                f"Turso: unexpected response shape | sql={sql!r} args={args!r} | raw={entry!r}"
+            )
+        return _to_exec_result(result)
+
+    async def batch(self, statements):
+        """statements: list of (sql, args) tuples، همه با یک درخواست شبکه اجرا می‌شن."""
+        requests = [
+            {"type": "execute", "stmt": {"sql": sql, "args": [_encode_value(a) for a in (args or [])]}}
+            for sql, args in statements
+        ]
+        requests.append({"type": "close"})
+        data = await self._pipeline(requests)
+        results = data.get("results") or []
+        for (sql, args), entry in zip(statements, results):
+            self._check_pipeline_error(entry, sql, args)
+
+
+def _encode_value(v):
+    """پایتون -> فرمت مقدارِ تایپ‌دارِ Hrana."""
+    if v is None:
+        return {"type": "null"}
+    if isinstance(v, bool):
+        return {"type": "integer", "value": str(int(v))}
+    if isinstance(v, int):
+        return {"type": "integer", "value": str(v)}
+    if isinstance(v, float):
+        return {"type": "float", "value": v}
+    if isinstance(v, (bytes, bytearray)):
+        return {"type": "blob", "base64": base64.b64encode(bytes(v)).decode("ascii")}
+    return {"type": "text", "value": str(v)}
+
+
+def _decode_value(v):
+    """مقدارِ تایپ‌دارِ Hrana -> پایتون."""
+    t = v.get("type")
+    if t == "null":
+        return None
+    if t == "integer":
+        return int(v["value"])
+    if t == "float":
+        return float(v["value"])
+    if t == "text":
+        return v["value"]
+    if t == "blob":
+        return base64.b64decode(v.get("base64") or v.get("value") or "")
+    return v.get("value")
+
+
+class _ExecResult:
+    def __init__(self, columns, rows, last_insert_rowid):
+        self.columns = columns
+        self.rows = rows
+        self.last_insert_rowid = last_insert_rowid
+
+
+def _to_exec_result(result: dict) -> _ExecResult:
+    cols = [c.get("name") for c in (result.get("cols") or [])]
+    rows = [[_decode_value(v) for v in row] for row in (result.get("rows") or [])]
+    last_insert_rowid = result.get("last_insert_rowid")
+    if last_insert_rowid is not None:
+        last_insert_rowid = int(last_insert_rowid)
+    return _ExecResult(cols, rows, last_insert_rowid)
 
 
 def _get_client():
@@ -28,13 +145,7 @@ def _get_client():
                 "متغیرهای TURSO_URL و TURSO_AUTH_TOKEN تنظیم نشدن. "
                 "این‌ها باید در Railway -> Variables اضافه شده باشن."
             )
-        # با وب‌سوکت (libsql://) یک اتصال باز باقی می‌مونه و همه کوئری‌ها روش رد می‌شن
-        # که خیلی سریع‌تر از HTTP هست (هر کوئری با HTTP یعنی یک هندشیک TLS جدید).
-        # می‌تونی با متغیر محیطی TURSO_FORCE_HTTP=1 به حالت قبلی (HTTP) برگردی
-        # اگه هاست مشکل هندشیک وب‌سوکت داشت.
-        if os.getenv("TURSO_FORCE_HTTP") == "1" and url.startswith("libsql://"):
-            url = "https://" + url[len("libsql://"):]
-        _client = create_client(url=url, auth_token=token)
+        _client = _TursoHttpClient(url, token)
     return _client
 
 
@@ -131,18 +242,16 @@ class _ExecuteAwaitable:
                 else:
                     result = await client.execute(self._query, list(self._params))
             except Exception as exc:
-                # کتابخانه‌ی libsql_client وقتی Turso یک خطای SQL برمی‌گردونه
-                # (مثلاً "no such column"، "UNIQUE constraint failed"، تعداد
-                # پارامترهای اشتباه و ...) به‌جای خطای واضح، یک KeyError('result')
-                # خام پرت می‌کنه که دلیل واقعی رو مخفی می‌کنه. این‌جا کوئری و
-                # پارامترها رو لاگ می‌کنیم تا خطای واقعی توی لاگ‌ها معلوم بشه،
-                # بعد یک خطای خواناتر بالا می‌بریم.
+                # _TursoHttpClient خودش پیام واقعیِ خطای Turso رو استخراج می‌کنه
+                # (به‌جای KeyError('result') خامی که پکیج قدیمی libsql_client
+                # می‌داد). این‌جا فقط برای اطمینان لاگ می‌کنیم و دوباره بالا
+                # می‌بریم تا صدا‌زننده هم بتونه بگیردش.
                 logger.error(
                     "Turso query failed | query=%r | params=%r | error=%r",
                     self._query, self._params, exc,
                 )
                 raise RuntimeError(
-                    f"Turso query failed: {exc!r}\n"
+                    f"Turso query failed: {exc}\n"
                     f"query={self._query!r}\n"
                     f"params={self._params!r}"
                 ) from exc
@@ -228,11 +337,7 @@ class _BatchCM:
         if exc_type is not None or not stmts:
             return False  # خطا شد یا چیزی صف نشده، چیزی رو اجرا نکن
         client = _get_client()
-        import libsql_client
-        batch_items = [
-            libsql_client.Statement(q, list(p) if p is not None else [])
-            for q, p in stmts
-        ]
+        batch_items = [(q, list(p) if p is not None else []) for q, p in stmts]
         try:
             await client.batch(batch_items)
         except Exception as exc:
