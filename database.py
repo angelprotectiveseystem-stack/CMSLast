@@ -903,6 +903,53 @@ async def get_tournament_stats(tid: int):
         return {"total": total, "done": done}
 
 
+async def get_tournament_standings(tid: int):
+    """جدولِ امتیازاتِ یک تورنومنت رو حساب می‌کنه — برد=۱ امتیاز، مساوی=۰.۵،
+    باخت=۰ — و برحسبِ امتیاز (بعد تعدادِ بردها) مرتب می‌کنه. قبلاً همچین
+    تحلیلی اصلاً وجود نداشت، فقط لیستِ خامِ مسابقات در دسترس بود."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT m.*, wp.full_name as white_name, bp.full_name as black_name
+               FROM matches m
+               LEFT JOIN players wp ON m.white_player_id=wp.id
+               LEFT JOIN players bp ON m.black_player_id=bp.id
+               WHERE m.tournament_id=? ORDER BY m.created_at ASC""",
+            (tid,)
+        ) as cur:
+            rows = await cur.fetchall()
+
+    stats = {}
+    total = len(rows)
+    done = 0
+    for r in rows:
+        wname = r["white_name"] or "؟"
+        bname = r["black_name"] or "؟"
+        for n in (wname, bname):
+            stats.setdefault(n, {"played": 0, "win": 0, "draw": 0, "loss": 0, "points": 0.0})
+        if r["result"] is None:
+            continue
+        done += 1
+        stats[wname]["played"] += 1
+        stats[bname]["played"] += 1
+        if r["result"] == "white":
+            stats[wname]["win"] += 1
+            stats[wname]["points"] += 1
+            stats[bname]["loss"] += 1
+        elif r["result"] == "black":
+            stats[bname]["win"] += 1
+            stats[bname]["points"] += 1
+            stats[wname]["loss"] += 1
+        elif r["result"] == "draw":
+            stats[wname]["draw"] += 1
+            stats[wname]["points"] += 0.5
+            stats[bname]["draw"] += 1
+            stats[bname]["points"] += 0.5
+
+    standings = sorted(stats.items(), key=lambda kv: (-kv[1]["points"], -kv[1]["win"]))
+    return {"total": total, "done": done, "pending": total - done, "standings": standings}
+
+
 # ─── Matches ─────────────────────────────────────────────────
 async def create_match(white_id, black_id, match_date, tournament_id, created_by) -> int:
     now = datetime.now().isoformat()
