@@ -125,6 +125,7 @@ TOOL_PERMISSIONS = {
 
     # ── مدیریت ادمین‌ها — فقط مدیر ارشد ──
     "list_admins":        [ROLE_PISHVA, ROLE_SECURITY_MANAGER],
+    "review_admins_activity": [ROLE_PISHVA],
     "warn_admin":         [ROLE_PISHVA],
     "clear_admin_warnings": [ROLE_PISHVA],
     "set_admin_role":     [ROLE_PISHVA],
@@ -430,6 +431,18 @@ TOOL_DECLARATIONS = [
     {
         "name": "list_admins",
         "description": "نمایش لیست همه‌ی مدیران و نقششان.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "review_admins_activity",
+        "description": (
+            "گزارشِ خلاصه‌ی فعالیتِ همه‌ی مدیران در یک نگاه — برای درخواست‌هایی مثل «سابقه‌ی همه‌ی "
+            "ادمین‌ها رو بررسی کن»، «چیز مشکوکی توی رفتار ادمین‌ها هست؟»، «کدوم ادمین اخطار داره». "
+            "برای هر مدیر: تعداد اخطار، آخرین فعالیت، تعداد اقدامات ثبت‌شده و وضعیت (فعال/غیرفعال) رو "
+            "با هم برمی‌گردونه — به‌جای اینکه لازم باشه یکی‌یکی برای هر مدیر get_admin_profile صدا زده بشه. "
+            "بعد از گرفتنِ این گزارش، خودت بر اساسِ اعداد (اخطارِ زیاد، مدت‌ها غیرفعال‌بودن، فعالیتِ خیلی کم یا خیلی زیاد) "
+            "تحلیل کن و به مدیر ارشد بگو کدوم‌ها به نظرت جای بررسیِ بیشتر دارن — خودِ این تابع قضاوت نمی‌کنه، فقط داده می‌ده."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
     {
@@ -883,6 +896,20 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 return "هیچ مدیری ثبت نشده."
             lines = [f"- {a['full_name']} ({a['role']}) {'فعال' if a['is_active'] else 'غیرفعال'}" for a in admins]
             return "لیست مدیران:\n" + "\n".join(lines)
+
+        elif name == "review_admins_activity":
+            admins = await db.get_all_admins()
+            if not admins:
+                return "هیچ مدیری ثبت نشده."
+            lines = []
+            for a in admins:
+                _rows, logs_total = await db.get_action_logs("all", a["telegram_id"])
+                lines.append(
+                    f"- {a['full_name']} ({'فعال' if a['is_active'] else 'غیرفعال'}) | "
+                    f"اخطار: {a['warnings']} | اقدامات ثبت‌شده: {logs_total} | "
+                    f"آخرین فعالیت: {str(a['last_active'] or '—')[:16]}"
+                )
+            return "خلاصه‌ی فعالیتِ همه‌ی مدیران:\n" + "\n".join(lines)
 
         elif name == "warn_admin":
             a = await _find_admin_by_identifier(args["identifier"])
