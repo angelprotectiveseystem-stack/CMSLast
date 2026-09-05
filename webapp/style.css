@@ -188,13 +188,16 @@ html,body{
   flex-shrink: 0;
 }
 
-/* contain:layout ‌paint هر خانه را برای مرورگر یک واحدِ جداگانه‌ی
-   لِی‌آوت/رسم اعلام می‌کند؛ یعنی وقتی مهره‌ای داخلِ یک خانه با transform
-   جابه‌جا می‌شود یا رنگِ هایلایتِ .selected/.check عوض می‌شود، مرورگر
-   لازم نیست ۶۳ خانه‌ی دیگر را هم برای احتمالِ تغییرِ لِی‌آوت بررسی کند —
-   این دقیقاً همان چیزی است که در طولِ انیمیشنِ حرکتِ مهره فریم‌ریت را
-   پایین می‌آورد، مخصوصاً روی WebViewِ ضعیف‌ترِ اندروید. */
-.square{ position:relative; display:flex; align-items:center; justify-content:center; contain: layout paint; }
+/* توجه مهم: قبلاً اینجا contain:layout paint بود. paint دقیقاً مثل
+   overflow:hidden محتوای خانه رو به مرز خودش کلیپ می‌کنه — اما مهره‌ای که
+   در حال سُرخوردن بین خانه‌هاست (با transform: translate) لازمه از مرز
+   خانه‌ی مبدأ/مقصدش بیرون بزنه تا حرکتش پیوسته دیده بشه. با paint، مهره‌ی
+   در حال حرکت درست سرِ مرز هر خانه قطع/ناپدید می‌شد — یعنی به‌جای یک
+   سُرخوردنِ نرم، برای حرکت‌های چندخانه‌ای (وزیر/رخ/فیل) تکه‌تکه و بریده‌بریده
+   دیده می‌شد. layout به‌تنهایی (بدون paint) همون فایده‌ی اصلیِ فریم‌ریت رو
+   می‌ده — مرورگر لازم نیست ۶۳ خانه‌ی دیگه رو برای احتمالِ تغییرِ لِی‌آوت
+   بررسی کنه — بدون این‌که هیچ کلیپی روی محتوای بیرون‌زننده اعمال بشه. */
+.square{ position:relative; display:flex; align-items:center; justify-content:center; contain: layout; }
 .square.light{ background: var(--light-sq); }
 .square.dark{ background: var(--dark-sq); }
 .square::before{
