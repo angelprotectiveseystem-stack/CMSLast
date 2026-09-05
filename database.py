@@ -573,11 +573,21 @@ async def search_memory(query: str, visibility_levels, limit: int = 10):
 
 async def delete_memory_note(memory_id: int) -> bool:
     """یه یادداشت مشخص رو با شناسه‌ش از حافظه‌ی بلندمدت پاک می‌کنه.
-    True برمی‌گردونه اگه واقعاً چیزی حذف شده باشه، False اگه اون id وجود نداشت."""
+    True برمی‌گردونه اگه واقعاً چیزی حذف شده باشه، False اگه اون id وجود نداشت.
+    نکته: کِرسِرِ لایه‌ی Turso (turso_db.py) اصلاً attribute به‌اسم rowcount نداره
+    (نه sqlite3 خام است، نه aiosqlite واقعی) — قبلاً اینجا از cur.rowcount
+    استفاده می‌شد که همیشه با AttributeError کرش می‌کرد، یعنی forget_note
+    عملاً از روز اول کار نمی‌کرد. برای همین اول با یه SELECT وجودِ ردیف رو
+    چک می‌کنیم، بعد اگه بود حذفش می‌کنیم."""
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("DELETE FROM ai_memory WHERE id = ?", (memory_id,))
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT id FROM ai_memory WHERE id = ?", (memory_id,)) as cur:
+            existing = await cur.fetchone()
+        if existing is None:
+            return False
+        await db.execute("DELETE FROM ai_memory WHERE id = ?", (memory_id,))
         await db.commit()
-        return cur.rowcount > 0
+        return True
 
 
 async def get_admin_permission(telegram_id: int, perm: str) -> bool:

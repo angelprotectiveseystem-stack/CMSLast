@@ -1142,7 +1142,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
 
     except Exception as e:
         logger.exception(f"AI tool '{name}' failed")
-        return f"⚠️ در اجرای این عملیات خطایی رخ داد: {e}"
+        return f"❌ در اجرای این عملیات خطایی رخ داد: {e}"
 
 
 # ────────────────────────────────────────────────────────────────
@@ -1151,11 +1151,20 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
 # یه پیام جدا برای مدیر ارشد فرستاده می‌شه؛ مستقل از این‌که خود دستیار
 # داخل چت به کاربر چی گفته. اگه اقدام با خطا/عدم‌دسترسی مواجه بشه
 # (پیام با ❌ یا ⛔ شروع بشه) نوتیف فرستاده نمی‌شه.
+#
+# نکته‌ی مهم: قبلاً ⚠️ هم جزو این لیستِ «خطا»ها بود. اما ⚠️ توی این فایل
+# برای موفقیت‌های قابل‌توجه هم استفاده می‌شه — مثلاً «⚠️ به فلانی اخطار
+# داده شد» (warn_admin/warn_player) که خودِ یه اقدامِ موفقه، نه شکست.
+# نتیجه این بود که هر بار دستیار به یه ادمین یا بازیکن اخطار می‌داد،
+# چون پیامِ برگشتی با ⚠️ شروع می‌شد، نوتیفِ مدیر ارشد اصلاً فرستاده
+# نمی‌شد — یعنی دقیقاً همون اقداماتی که بیشترین نیاز به نظارت رو دارن،
+# بی‌سروصدا از چشمِ مدیر ارشد پنهون می‌موندن. الان فقط ❌ و ⛔ (که توی
+# کل فایل واقعاً و همیشه یعنی خطا/عدم‌دسترسی) باعثِ سکوت می‌شن.
 # ────────────────────────────────────────────────────────────────
 async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx) -> str:
     result = await _dispatch_impl(name, args, caller_id, caller_role, ctx)
 
-    if name in ACTION_TOOL_NAMES and not result.startswith(("❌", "⛔", "⚠️")):
+    if name in ACTION_TOOL_NAMES and not result.startswith(("❌", "⛔")):
         try:
             actor = await _actor_label(caller_id, caller_role)
             args_str = ", ".join(f"{k}={v}" for k, v in (args or {}).items())
