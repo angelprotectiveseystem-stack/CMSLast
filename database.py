@@ -1693,6 +1693,36 @@ async def get_all_blocked():
             return await cur.fetchall()
 
 
+async def get_security_snapshot(top_n: int = 5):
+    """یه نمای‌کلی از وضعیتِ امنیتی برای تحلیل: صفِ انتظار، بلاک‌شده‌ها، و
+    غریبه‌هایی که بیشترین تعداد اقدام رو (بدون تأیید) ثبت کردن — یعنی
+    کسایی که مدام دارن سعی می‌کنن، صرف‌نظر از این‌که الان بلاک/صف/آزادن."""
+    queued = await get_queued_requests()
+    blocked = await get_all_blocked()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT telegram_id,
+                      MAX(username) AS username,
+                      MAX(full_name) AS full_name,
+                      COUNT(*) AS action_count,
+                      MIN(ts) AS first_seen,
+                      MAX(ts) AS last_active
+               FROM stranger_log
+               GROUP BY telegram_id
+               ORDER BY action_count DESC
+               LIMIT ?""",
+            (top_n,)
+        ) as cur:
+            top_strangers = await cur.fetchall()
+    blocked_ids = {b["telegram_id"] for b in blocked}
+    return {
+        "queued": queued,
+        "blocked": blocked,
+        "top_strangers": [dict(r) | {"is_blocked": r["telegram_id"] in blocked_ids} for r in top_strangers],
+    }
+
+
 # ─── Restore (بازگردانی بکاپ) ──────────────────────────────────
 async def get_class_by_name(name: str):
     async with aiosqlite.connect(DB_PATH) as db:

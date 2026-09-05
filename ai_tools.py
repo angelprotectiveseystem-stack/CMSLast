@@ -107,12 +107,14 @@ TOOL_PERMISSIONS = {
     # ── مسابقات و نتایج ──
     "create_tournament":  [ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER],
     "list_tournaments":   ALL_ROLES,
+    "analyze_tournament": ALL_ROLES,
     "record_match":       [ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER],
     "recent_matches":     ALL_ROLES,
 
     # ── گزارش‌گیری — همه نقش‌ها ──
     "quick_stats":        ALL_ROLES,
     "system_status":      ALL_ROLES,
+    "check_security":     [ROLE_PISHVA],
 
     # ── ارتباطات — فقط مدیر ارشد ──
     "send_announcement":  [ROLE_PISHVA],
@@ -269,6 +271,21 @@ TOOL_DECLARATIONS = [
         "parameters": {"type": "object", "properties": {}},
     },
     {
+        "name": "analyze_tournament",
+        "description": (
+            "تحلیلِ وضعیتِ یک تورنومنت: جدولِ امتیازاتِ بازیکنا (برد/باخت/مساوی/امتیاز، مرتب‌شده)، "
+            "تعداد مسابقاتِ انجام‌شده و باقی‌مانده. برای درخواست‌هایی مثل «وضعیتِ تورنومنت چطوره؟»، "
+            "«کی داره می‌بره؟»، «جدولِ فلان مسابقات رو بده». اگه اسمِ تورنومنت گفته نشد، "
+            "تورنومنتِ پیش‌فرض/فعال فعلی رو تحلیل کن."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tournament_name": {"type": "string", "description": "نامِ تورنومنت (اختیاری — اگه نگفته بشه، تورنومنتِ فعال پیش‌فرض)"},
+            },
+        },
+    },
+    {
         "name": "record_match",
         "description": "ثبت یک مسابقه‌ی جدید همراه با نتیجه‌اش بین دو بازیکن.",
         "parameters": {
@@ -325,6 +342,18 @@ TOOL_DECLARATIONS = [
     {
         "name": "system_status",
         "description": "وضعیت فعلی سیستم: ساعت کاری باز است یا نه، تعداد درخواست‌های در انتظار و غیره.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "check_security",
+        "description": (
+            "چکِ امنیتی/تحلیلِ وضعیتِ امنیتی: تعدادِ افرادِ در صفِ انتظارِ تأیید، تعدادِ کاربرانِ "
+            "بلاک‌شده، و لیستِ غریبه‌هایی که بیشترین تلاش/فعالیت رو داشتن (بدون تأیید) — یعنی "
+            "کسایی که مدام دارن سعی می‌کنن وارد بشن. برای درخواست‌هایی مثل «چک امنیتی بکن»، «وضعیت "
+            "امنیتی رو تحلیل کن»، «کسی مشکوک بوده؟». خودِ این تابع فقط داده می‌ده؛ بعدِ گرفتنش "
+            "خودت تحلیل کن (مثلاً کسی که تعداد تلاشش خیلی بالاست ولی هنوز بلاک نشده رو به پیشوا "
+            "گوشزد کن)."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
     {
@@ -734,6 +763,26 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             lines = [f"- {r['name']} ({r['status']})" for r in rows]
             return "لیست تورنومنت‌ها:\n" + "\n".join(lines)
 
+        elif name == "analyze_tournament":
+            tname = (args.get("tournament_name") or "").strip()
+            if tname:
+                t = await db.get_tournament_by_name(tname)
+                if not t:
+                    return f"تورنومنتی به نام «{tname}» پیدا نشد."
+            else:
+                t = await db.get_default_tournament()
+                if not t:
+                    return "هیچ تورنومنتِ فعال/پیش‌فرضی تنظیم نشده — اسمِ یکی از تورنومنت‌ها رو مشخص کن."
+            data = await db.get_tournament_standings(t["id"])
+            if data["total"] == 0:
+                return f"تورنومنتِ «{t['name']}» هنوز هیچ مسابقه‌ای نداره."
+            lines = [f"📊 تحلیلِ «{t['name']}» — {data['done']} مسابقه انجام‌شده، {data['pending']} باقی‌مانده.\n\nجدول:"]
+            for i, (pname, s) in enumerate(data["standings"], 1):
+                lines.append(
+                    f"{i}. {pname} — {s['points']:g} امتیاز ({s['win']} برد، {s['draw']} مساوی، {s['loss']} باخت، {s['played']} بازی)"
+                )
+            return "\n".join(lines)
+
         # ── مسابقه/نتیجه ──
         elif name == "record_match":
             wp = await db.get_player_by_name(args["white_name"])
@@ -811,6 +860,27 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             return (f"🖥️ وضعیت سیستم:\n- ساعت کاری: {'باز' if active else 'بسته'}\n"
                     f"- درخواست‌های در انتظار: {len(pending)}")
 
+        elif name == "check_security":
+            snap = await db.get_security_snapshot()
+            lines = [
+                f"🛡️ چکِ امنیتی:",
+                f"⏳ در صفِ انتظارِ تأیید: {len(snap['queued'])} نفر",
+                f"🚫 بلاک‌شده: {len(snap['blocked'])} نفر",
+            ]
+            if snap["queued"]:
+                lines.append("\nصفِ انتظار:")
+                for r in snap["queued"][:10]:
+                    lines.append(f"- {r.get('full_name') or '؟'} (@{r.get('username') or '—'}) | id={r['telegram_id']}")
+            if snap["top_strangers"]:
+                lines.append("\nپرتلاش‌ترینِ غریبه‌ها (بدون تأیید):")
+                for s in snap["top_strangers"]:
+                    flag = "🚫 بلاک" if s["is_blocked"] else "⚠️ آزاد"
+                    lines.append(
+                        f"- {s.get('full_name') or '؟'} (@{s.get('username') or '—'}) | "
+                        f"{s['action_count']} اقدام | {flag} | آخرین: {str(s['last_active'])[:16]}"
+                    )
+            return "\n".join(lines)
+
         # ── ارتباطات ──
         elif name == "send_announcement":
             await comms._send_announcement(ctx.bot, args["text"], "", "", via_assistant=True)
@@ -842,7 +912,8 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 f"📬 شما یک پیام جدید دارید.\n"
                 f"👤 از: {pname}\n"
                 f"⏱️ `{ts}`\n\n"
-                f"💬 متن: _{text}_"
+                f"💬 متن: _{text}_\n\n"
+                f"🤖 این پیام از طریق دستیار هوشمند ارسال شده"
             )
             try:
                 await ctx.bot.send_message(
@@ -872,7 +943,8 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 f"یک وظیفه جدید به شما اعطا شد.\n\n"
                 f"📌 عنوان: *{title}*\n"
                 f"📝 توضیح: _{desc or '—'}_\n"
-                f"⏱️ زمان اعطا: `{ts}`"
+                f"⏱️ زمان اعطا: `{ts}`\n\n"
+                f"🤖 این وظیفه از طریق دستیار هوشمند ثبت شده"
             )
             try:
                 await ctx.bot.send_message(
