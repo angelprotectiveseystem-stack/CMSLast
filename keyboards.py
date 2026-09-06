@@ -141,6 +141,9 @@ def kb_player_list(players, page=0, page_size=8):
         nav.append(InlineKeyboardButton("▶️ بعدی", callback_data=f"player_list_page_{page+1}", style="primary"))
     if nav:
         rows.append(nav)
+    # FIX: توی لیستِ بازیکنان دکمه‌ی جستجو نبود — کاربر مجبور بود اول با
+    # «بازگشت» به منوی بازیکنان برگرده تا به جستجو برسه.
+    rows.append([InlineKeyboardButton("🔍 جستجو بازیکن", callback_data="player_search", style="primary")])
     rows.append(kb_back_row("players"))
     return InlineKeyboardMarkup(rows)
 
@@ -166,21 +169,31 @@ def kb_player_select(players, prefix, back="matches", page=0, page_size=8, nav_p
     rows.append(kb_back_row(back))
     return InlineKeyboardMarkup(rows)
 
-def kb_player_actions(player_id, role="pishva"):
-    rows = [
-        [InlineKeyboardButton("✏️ ویرایش نام", callback_data=f"player_editname_{player_id}", style="primary"),
-        InlineKeyboardButton("🏫 ویرایش کلاس", callback_data=f"player_editclass_{player_id}", style="primary")],
-        [InlineKeyboardButton("⚠️ ثبت اخطار", callback_data=f"player_warn_{player_id}", style="danger"),
-        InlineKeyboardButton("🚫 اخراج", callback_data=f"player_kick_{player_id}", style="danger")],
-        [InlineKeyboardButton("⏸️ تعلیق", callback_data=f"player_suspend_{player_id}", style="danger"),
-        InlineKeyboardButton("📝 یادداشت", callback_data=f"player_note_{player_id}", style="primary")],
-        [InlineKeyboardButton("🔄 احیا", callback_data=f"player_revive_{player_id}", style="success"),
-        InlineKeyboardButton("🌟 ثبت برتر", callback_data=f"player_elite_{player_id}", style="success")],
-        [InlineKeyboardButton("📈 امتیاز Elo", callback_data=f"elo_player_{player_id}", style="primary"),
-        InlineKeyboardButton("🔮 پیش‌بینی", callback_data=f"predict_select_{player_id}", style="primary")],
+def kb_player_actions(player_id, role="pishva", status="active"):
+    """FIX: قبلاً دکمه‌های اخراج/تعلیق/احیا بدون توجه به وضعیت فعلیِ بازیکن
+    همیشه با هم نشون داده می‌شدن — یعنی حتی بعد از اخراج یه بازیکن، دوباره
+    که پنلش رو باز می‌کردی دکمه‌ی «🚫 اخراج» جلوت بود (روی بازیکنی که از قبل
+    اخراج شده!). حالا: اگه بازیکن فعاله، اخراج/تعلیق نشون داده می‌شه؛ اگه
+    از قبل اخراج/تعلیق/حذف شده، به‌جاش فقط دکمه‌ی «🔄 احیا» نشون داده می‌شه."""
+    is_active = status == "active"
+    action_buttons = [
+        InlineKeyboardButton("✏️ ویرایش نام", callback_data=f"player_editname_{player_id}", style="primary"),
+        InlineKeyboardButton("🏫 ویرایش کلاس", callback_data=f"player_editclass_{player_id}", style="primary"),
+        InlineKeyboardButton("⚠️ ثبت اخطار", callback_data=f"player_warn_{player_id}", style="danger"),
     ]
+    if is_active:
+        action_buttons.append(InlineKeyboardButton("🚫 اخراج", callback_data=f"player_kick_{player_id}", style="danger"))
+        action_buttons.append(InlineKeyboardButton("⏸️ تعلیق", callback_data=f"player_suspend_{player_id}", style="danger"))
+    else:
+        action_buttons.append(InlineKeyboardButton("🔄 احیا", callback_data=f"player_revive_{player_id}", style="success"))
+    action_buttons.append(InlineKeyboardButton("📝 یادداشت", callback_data=f"player_note_{player_id}", style="primary"))
+    action_buttons.append(InlineKeyboardButton("🌟 ثبت برتر", callback_data=f"player_elite_{player_id}", style="success"))
+    action_buttons.append(InlineKeyboardButton("📈 امتیاز Elo", callback_data=f"elo_player_{player_id}", style="primary"))
+    action_buttons.append(InlineKeyboardButton("🔮 پیش‌بینی", callback_data=f"predict_select_{player_id}", style="primary"))
     if role == "pishva":
-        rows.append([InlineKeyboardButton("⚡ ثبت ویژه", callback_data=f"player_special_{player_id}", style="success")])
+        action_buttons.append(InlineKeyboardButton("⚡ ثبت ویژه", callback_data=f"player_special_{player_id}", style="success"))
+
+    rows = [action_buttons[i:i + 2] for i in range(0, len(action_buttons), 2)]
     rows.append(kb_back_row("player_list"))
     return InlineKeyboardMarkup(rows)
 

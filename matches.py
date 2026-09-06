@@ -1,4 +1,5 @@
 import random
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 import database as db
@@ -596,9 +597,11 @@ async def match_pin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def match_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    matches = await db.get_matches_by_filter("all")
-    players = await db.get_all_players()
-    default_t = await db.get_default_tournament()
+    matches, players, default_t = await asyncio.gather(
+        db.get_matches_by_filter("all"),
+        db.get_all_players(),
+        db.get_default_tournament(),
+    )
     top_players = sorted(players, key=lambda p: p["wins"], reverse=True)[:5]
     top_lines = "\n".join(
         [f"  `{i+1}.` {p['full_name']} — ✅{p['wins']} 🤝{p['draws']} ❌{p['losses']}"

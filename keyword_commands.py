@@ -2,6 +2,7 @@ import re
 import json
 import logging
 import platform
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import database as db
@@ -1045,21 +1046,30 @@ async def _build_system_status_report() -> str:
     except Exception:
         mem_txt = "نامشخص"
 
-    status = await db.get_setting("system_status", "normal")
     status_map = {"normal": "🟢 نرمال", "bad": "🟡 احتیاطی", "danger": "🔴 خطرناک", "aps": "🪽 APS"}
-    wh = await db.get_setting("working_hours_active", "0")
-    db_manual = await db.get_setting("db_manual_status", "1")
-    repair = await db.get_setting("repair_mode", "0")
 
-    all_players = await db.get_all_players()
-    all_matches = await db.get_matches_by_filter("all")
-    all_admins = await db.get_all_admins()
-    all_tasks = await db.get_all_tasks()
-    all_classes = await db.get_all_classes()
-    try:
-        all_teams = await db.get_all_teams()
-    except Exception:
-        all_teams = []
+    async def _teams():
+        try:
+            return await db.get_all_teams()
+        except Exception:
+            return []
+
+    # همون فیکسِ داشبورد: ۹ تا await سریالی -> یک asyncio.gather
+    (
+        status, wh, db_manual, repair,
+        all_players, all_matches, all_admins, all_tasks, all_classes, all_teams,
+    ) = await asyncio.gather(
+        db.get_setting("system_status", "normal"),
+        db.get_setting("working_hours_active", "0"),
+        db.get_setting("db_manual_status", "1"),
+        db.get_setting("repair_mode", "0"),
+        db.get_all_players(),
+        db.get_matches_by_filter("all"),
+        db.get_all_admins(),
+        db.get_all_tasks(),
+        db.get_all_classes(),
+        _teams(),
+    )
 
     lines = [
         box("🗄️ وضعیت کامل سیستم"),

@@ -260,7 +260,7 @@ async def player_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{warn_bar}\n"
         f"{'📂 یادداشت: _' + p['notes'] + '_' if p['notes'] else ''}"
     )
-    await safe_edit_message_text(query, text, reply_markup=kb.kb_player_actions(pid, role), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_player_actions(pid, role, p["status"]), parse_mode="Markdown")
 
 # ─── Player Actions ───────────────────────────────────────────
 async def player_warn_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
