@@ -1,4 +1,6 @@
-python-telegram-bot[job-queue]==20.7
+# نسخه‌ی ۲۰.۷ پارامترِ style روی InlineKeyboardButton (رنگِ پس‌زمینه‌ی دکمه، از Bot API 9.4) رو نداره؛
+# باید حداقل نسخه‌ای باشه که این پارامتر توش هست. موقعِ دیپلوی حتماً چک کن که نسخه‌ی نصب‌شده واقعاً style رو ساپورت می‌کنه.
+python-telegram-bot[job-queue]>=22.7
 aiosqlite>=0.19.0
 openpyxl>=3.1.0
 python-docx>=1.0.0

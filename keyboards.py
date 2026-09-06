@@ -19,7 +19,7 @@ def kb_back_row(target="main"):
 def kb_panel_closed_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔍 لاگ‌ها", callback_data="pishva_logs"),
-        InlineKeyboardButton("🔓 ورود به پنل", callback_data="back_main")],
+        InlineKeyboardButton("🔓 ورود به پنل", callback_data="back_main", style="primary")],
     ])
 
 # ─── پنل مدیر ارشد (منوی اصلی کوتاه) ────────────────────────────
@@ -70,8 +70,8 @@ def kb_security_manager_main():
 # ─── مدیریت مسابقات (همه چیز اینجاست) ──────────────────────
 def kb_matches_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ ثبت مسابقه جدید", callback_data="match_add"),
-        InlineKeyboardButton("🏆 ثبت نتیجه", callback_data="match_result")],
+        [InlineKeyboardButton("➕ ثبت مسابقه جدید", callback_data="match_add", style="success"),
+        InlineKeyboardButton("🏆 ثبت نتیجه", callback_data="match_result", style="success")],
         [InlineKeyboardButton("🔍 تاریخچه مسابقات", callback_data="match_history"),
         InlineKeyboardButton("📊 پنل مدیریت", callback_data="match_panel")],
         [InlineKeyboardButton("🎲 قرعه‌کشی", callback_data="lottery_start"),
@@ -87,13 +87,13 @@ def kb_matches_menu():
 # ─── مدیریت بازیکنان ─────────────────────────────────────────
 def kb_players_menu(role="pishva"):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ ثبت‌نام بازیکن", callback_data="player_add"),
+        [InlineKeyboardButton("➕ ثبت‌نام بازیکن", callback_data="player_add", style="success"),
         InlineKeyboardButton("🏫 مدیریت کلاس‌ها", callback_data="class_manage")],
-        [InlineKeyboardButton("📋 ثبت‌نام گروهی", callback_data="bulk_register_start")],
+        [InlineKeyboardButton("📋 ثبت‌نام گروهی", callback_data="bulk_register_start", style="success")],
         [InlineKeyboardButton("👁️ مشاهده بازیکنان", callback_data="player_list"),
         InlineKeyboardButton("🔍 جستجو بازیکن", callback_data="player_search")],
         [InlineKeyboardButton("✅ ادامه‌دهندگان", callback_data="player_continuing"),
-        InlineKeyboardButton("❌ حذف‌شدگان", callback_data="player_eliminated")],
+        InlineKeyboardButton("❌ حذف‌شدگان", callback_data="player_eliminated", style="danger")],
         [InlineKeyboardButton("🌟 بازیکنان برتر", callback_data="player_elite"),
         InlineKeyboardButton("⚡ نیروهای ویژه", callback_data="player_special")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")],
@@ -102,7 +102,7 @@ def kb_players_menu(role="pishva"):
 # ─── کلاس ────────────────────────────────────────────────────
 def kb_class_manage():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ ثبت کلاس جدید", callback_data="class_add"),
+        [InlineKeyboardButton("✅ ثبت کلاس جدید", callback_data="class_add", style="success"),
         InlineKeyboardButton("👁️ مشاهده کلاس‌ها", callback_data="class_list")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_players")],
     ])
@@ -170,40 +170,40 @@ def kb_player_actions(player_id, role="pishva"):
     rows = [
         [InlineKeyboardButton("✏️ ویرایش نام", callback_data=f"player_editname_{player_id}"),
         InlineKeyboardButton("🏫 ویرایش کلاس", callback_data=f"player_editclass_{player_id}")],
-        [InlineKeyboardButton("⚠️ ثبت اخطار", callback_data=f"player_warn_{player_id}"),
-        InlineKeyboardButton("🚫 اخراج", callback_data=f"player_kick_{player_id}")],
-        [InlineKeyboardButton("⏸️ تعلیق", callback_data=f"player_suspend_{player_id}"),
+        [InlineKeyboardButton("⚠️ ثبت اخطار", callback_data=f"player_warn_{player_id}", style="danger"),
+        InlineKeyboardButton("🚫 اخراج", callback_data=f"player_kick_{player_id}", style="danger")],
+        [InlineKeyboardButton("⏸️ تعلیق", callback_data=f"player_suspend_{player_id}", style="danger"),
         InlineKeyboardButton("📝 یادداشت", callback_data=f"player_note_{player_id}")],
-        [InlineKeyboardButton("🔄 احیا", callback_data=f"player_revive_{player_id}"),
-        InlineKeyboardButton("🌟 ثبت برتر", callback_data=f"player_elite_{player_id}")],
+        [InlineKeyboardButton("🔄 احیا", callback_data=f"player_revive_{player_id}", style="success"),
+        InlineKeyboardButton("🌟 ثبت برتر", callback_data=f"player_elite_{player_id}", style="success")],
         [InlineKeyboardButton("📈 امتیاز Elo", callback_data=f"elo_player_{player_id}"),
         InlineKeyboardButton("🔮 پیش‌بینی", callback_data=f"predict_select_{player_id}")],
     ]
     if role == "pishva":
-        rows.append([InlineKeyboardButton("⚡ ثبت ویژه", callback_data=f"player_special_{player_id}")])
+        rows.append([InlineKeyboardButton("⚡ ثبت ویژه", callback_data=f"player_special_{player_id}", style="success")])
     rows.append(kb_back_row("player_list"))
     return InlineKeyboardMarkup(rows)
 
 # ─── تورنمنت ──────────────────────────────────────────────────
 def kb_tournament_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ افزودن تورنمنت", callback_data="tourn_add"),
+        [InlineKeyboardButton("➕ افزودن تورنمنت", callback_data="tourn_add", style="success"),
         InlineKeyboardButton("⚙️ مدیریت تورنمنت", callback_data="tourn_manage")],
         [InlineKeyboardButton("📌 تورنمنت پیش‌فرض", callback_data="tourn_default"),
         InlineKeyboardButton("📊 جزئیات فعال", callback_data="tourn_details")],
-        [InlineKeyboardButton("🗂️ حذف‌شده‌ها", callback_data="tourn_deleted"),
+        [InlineKeyboardButton("🗂️ حذف‌شده‌ها", callback_data="tourn_deleted", style="danger"),
         InlineKeyboardButton("🔙 بازگشت", callback_data="back_matches")],
     ])
 
 def kb_tournament_actions(tid, is_pishva=False):
     rows = [
         [InlineKeyboardButton("✏️ ویرایش نام", callback_data=f"tourn_edit_{tid}"),
-        InlineKeyboardButton("🔴 پایان تورنمنت", callback_data=f"tourn_end_{tid}")],
+        InlineKeyboardButton("🔴 پایان تورنمنت", callback_data=f"tourn_end_{tid}", style="danger")],
         [InlineKeyboardButton("⏸️ به تعویق", callback_data=f"tourn_pause_{tid}"),
         InlineKeyboardButton("📌 تنظیم پیش‌فرض", callback_data=f"tourn_setdefault_{tid}")],
     ]
     if is_pishva:
-        rows.append([InlineKeyboardButton("🗑️ حذف تورنمنت", callback_data=f"tourn_delete_{tid}")])
+        rows.append([InlineKeyboardButton("🗑️ حذف تورنمنت", callback_data=f"tourn_delete_{tid}", style="danger")])
     rows.append(kb_back_row("tournament"))
     return InlineKeyboardMarkup(rows)
 
@@ -221,10 +221,10 @@ def kb_tournament_list(tournaments):
 # ─── مسابقات ──────────────────────────────────────────────────
 def kb_match_result_options(match_id, white_name, black_name):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🥇 برد {white_name}", callback_data=f"result_white_{match_id}")],
-        [InlineKeyboardButton(f"🥇 برد {black_name}", callback_data=f"result_black_{match_id}")],
+        [InlineKeyboardButton(f"🥇 برد {white_name}", callback_data=f"result_white_{match_id}", style="success")],
+        [InlineKeyboardButton(f"🥇 برد {black_name}", callback_data=f"result_black_{match_id}", style="success")],
         [InlineKeyboardButton("🤝 تساوی", callback_data=f"result_draw_{match_id}")],
-        [InlineKeyboardButton("❌ لغو مسابقه", callback_data=f"result_cancel_{match_id}")],
+        [InlineKeyboardButton("❌ لغو مسابقه", callback_data=f"result_cancel_{match_id}", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="match_result")],
     ])
 
@@ -240,7 +240,7 @@ def kb_draw_reasons(match_id):
 
 def kb_eliminate_ask(loser_id, loser_name):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"✅ بله، {loser_name} حذف شود", callback_data=f"eliminate_yes_{loser_id}"),
+        [InlineKeyboardButton(f"✅ بله، {loser_name} حذف شود", callback_data=f"eliminate_yes_{loser_id}", style="danger"),
         InlineKeyboardButton("❌ خیر، ادامه دهد", callback_data=f"eliminate_no_{loser_id}")],
     ])
 
@@ -266,7 +266,7 @@ def kb_match_list(matches):
 def kb_match_item_actions(mid):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✏️ ویرایش", callback_data=f"match_edit_{mid}"),
-        InlineKeyboardButton("🗑️ حذف", callback_data=f"match_delete_{mid}")],
+        InlineKeyboardButton("🗑️ حذف", callback_data=f"match_delete_{mid}", style="danger")],
         [InlineKeyboardButton("📌 پین کردن", callback_data=f"match_pin_{mid}"),
         InlineKeyboardButton("🔙 بازگشت", callback_data="match_history")],
     ])
@@ -287,7 +287,7 @@ def kb_pishva_panel():
         [InlineKeyboardButton("🎓 سال تحصیلی جدید", callback_data="pishva_newyear"),
         InlineKeyboardButton("🔄 آپدیت ربات", callback_data="pishva_update")],
         [InlineKeyboardButton("📡 گروه اعلانات", callback_data="pishva_group"),
-        InlineKeyboardButton("📢 افزودن به کانال", url=f"https://t.me/{BOT_USERNAME}?startchannel&admin=post_messages")],
+        InlineKeyboardButton("📢 افزودن به کانال", url=f"https://t.me/{BOT_USERNAME}?startchannel&admin=post_messages", style="success")],
         [InlineKeyboardButton("🆔 تنظیم کانال اعلانات", callback_data="pishva_channel"),
         InlineKeyboardButton("📡 پخش خودکار", callback_data="pishva_broadcast")],
         [InlineKeyboardButton("🛡️ پنل امنیتی APS", callback_data="security_panel"),
@@ -307,7 +307,7 @@ def kb_ai_scheduled_list(rows):
     else:
         for r in rows:
             kb_rows.append([InlineKeyboardButton(r["label"], callback_data="noop_label")])
-            kb_rows.append([InlineKeyboardButton("❌ لغو", callback_data=f"aischedcancel_{r['id']}")])
+            kb_rows.append([InlineKeyboardButton("❌ لغو", callback_data=f"aischedcancel_{r['id']}", style="danger")])
     kb_rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")])
     return InlineKeyboardMarkup(kb_rows)
 
@@ -328,11 +328,11 @@ def kb_pishva_settings_simple(settings):
         [InlineKeyboardButton(f"🔔 اعلانات {tog('notifications_enabled')}", callback_data="setting_notifications"),
         InlineKeyboardButton(f"📡 مخابرات {tog('communications_enabled')}", callback_data="setting_communications")],
         [InlineKeyboardButton(f"❓ راهنما {tog('help_enabled')}", callback_data="setting_help"),
-        InlineKeyboardButton(f"♟️ ثبت مسابقه {tog('match_registration_enabled')}", callback_data="setting_match_reg")],
+        InlineKeyboardButton(f"♟️ ثبت مسابقه {tog('match_registration_enabled')}", callback_data="setting_match_reg", style="success")],
         [InlineKeyboardButton(f"🚪 ورود ادمین {tog('admin_login_enabled')}", callback_data="setting_admin_login"),
-        InlineKeyboardButton(f"💤 خاموش برای ادمین‌ها {tog('bot_active_for_admins')}", callback_data="setting_bot_active")],
+        InlineKeyboardButton(f"💤 خاموش برای ادمین‌ها {tog('bot_active_for_admins')}", callback_data="setting_bot_active", style="danger")],
         [InlineKeyboardButton(f"🏆 حالت تیمی {tog('team_mode_enabled')}", callback_data="setting_team_mode"),
-        InlineKeyboardButton(f"📝 ثبت‌نام با تیم {tog('team_registration_enabled')}", callback_data="setting_team_reg")],
+        InlineKeyboardButton(f"📝 ثبت‌نام با تیم {tog('team_registration_enabled')}", callback_data="setting_team_reg", style="success")],
         [InlineKeyboardButton(f"👤 مدیران سازنده تیم {tog('managers_can_create_teams')}", callback_data="setting_mgr_team")],
         [InlineKeyboardButton(f"📊 داشبورد ادمین‌ها {tog('admin_dashboard_enabled')}", callback_data="setting_admin_dashboard")],
         [InlineKeyboardButton(f"🤖 هوش مصنوعی {tog('ai_online')}", callback_data="setting_ai_online")],
@@ -370,24 +370,22 @@ def kb_backup_format():
 
 def kb_restore_confirm():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ تایید و اعمال", callback_data="restore_apply"),
+        [InlineKeyboardButton("✅ تایید و اعمال", callback_data="restore_apply", style="success"),
         InlineKeyboardButton("❌ انصراف", callback_data="restore_cancel")],
     ])
 
 def kb_workhours(autoend_on: bool = False, reminder_on: bool = False, reminder_minutes: int = 60):
     rows = [
         [InlineKeyboardButton("🟢 آغاز ساعت کاری", callback_data="wh_start"),
-        InlineKeyboardButton("🔴 پایان ساعت کاری", callback_data="wh_end")],
+        InlineKeyboardButton("🔴 پایان ساعت کاری", callback_data="wh_end", style="danger")],
         [InlineKeyboardButton(
             f"⏱ پایان خودکار: {'✅ روشن' if autoend_on else '❌ خاموش'}",
-            callback_data="wh_autoend_toggle"
-        )],
+            callback_data="wh_autoend_toggle", style="danger")],
     ]
     if not autoend_on:
         rows.append([InlineKeyboardButton(
             f"⏰ یادآور عدم پایان: {'✅ روشن' if reminder_on else '❌ خاموش'}",
-            callback_data="wh_reminder_toggle"
-        )])
+            callback_data="wh_reminder_toggle", style="danger")])
         if reminder_on:
             rows.append([InlineKeyboardButton(
                 f"✏️ دقیقهٔ یادآور (فعلی: {reminder_minutes})",
@@ -398,9 +396,9 @@ def kb_workhours(autoend_on: bool = False, reminder_on: bool = False, reminder_m
 
 def kb_repair_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔧 فعال‌سازی تعمیر", callback_data="repair_on"),
+        [InlineKeyboardButton("🔧 فعال‌سازی تعمیر", callback_data="repair_on", style="success"),
         InlineKeyboardButton("✅ غیرفعال‌سازی تعمیر", callback_data="repair_off")],
-        [InlineKeyboardButton("📝 ثبت دلیل تعمیر", callback_data="repair_reason")],
+        [InlineKeyboardButton("📝 ثبت دلیل تعمیر", callback_data="repair_reason", style="success")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
 
@@ -441,13 +439,13 @@ def kb_logs_search_list(page, total_pages):
 def kb_logs_search_skip_term():
     """قدمِ اول جستجو: عبارت. به‌جای نوشتن «-»، دکمه‌ی رد شدن → می‌ره سراغ بازه."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏭️ رد شدن — برو به تنظیم بازه", callback_data="logs_search_skip_term")],
+        [InlineKeyboardButton("⏭️ رد شدن — برو به تنظیم بازه", callback_data="logs_search_skip_term", style="danger")],
     ])
 
 def kb_logs_search_skip_range():
     """قدمِ دوم جستجو: بازه‌ی ساعت. دکمه‌ی رد شدن → بدون فیلتر ساعت جستجو کن."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏭️ رد شدن — بدون فیلتر ساعت", callback_data="logs_search_skip_range")],
+        [InlineKeyboardButton("⏭️ رد شدن — بدون فیلتر ساعت", callback_data="logs_search_skip_range", style="danger")],
     ])
 
 # ─── پیگیریِ اقدامات مخصوص یک مدیر (از پروفایل همون مدیر) ────────
@@ -509,10 +507,10 @@ def kb_admin_list(admins):
 def kb_admin_actions(tid):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⬆️ دسترسی‌ها", callback_data=f"admin_perms_{tid}"),
-        InlineKeyboardButton("⚠️ ثبت اخطار", callback_data=f"admin_warn_{tid}")],
-        [InlineKeyboardButton("🧹 پاک‌کردن اخطارها", callback_data=f"admin_clearwarn_{tid}"),
-        InlineKeyboardButton("🚫 اخراج", callback_data=f"admin_kick_{tid}")],
-        [InlineKeyboardButton("💬 ارسال پیام", callback_data=f"admin_msg_{tid}"),
+        InlineKeyboardButton("⚠️ ثبت اخطار", callback_data=f"admin_warn_{tid}", style="danger")],
+        [InlineKeyboardButton("🧹 پاک‌کردن اخطارها", callback_data=f"admin_clearwarn_{tid}", style="danger"),
+        InlineKeyboardButton("🚫 اخراج", callback_data=f"admin_kick_{tid}", style="danger")],
+        [InlineKeyboardButton("💬 ارسال پیام", callback_data=f"admin_msg_{tid}", style="success"),
         InlineKeyboardButton("📋 اعطای وظیفه", callback_data=f"admin_task_{tid}")],
         [InlineKeyboardButton("🔍 پیگیری اقدامات", callback_data=f"adminlogsmenu_{tid}"),
         InlineKeyboardButton("👁️ پروفایل", callback_data=f"admin_profile_{tid}")],
@@ -526,9 +524,9 @@ def kb_admin_permissions(tid, perms):
         InlineKeyboardButton(f"📰 اخبار {tog('news')}", callback_data=f"perm_{tid}_news")],
         [InlineKeyboardButton(f"♟️ مسابقات {tog('match_management')}", callback_data=f"perm_{tid}_match_management"),
         InlineKeyboardButton(f"👥 بازیکنان {tog('view_players')}", callback_data=f"perm_{tid}_view_players")],
-        [InlineKeyboardButton(f"⚠️ اخطار {tog('issue_warning')}", callback_data=f"perm_{tid}_issue_warning"),
-        InlineKeyboardButton(f"🚫 درخواست اخراج {tog('request_ban')}", callback_data=f"perm_{tid}_request_ban")],
-        [InlineKeyboardButton(f"❌ اخراج مستقیم {tog('direct_ban')}", callback_data=f"perm_{tid}_direct_ban"),
+        [InlineKeyboardButton(f"⚠️ اخطار {tog('issue_warning')}", callback_data=f"perm_{tid}_issue_warning", style="danger"),
+        InlineKeyboardButton(f"🚫 درخواست اخراج {tog('request_ban')}", callback_data=f"perm_{tid}_request_ban", style="danger")],
+        [InlineKeyboardButton(f"❌ اخراج مستقیم {tog('direct_ban')}", callback_data=f"perm_{tid}_direct_ban", style="danger"),
         InlineKeyboardButton(f"📋 وظیفه {tog('assign_task')}", callback_data=f"perm_{tid}_assign_task")],
         [InlineKeyboardButton(f"🚨 گزارش {tog('report')}", callback_data=f"perm_{tid}_report"),
         InlineKeyboardButton(f"💤 ربات فعال {tog('bot_active')}", callback_data=f"perm_{tid}_bot_active")],
@@ -538,18 +536,18 @@ def kb_admin_permissions(tid, perms):
         InlineKeyboardButton(f"📡 مخابرات {tog('communications')}", callback_data=f"perm_{tid}_communications")],
         [InlineKeyboardButton(f"🤖 دسترسی هوش مصنوعی {tog('ai_access')}", callback_data=f"perm_{tid}_ai_access")],
         [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('chess_access')}", callback_data=f"perm_{tid}_chess_access")],
-        [InlineKeyboardButton("✅ ذخیره و بازگشت", callback_data=f"admin_view_{tid}")],
+        [InlineKeyboardButton("✅ ذخیره و بازگشت", callback_data=f"admin_view_{tid}", style="success")],
     ])
 
 # ─── مخابرات ──────────────────────────────────────────────────
 def kb_comms_pishva():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💬 پیام به ادمین", callback_data="comms_msg_admin"),
-        InlineKeyboardButton("📢 ارسال بیانیه", callback_data="comms_announce")],
+        InlineKeyboardButton("📢 ارسال بیانیه", callback_data="comms_announce", style="success")],
         [InlineKeyboardButton("📨 پیام‌های دریافتی", callback_data="comms_inbox"),
         InlineKeyboardButton("🔔 اعلانات اخیر", callback_data="comms_notifs")],
         [InlineKeyboardButton("👁️ پیام ادمین‌ها", callback_data="comms_all_msgs"),
-        InlineKeyboardButton("📰 ارسال خبر", callback_data="comms_news")],
+        InlineKeyboardButton("📰 ارسال خبر", callback_data="comms_news", style="success")],
         [InlineKeyboardButton("📊 گزارشات", callback_data="comms_reports"),
         InlineKeyboardButton("📜 تاریخچه بیانیات", callback_data="comms_ann_history")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")],
@@ -627,7 +625,7 @@ def kb_help_menu():
         InlineKeyboardButton("👤 بازیکنان", callback_data="help_players")],
         [InlineKeyboardButton("♟️ مسابقات", callback_data="help_matches"),
         InlineKeyboardButton("📡 مخابرات", callback_data="help_comms")],
-        [InlineKeyboardButton("⚠️ اخطار", callback_data="help_warnings"),
+        [InlineKeyboardButton("⚠️ اخطار", callback_data="help_warnings", style="danger"),
         InlineKeyboardButton("📋 وظایف", callback_data="help_tasks")],
         [InlineKeyboardButton("❓ سوالات متداول", callback_data="help_faq"),
         InlineKeyboardButton("🛠️ خطاهای احتمالی", callback_data="help_errors")],
@@ -638,7 +636,7 @@ def kb_help_menu():
 def kb_teams_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 تیم‌ها", callback_data="teams_list"),
-        InlineKeyboardButton("➕ افزودن تیم", callback_data="teams_add")],
+        InlineKeyboardButton("➕ افزودن تیم", callback_data="teams_add", style="success")],
         [InlineKeyboardButton("⚙️ تنظیمات تیم", callback_data="teams_settings"),
         InlineKeyboardButton("🔙 بازگشت", callback_data="back_matches")],
     ])
@@ -656,7 +654,7 @@ def kb_team_actions(team_id):
         [InlineKeyboardButton("👥 بازیکنان تیم", callback_data=f"team_members_{team_id}"),
         InlineKeyboardButton("👑 تنظیم سرگروه", callback_data=f"team_captain_{team_id}")],
         [InlineKeyboardButton("⚠️ اخطارهای تیم", callback_data=f"team_warnings_{team_id}"),
-        InlineKeyboardButton("🗑️ حذف تیم", callback_data=f"team_delete_{team_id}")],
+        InlineKeyboardButton("🗑️ حذف تیم", callback_data=f"team_delete_{team_id}", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="teams_list")],
     ])
 
@@ -668,10 +666,10 @@ def kb_confirm(yes_cb, no_cb, yes_label="✅ بله", no_label="❌ خیر"):
 
 def kb_access_request(req_id):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ تأیید", callback_data=f"req_approve_{req_id}"),
-        InlineKeyboardButton("❌ رد", callback_data=f"req_reject_{req_id}")],
+        [InlineKeyboardButton("✅ تأیید", callback_data=f"req_approve_{req_id}", style="success"),
+        InlineKeyboardButton("❌ رد", callback_data=f"req_reject_{req_id}", style="danger")],
         [InlineKeyboardButton("⏳ صف انتظار", callback_data=f"req_queue_{req_id}"),
-        InlineKeyboardButton("🚫 بلاک دائم", callback_data=f"req_blockask_{req_id}")],
+        InlineKeyboardButton("🚫 بلاک دائم", callback_data=f"req_blockask_{req_id}", style="danger")],
     ])
 
 def kb_lottery_scope():
@@ -745,17 +743,16 @@ def kb_dbstatus_menu(current):
 # ─── ثبت‌نام گروهی ────────────────────────────────────────────
 def kb_bulk_preview():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ ثبت و تایید", callback_data="bulk_confirm")],
+        [InlineKeyboardButton("✅ ثبت و تایید", callback_data="bulk_confirm", style="success")],
         [InlineKeyboardButton("✏️ ویرایش", callback_data="bulk_edit"),
-        InlineKeyboardButton("❌ لغو", callback_data="bulk_cancel")],
+        InlineKeyboardButton("❌ لغو", callback_data="bulk_cancel", style="danger")],
     ])
 
 # ─── یادآورها ─────────────────────────────────────────────────
 def kb_reminders_menu(master_on, items):
     rows = [[InlineKeyboardButton(
         f"{'✅' if master_on else '❌'} فعال‌سازی کلی یادآورها",
-        callback_data="reminder_toggle_master"
-    )]]
+        callback_data="reminder_toggle_master", style="success")]]
     for rtype, label, enabled, interval in items:
         icon = "✅" if enabled else "❌"
         rows.append([
@@ -803,7 +800,7 @@ def kb_broadcast_menu(items):
 def kb_security_panel():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⏳ صف انتظار", callback_data="security_queue"),
-        InlineKeyboardButton("🚫 بلاک‌شده‌ها", callback_data="security_blocked")],
+        InlineKeyboardButton("🚫 بلاک‌شده‌ها", callback_data="security_blocked", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva")],
     ])
 
@@ -820,15 +817,15 @@ def kb_queue_list(queued):
 
 def kb_queue_item_actions(req_id):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ تأیید و عضویت", callback_data=f"queueapprove_{req_id}")],
-        [InlineKeyboardButton("🔓 خروج از صف بدون تأیید", callback_data=f"queuerelease_{req_id}")],
-        [InlineKeyboardButton("🚫 بلاک دائم", callback_data=f"queueblockask_{req_id}")],
+        [InlineKeyboardButton("✅ تأیید و عضویت", callback_data=f"queueapprove_{req_id}", style="success")],
+        [InlineKeyboardButton("🔓 خروج از صف بدون تأیید", callback_data=f"queuerelease_{req_id}", style="danger")],
+        [InlineKeyboardButton("🚫 بلاک دائم", callback_data=f"queueblockask_{req_id}", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="security_queue")],
     ])
 
 def kb_block_confirm(token, back_cb="security_panel"):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚫 بله، بلاک کن", callback_data=f"blockconfirm_{token}"),
+        [InlineKeyboardButton("🚫 بله، بلاک کن", callback_data=f"blockconfirm_{token}", style="danger"),
         InlineKeyboardButton("❌ انصراف", callback_data=back_cb)],
     ])
 
@@ -845,7 +842,7 @@ def kb_blocked_list(blocked):
 
 def kb_blocked_item_actions(tid):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔓 آنبلاک", callback_data=f"unblock_{tid}")],
+        [InlineKeyboardButton("🔓 آنبلاک", callback_data=f"unblock_{tid}", style="success")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="security_blocked")],
     ])
 
