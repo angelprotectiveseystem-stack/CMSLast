@@ -25,46 +25,46 @@ def kb_panel_closed_menu():
 # ─── پنل مدیر ارشد (منوی اصلی کوتاه) ────────────────────────────
 def kb_pishva_main():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("♟️ مدیریت مسابقات", callback_data="menu_matches", style="primary"),
-        InlineKeyboardButton("👤 مدیریت بازیکنان", callback_data="menu_players", style="primary")],
-        [InlineKeyboardButton("👑 پنل مدیر ارشد", callback_data="menu_pishva", style="primary"),
-        InlineKeyboardButton("👥 مدیریت مدیران", callback_data="menu_admins", style="primary")],
-        [InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms", style="primary"),
-        InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks", style="primary")],
-        [InlineKeyboardButton("📊 داشبورد مدیر ارشد", callback_data="dashboard_pishva", style="primary"),
-        InlineKeyboardButton("❓ راهنما", callback_data="menu_help", style="primary")],
-        [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus", style="primary")],
-        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu", style="primary")],
-        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open", style="primary"),
-        InlineKeyboardButton("🗂️ سوابق AI ادمین‌ها", callback_data="ai_admlog_menu", style="primary")],
-        [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback", style="primary")],
+        [InlineKeyboardButton("♟️ مدیریت مسابقات", callback_data="menu_matches"),
+        InlineKeyboardButton("👤 مدیریت بازیکنان", callback_data="menu_players")],
+        [InlineKeyboardButton("👑 پنل مدیر ارشد", callback_data="menu_pishva"),
+        InlineKeyboardButton("👥 مدیریت مدیران", callback_data="menu_admins")],
+        [InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms"),
+        InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks")],
+        [InlineKeyboardButton("📊 داشبورد مدیر ارشد", callback_data="dashboard_pishva"),
+        InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
+        [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],
+        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
+        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open"),
+        InlineKeyboardButton("🗂️ سوابق AI ادمین‌ها", callback_data="ai_admlog_menu")],
+        [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
 # ─── منوی مدیر مسابقات ────────────────────────────────────────
 def kb_tournament_manager_main():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("♟️ مدیریت مسابقات", callback_data="menu_matches", style="primary"),
-        InlineKeyboardButton("👤 مدیریت بازیکنان", callback_data="menu_players", style="primary")],
-        [InlineKeyboardButton("📊 داشبورد من", callback_data="dashboard_admin", style="primary"),
-        InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms", style="primary")],
-        [InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks", style="primary"),
-        InlineKeyboardButton("❓ راهنما", callback_data="menu_help", style="primary")],
-        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu", style="primary")],
-        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open", style="primary")],
-        [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback", style="primary")],
+        [InlineKeyboardButton("♟️ مدیریت مسابقات", callback_data="menu_matches"),
+        InlineKeyboardButton("👤 مدیریت بازیکنان", callback_data="menu_players")],
+        [InlineKeyboardButton("📊 داشبورد من", callback_data="dashboard_admin"),
+        InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms")],
+        [InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks"),
+        InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
+        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
+        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
+        [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
 # ─── منوی مدیر امنیتی ─────────────────────────────────────────
 def kb_security_manager_main():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👤 مدیریت بازیکنان", callback_data="menu_players", style="primary"),
-        InlineKeyboardButton("📊 داشبورد من", callback_data="dashboard_admin", style="primary")],
-        [InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms", style="primary"),
-        InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks", style="primary")],
-        [InlineKeyboardButton("❓ راهنما", callback_data="menu_help", style="primary"),
-        InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback", style="primary")],
-        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu", style="primary")],
-        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open", style="primary")],
+        [InlineKeyboardButton("👤 مدیریت بازیکنان", callback_data="menu_players"),
+        InlineKeyboardButton("📊 داشبورد من", callback_data="dashboard_admin")],
+        [InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms"),
+        InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks")],
+        [InlineKeyboardButton("❓ راهنما", callback_data="menu_help"),
+        InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
+        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
+        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
     ])
 
 # ─── مدیریت مسابقات (همه چیز اینجاست) ──────────────────────
