@@ -1,5 +1,6 @@
 import jdatetime
 import pytz
+import asyncio
 from datetime import datetime
 from telegram.error import BadRequest
 from config import BAR_LENGTH, PISHVA_ID
@@ -351,16 +352,22 @@ async def notify_pishva(bot, text: str, reply_markup=None):
 
 # ─── System Status Gate ──────────────────────────────────────
 async def check_status_gate(query, action_name: str = "") -> bool:
-    status = await db.get_setting("system_status", "normal")
+    """قبلاً ۴ تا db.get_setting پشتِ‌سرِهم (نه موازی) صدا زده می‌شد — یعنی
+    روی هر منویِ محافظت‌شده (بازیکنان/مسابقات/مخابرات و ...)، حتی با کش
+    گرم، ۴ برابرِ لازم کار می‌کرد؛ با کشِ سرد، ۴ رفت‌وبرگشتِ کاملِ شبکه‌ای
+    پشتِ‌سرِهم. مدیر ارشد هم قبل از چکِ رد/قبول، مجبور بود منتظرِ همین ۴ تا
+    بمونه با این‌که نتیجه‌ش براش فرقی نداشت. حالا: مدیر ارشد فوری رد می‌شه،
+    و بقیه‌ی تنظیمات هم‌زمان (نه پشتِ‌سرِهم) خونده می‌شن."""
     user_id = query.from_user.id
-    bot_active = await db.get_setting("bot_active_for_admins", "1")
-    update_mode = await db.get_setting("bot_update_mode", "0")
-    working_hours = await db.get_setting("working_hours_active", "0")
-
     if user_id == PISHVA_ID:
-        if status == "aps":
-            return False
         return False
+
+    status, bot_active, update_mode, working_hours = await asyncio.gather(
+        db.get_setting("system_status", "normal"),
+        db.get_setting("bot_active_for_admins", "1"),
+        db.get_setting("bot_update_mode", "0"),
+        db.get_setting("working_hours_active", "0"),
+    )
 
     # Update mode blocks everyone except pishva
     if update_mode == "1":

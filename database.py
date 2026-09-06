@@ -24,7 +24,17 @@ logger = logging.getLogger(__name__)
 # کوتاه، نه کش دائمی) تا حرکات پشتِ‌سرِهم مجبور به رفت‌وبرگشتِ شبکه‌ی تکراری
 # نباشند، ولی تغییراتِ واقعی (روشن/خاموش‌کردنِ شطرنج، تغییرِ دسترسیِ ادمین)
 # هم حداکثر با چند ثانیه تاخیر خودشان را نشان بدهند.
-_SETTING_CACHE_TTL = 4  # ثانیه
+_SETTING_CACHE_TTL = 45  # ثانیه
+# قبلاً ۴ ثانیه بود — این مقدار برای حرکاتِ پشتِ‌سرِهمِ شطرنج زنده (که واقعاً
+# چند تا حرکت توی چند ثانیه اتفاق می‌افته) کافی بود، ولی برای ناوبریِ عادیِ
+# آدمیزاد بین منوها (که بین هر کلیک چند ثانیه طول می‌کشه چون کاربر داره
+# صفحه رو می‌خونه) عملاً کش همیشه سرد بود — یعنی هر کلیک، دوباره یک
+# رفت‌وبرگشتِ کاملِ شبکه‌ای به Turso، دقیقاً همون کندیِ حس‌شده روی منوهایی
+# مثل «مدیریت بازیکنان»/«مدیریت مسابقات» که چند تا تنظیمِ جداگانه رو چک
+# می‌کنن. چون هر نوشتنِ واقعی (set_setting/تغییرات ادمین/بلاک-آنبلاک) همین
+# الان کشِ مربوطه رو فوری invalidate می‌کنه، طولانی‌تر کردنِ TTL امنه: تغییرِ
+# واقعی همون لحظه دیده می‌شه، فقط چیزی که تغییر نکرده مجبور نیست هر ۴ ثانیه
+# یک‌بار دوباره از شبکه خونده بشه.
 _setting_cache = {}   # key -> (value, expires_at_monotonic)
 _admin_cache = {}     # telegram_id -> (row, expires_at_monotonic)
 
@@ -714,6 +724,7 @@ async def update_admin_display_name(telegram_id: int, name: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE admins SET display_name=? WHERE telegram_id=?", (name, telegram_id))
         await db.commit()
+    _invalidate_admin_cache(telegram_id)
 
 
 async def add_admin_warning(telegram_id: int, reason: str, issued_by: int):
@@ -726,6 +737,7 @@ async def add_admin_warning(telegram_id: int, reason: str, issued_by: int):
                 ("admin", telegram_id, reason, issued_by, now)
             )
         await db.commit()
+    _invalidate_admin_cache(telegram_id)
 
 
 async def kick_admin(telegram_id: int):
@@ -741,6 +753,7 @@ async def set_admin_warnings(telegram_id: int, count: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE admins SET warnings=? WHERE telegram_id=?", (count, telegram_id))
         await db.commit()
+    _invalidate_admin_cache(telegram_id)
 
 
 async def set_admin_role(telegram_id: int, new_role: str):
