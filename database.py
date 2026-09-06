@@ -1,4 +1,5 @@
 import turso_db as aiosqlite
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -27,18 +28,46 @@ _SETTING_CACHE_TTL = 4  # ثانیه
 _setting_cache = {}   # key -> (value, expires_at_monotonic)
 _admin_cache = {}     # telegram_id -> (row, expires_at_monotonic)
 
+# ─── کش «بلاک بودن کاربر» ───────────────────────────────────────────
+# block_gate روی *هر تک آپدیت* (هر پیام، هر دکمه، از هر نفر) قبل از هر
+# چیز دیگه‌ای اجرا می‌شه و get_blocked_user رو صدا می‌زنه. یعنی این یکی
+# حتی از get_admin/get_setting هم داغ‌تره — پرتکرارترین کوئری کل رباته
+# و تا امروز اصلاً کش نمی‌شد. چند ثانیه تاخیر توی دیدنِ یک بلاکِ تازه
+# (که خودِ ادمین همون لحظه انجامش داده و نتیجه رو می‌بینه) قابل‌قبوله.
+_blocked_cache = {}   # telegram_id -> (row_or_None, expires_at_monotonic)
+
+# مجموعه‌ای برای نگه‌داشتنِ رفرنسِ تسک‌های پس‌زمینه (fire-and-forget)
+# تا گاربیج‌کالکتور وسط کار نابودشون نکنه («Task was destroyed but it
+# is pending»)؛ با پایان هر تسک خودش از این ست حذف می‌شه.
+_bg_tasks = set()
+
+
+def _fire_and_forget(coro):
+    """یک کوروتین رو در پس‌زمینه اجرا می‌کنه بدون این‌که صدازننده منتظرش
+    بمونه. برای نوشتن‌هایی که نتیجه‌شون برای ادامه‌ی کار لازم نیست
+    (لاگ کردن، به‌روزرسانیِ last_active و مشابه) — این‌جور نوشتن‌ها
+    نباید کاربر رو معطلِ یک رفت‌وبرگشتِ شبکه‌ای به Turso نگه دارن."""
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
+
+_CACHE_MISS = object()  # سنتینل، چون خودِ مقدارِ کش‌شده می‌تونه None باشه
+# (مثلاً «بلاک نیست») و نباید با «توی کش نیست/منقضی شده» قاطی بشه.
+
 
 def _cache_get(store, key):
     import time
     hit = store.get(key)
     if hit and hit[1] > time.monotonic():
         return hit[0]
-    return None
+    return _CACHE_MISS
 
 
-def _cache_set(store, key, value):
+def _cache_set(store, key, value, ttl=None):
     import time
-    store[key] = (value, time.monotonic() + _SETTING_CACHE_TTL)
+    store[key] = (value, time.monotonic() + (ttl if ttl is not None else _SETTING_CACHE_TTL))
 
 
 def _invalidate_setting_cache(key=None):
@@ -55,6 +84,13 @@ def _invalidate_admin_cache(telegram_id=None):
         _admin_cache.clear()
     else:
         _admin_cache.pop(telegram_id, None)
+
+
+def _invalidate_blocked_cache(telegram_id=None):
+    if telegram_id is None:
+        _blocked_cache.clear()
+    else:
+        _blocked_cache.pop(telegram_id, None)
 
 
 async def init_db():
@@ -387,7 +423,7 @@ async def init_db():
 # ─── Settings ────────────────────────────────────────────────
 async def get_setting(key: str, default="") -> str:
     cached = _cache_get(_setting_cache, key)
-    if cached is not None:
+    if cached is not _CACHE_MISS:
         return cached
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT value FROM system_settings WHERE key=?", (key,)) as cur:
@@ -410,7 +446,7 @@ async def set_setting(key: str, value: str):
 # ─── Admins ───────────────────────────────────────────────────
 async def get_admin(telegram_id: int):
     cached = _cache_get(_admin_cache, telegram_id)
-    if cached is not None:
+    if cached is not _CACHE_MISS:
         return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -454,11 +490,33 @@ async def create_admin(telegram_id, username, full_name, role):
 
 
 async def update_admin_activity(telegram_id):
+    """این تابع روی *هر* پیام/دکمه‌ای که یک ادمین می‌زنه صدا زده می‌شه —
+    یعنی پرتکرارترین نوشتنِ کل ربات. قبلاً دو مشکل داشت: (۱) صدازننده
+    منتظرِ یک رفت‌وبرگشتِ کاملِ شبکه‌ای به Turso می‌موند قبل از این‌که
+    اصلاً به منطقِ دکمه برسه، (۲) بلافاصله بعدش کشِ ادمین رو پاک می‌کرد،
+    یعنی همون کشی که قرار بود چک‌های بعدیِ همون کلیک رو رایگان کنه، خودش
+    باعث می‌شد چک بعدی دوباره یک رفت‌وبرگشتِ تازه بخواد. جمعِ این دو تا
+    روی هر تک کلیک، دقیقاً همون کندیِ حس‌شده بود.
+    راه‌حل: نوشتن در پس‌زمینه (بدون await کردنِ نتیجه)، و به‌جای پاک کردنِ
+    کش، فقط فیلدِ last_active توی نسخه‌ی کش‌شده اصلاح می‌شه — چون این فیلد
+    فقط برای نمایشِ «آنلاین/الان» استفاده می‌شه، نه برای تصمیمِ دسترسی."""
     now = datetime.now().isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE admins SET last_active=? WHERE telegram_id=?", (now, telegram_id))
-        await db.commit()
-    _invalidate_admin_cache(telegram_id)
+
+    async def _write():
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("UPDATE admins SET last_active=? WHERE telegram_id=?", (now, telegram_id))
+            await db.commit()
+
+    _fire_and_forget(_write())
+
+    cached = _admin_cache.get(telegram_id)
+    if cached is not None:
+        row, expires_at = cached
+        try:
+            row["last_active"] = now
+        except Exception:
+            pass
+        _admin_cache[telegram_id] = (row, expires_at)
 
 
 # ─── ردیابیِ فعالیتِ کاربرهای «غریبه» (نه مدیر ارشد، نه ادمینِ ثبت‌شده) ──
@@ -1346,13 +1404,22 @@ async def reply_feedback(fb_id: int, reply: str):
 
 # ─── Action Logs ─────────────────────────────────────────────
 async def log_action(admin_id, action_type, description, target_id=None):
+    """لاگِ اقدامات صرفاً برای تاریخچه/گزارش‌گیریه — هیچ کدی نتیجه‌ی این
+    نوشتن رو نمی‌خونه، پس دلیلی نداره کاربر رو معطلِ ثبتش کنیم. با ۶۶ جای
+    صدا زده‌شدن توی کل پروژه (روی تقریباً هر اقدامِ واقعیِ ادمین)، awaited
+    بودنش قبلاً یعنی یک رفت‌وبرگشتِ اضافه‌ی شبکه‌ای درست وسطِ هر اقدام،
+    درست قبل از این‌که کاربر پیامِ تاییدیه رو ببینه."""
     now = datetime.now().isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO action_logs(admin_id,action_type,description,target_id,logged_at) VALUES (?,?,?,?,?)",
-            (admin_id, action_type, description, target_id, now)
-        )
-        await db.commit()
+
+    async def _write():
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO action_logs(admin_id,action_type,description,target_id,logged_at) VALUES (?,?,?,?,?)",
+                (admin_id, action_type, description, target_id, now)
+            )
+            await db.commit()
+
+    _fire_and_forget(_write())
 
 
 async def get_action_logs(period="all", admin_id=None, page=0, page_size=10):
@@ -1671,19 +1738,32 @@ async def block_user(telegram_id: int, username: str, full_name: str, reason: st
             (telegram_id, username, full_name, reason, blocked_by, now)
         )
         await db.commit()
+    _invalidate_blocked_cache(telegram_id)
 
 
 async def unblock_user(telegram_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM blocked_users WHERE telegram_id=?", (telegram_id,))
         await db.commit()
+    _invalidate_blocked_cache(telegram_id)
 
 
 async def get_blocked_user(telegram_id: int):
+    """این تابع روی *هر تک آپدیت* (هر پیام، هر دکمه، از هر نفر) قبل از
+    هر چیز دیگه‌ای در block_gate صدا زده می‌شه — پرتکرارترین کوئریِ کل
+    ربات، و تا امروز اصلاً کش نمی‌شد. یعنی هر کلیک، صرف‌نظر از این‌که
+    چیکار می‌خواسته بکنه، اول باید منتظرِ یک رفت‌وبرگشتِ کاملِ شبکه‌ای به
+    Turso می‌موند فقط برای همین یک چک. چند ثانیه تاخیر در دیدنِ بلاکِ
+    تازه قابل‌قبوله (خودِ عملِ بلاک هم فوری invalidate می‌شه)."""
+    cached = _cache_get(_blocked_cache, telegram_id)
+    if cached is not _CACHE_MISS:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM blocked_users WHERE telegram_id=?", (telegram_id,)) as cur:
-            return await cur.fetchone()
+            row = await cur.fetchone()
+    _cache_set(_blocked_cache, telegram_id, row)
+    return row
 
 
 async def get_all_blocked():
