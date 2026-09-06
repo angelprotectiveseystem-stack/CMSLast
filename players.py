@@ -174,6 +174,36 @@ async def player_no_team(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await safe_edit_message_text(query, "✅ بازیکن بدون تیم ثبت شد.", reply_markup=kb.kb_players_menu("pishva"))
 
 # ─── Player List ──────────────────────────────────────────────
+
+# FIX: عنوان و منبعِ داده‌ی هر «context» توی یک‌جا نگه داشته می‌شه تا
+# صفحه‌بندی و جستجو بتونن دقیقاً همون لیستی که کاربر توش بود رو دوباره بسازن،
+# به‌جای این‌که همیشه بریزن روی لیست کل بازیکنان.
+_PLAYER_LIST_TITLES = {
+    "all": "👤 لیست بازیکنان",
+    "continuing": "✅ بازیکنان ادامه‌دهنده",
+    "kicked": "❌ اخراجی‌ها",
+    "elim": "⛔ شکست‌خورده‌ها",
+    "elite": "🌟 بازیکنان برتر",
+    "special": "⚡ نیروهای ویژه",
+}
+
+async def _get_players_by_context(context: str):
+    if context == "continuing":
+        return await db.get_continuing_players()
+    if context == "kicked":
+        players = await db.get_all_players()
+        return [p for p in players if p["status"] == "kicked"]
+    if context == "elim":
+        players = await db.get_all_players()
+        return [p for p in players if p["status"] == "eliminated"]
+    if context == "elite":
+        players = await db.get_all_players()
+        return [p for p in players if p["is_elite"]]
+    if context == "special":
+        players = await db.get_all_players()
+        return [p for p in players if p["is_special"]]
+    return await db.get_all_players()
+
 async def player_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -184,16 +214,20 @@ async def player_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await safe_edit_message_text(query, 
         f"{box('👤 لیست بازیکنان')}\n\n👥 تعداد کل: `{len(players)}`\n\n📌 یک بازیکن انتخاب کنید:",
-        reply_markup=kb.kb_player_list(players), parse_mode="Markdown")
+        reply_markup=kb.kb_player_list(players, context="all"), parse_mode="Markdown")
 
 async def player_list_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    page = int(query.data.split("_")[-1])
-    players = await db.get_all_players()
+    # callback_data: "player_list_page_{context}_{page}"
+    parts = query.data.split("_")
+    page = int(parts[-1])
+    context = parts[3] if len(parts) > 4 else "all"
+    players = await _get_players_by_context(context)
+    title = _PLAYER_LIST_TITLES.get(context, "👤 لیست بازیکنان")
     await safe_edit_message_text(query, 
-        f"{box('👤 لیست بازیکنان')}\n\n👥 تعداد کل: `{len(players)}`",
-        reply_markup=kb.kb_player_list(players, page), parse_mode="Markdown")
+        f"{box(title)}\n\n👥 تعداد: `{len(players)}`",
+        reply_markup=kb.kb_player_list(players, page, context=context), parse_mode="Markdown")
 
 async def player_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -427,18 +461,35 @@ async def player_setclass(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def player_search_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    # FIX: دکمه‌ی جستجوی داخل هر لیست، context اون لیست رو با خودش می‌آره
+    # ("player_search_ctx_continuing" مثلاً)؛ این‌جا ذخیره‌ش می‌کنیم تا وقتی
+    # کاربر عبارت جستجو رو می‌فرسته، فقط داخل همون لیست جستجو بشه، نه کل بازیکنان.
+    data = query.data
+    prefix = "player_search_ctx_"
+    search_context = data[len(prefix):] if data.startswith(prefix) else "all"
+    ctx.user_data["player_search_ctx"] = search_context
     await safe_edit_message_text(query, f"{box('🔍 جستجو بازیکن')}\n\nنام، نام‌خانوادگی یا کلاس را وارد کنید:",
                                    parse_mode="Markdown")
     return ST_SEARCH_PLAYER
 
 async def player_search_run(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.message.text.strip()
-    results = await db.search_players(q)
+    search_context = ctx.user_data.pop("player_search_ctx", "all")
+    if search_context == "all":
+        results = await db.search_players(q)
+    else:
+        base = await _get_players_by_context(search_context)
+        needle = q.casefold()
+        results = [
+            p for p in base
+            if needle in (p["full_name"] or "").casefold()
+            or needle in (p["class_name"] or "").casefold()
+        ]
     if not results:
         await update.message.reply_text("❗ نتیجه‌ای یافت نشد.", reply_markup=kb.kb_back("players"))
         return ConversationHandler.END
     await update.message.reply_text(f"🔍 نتایج جستجو برای «{q}»:",
-                                     reply_markup=kb.kb_player_list(results), parse_mode="Markdown")
+                                     reply_markup=kb.kb_player_list(results, context=search_context), parse_mode="Markdown")
     return ConversationHandler.END
 
 async def player_continuing(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -451,7 +502,7 @@ async def player_continuing(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await safe_edit_message_text(query, 
         f"{box('✅ بازیکنان ادامه‌دهنده')}\n\n👥 تعداد: `{len(players)}`",
-        reply_markup=kb.kb_player_list(players), parse_mode="Markdown")
+        reply_markup=kb.kb_player_list(players, context="continuing"), parse_mode="Markdown")
 
 async def player_eliminated(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -475,7 +526,7 @@ async def player_list_kicked(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not kicked:
         await safe_edit_message_text(query, "❗ هیچ بازیکن اخراجی وجود ندارد.", reply_markup=kb.kb_back("player_eliminated"))
         return
-    await safe_edit_message_text(query, f"❌ اخراجی‌ها ({len(kicked)}):", reply_markup=kb.kb_player_list(kicked))
+    await safe_edit_message_text(query, f"❌ اخراجی‌ها ({len(kicked)}):", reply_markup=kb.kb_player_list(kicked, context="kicked"))
 
 async def player_list_elim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -485,7 +536,7 @@ async def player_list_elim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not elim:
         await safe_edit_message_text(query, "❗ هیچ بازیکن شکست‌خورده‌ای وجود ندارد.", reply_markup=kb.kb_back("player_eliminated"))
         return
-    await safe_edit_message_text(query, f"⛔ شکست‌خورده‌ها ({len(elim)}):", reply_markup=kb.kb_player_list(elim))
+    await safe_edit_message_text(query, f"⛔ شکست‌خورده‌ها ({len(elim)}):", reply_markup=kb.kb_player_list(elim, context="elim"))
 
 async def player_elite_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -495,7 +546,7 @@ async def player_elite_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not elite:
         await safe_edit_message_text(query, "🌟 هیچ بازیکن برتری تعیین نشده.", reply_markup=kb.kb_back("players"))
         return
-    await safe_edit_message_text(query, f"🌟 بازیکنان برتر ({len(elite)}):", reply_markup=kb.kb_player_list(elite))
+    await safe_edit_message_text(query, f"🌟 بازیکنان برتر ({len(elite)}):", reply_markup=kb.kb_player_list(elite, context="elite"))
 
 async def player_special_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -505,4 +556,4 @@ async def player_special_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not special:
         await safe_edit_message_text(query, "⚡ هیچ نیروی ویژه‌ای تعیین نشده.", reply_markup=kb.kb_back("players"))
         return
-    await safe_edit_message_text(query, f"⚡ نیروهای ویژه ({len(special)}):", reply_markup=kb.kb_player_list(special))
+    await safe_edit_message_text(query, f"⚡ نیروهای ویژه ({len(special)}):", reply_markup=kb.kb_player_list(special, context="special"))

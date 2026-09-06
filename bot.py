@@ -479,7 +479,10 @@ def build_application():
             CallbackQueryHandler(player_note_start, pattern="^player_note_"),
             CallbackQueryHandler(player_editname_start, pattern="^player_editname_"),
             CallbackQueryHandler(player_editclass_start,pattern="^player_editclass_"),
-            CallbackQueryHandler(player_search_start, pattern="^player_search$"),
+            # FIX: قبلاً فقط "player_search" رو می‌گرفت، اما دکمه‌ی جستجوی داخل هر
+            # لیست حالا context هم می‌فرسته (مثلاً "player_search_ctx_continuing")
+            # که باید همین‌جا هم گرفته بشه، وگرنه جستجو داخل لیست‌های خاص کار نمی‌کرد.
+            CallbackQueryHandler(player_search_start, pattern="^player_search(_ctx_.+)?$"),
             CallbackQueryHandler(bulk_register_start, pattern="^bulk_register_start$"),
         ],
         states={

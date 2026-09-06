@@ -124,7 +124,14 @@ def kb_class_actions(class_id):
     ])
 
 # ─── بازیکنان ─────────────────────────────────────────────────
-def kb_player_list(players, page=0, page_size=8):
+def kb_player_list(players, page=0, page_size=8, context="all"):
+    """FIX: قبلاً دکمه‌های صفحه‌بندی («بعدی»/«قبلی») و جستجو، مستقل از این‌که
+    کاربر توی کدوم لیست بود (همه‌ی بازیکنان، ادامه‌دهنده‌ها، اخراجی‌ها و...)
+    فقط "player_list_page_N" یا "player_search" رو صدا می‌زدن؛ این باعث می‌شد
+    مثلاً توی لیست «ادامه‌دهنده‌ها» با زدن صفحه‌ی بعد یا جستجو، کاربر عملاً وارد
+    لیست کل بازیکنان بشه. حالا context (all/continuing/kicked/elim/elite/special)
+    توی callback_data صفحه‌بندی و جستجو نگه داشته می‌شه تا همون لیست حفظ بشه.
+    """
     start = page * page_size
     chunk = players[start:start+page_size]
     rows = []
@@ -141,14 +148,14 @@ def kb_player_list(players, page=0, page_size=8):
         rows.append(row)
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"player_list_page_{page-1}", style="primary"))
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"player_list_page_{context}_{page-1}", style="primary"))
     if start + page_size < len(players):
-        nav.append(InlineKeyboardButton("▶️ بعدی", callback_data=f"player_list_page_{page+1}", style="primary"))
+        nav.append(InlineKeyboardButton("▶️ بعدی", callback_data=f"player_list_page_{context}_{page+1}", style="primary"))
     if nav:
         rows.append(nav)
     # FIX: توی لیستِ بازیکنان دکمه‌ی جستجو نبود — کاربر مجبور بود اول با
     # «بازگشت» به منوی بازیکنان برگرده تا به جستجو برسه.
-    rows.append([InlineKeyboardButton("🔍 جستجو بازیکن", callback_data="player_search", style="primary")])
+    rows.append([InlineKeyboardButton("🔍 جستجو بازیکن", callback_data=f"player_search_ctx_{context}", style="primary")])
     rows.append(kb_back_row("players"))
     return InlineKeyboardMarkup(rows)
 
