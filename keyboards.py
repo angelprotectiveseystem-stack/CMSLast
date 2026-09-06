@@ -131,8 +131,13 @@ def kb_player_list(players, page=0, page_size=8):
     for i in range(0, len(chunk), 2):
         row = []
         for p in chunk[i:i+2]:
-            icon = "⛔" if p["status"]=="eliminated" else "🚫" if p["status"]=="suspended" else "❌" if p["status"]=="kicked" else "🟢"
-            row.append(InlineKeyboardButton(f"{icon} {p['full_name']}", callback_data=f"player_view_{p['id']}", style="primary"))
+            status = p["status"]
+            icon = "⛔" if status == "eliminated" else "🚫" if status == "suspended" else "❌" if status == "kicked" else "🟢"
+            # FIX: قبلاً استایل دکمه همیشه "primary" بود و فقط ایموجی فرق می‌کرد؛
+            # بازیکنِ اخراج/تعلیق/حذف‌شده هم رنگش با بازیکن فعال یکی بود.
+            # حالا بازیکنی که دیگه ادامه‌دهنده نیست، دکمه‌ش قرمز (danger) می‌شه.
+            style = "danger" if status != "active" else "primary"
+            row.append(InlineKeyboardButton(f"{icon} {p['full_name']}", callback_data=f"player_view_{p['id']}", style=style))
         rows.append(row)
     nav = []
     if page > 0:
