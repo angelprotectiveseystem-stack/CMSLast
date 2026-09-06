@@ -1,6 +1,7 @@
 """
 dashboard.py — داشبورد تفصیلی برای مدیر ارشد و ادمین‌ها
 """
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import database as db
@@ -8,26 +9,101 @@ from helpers import safe_edit_message_text, box, separator, now_shamsi, progress
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER
 
 
+async def _fetch_elo_top3_with_title():
+    """جدا شده تا بشه با asyncio.gather هم‌زمان با بقیه کوئری‌ها اجرا بشه."""
+    try:
+        from elo import get_elo_leaderboard, get_elo_title
+        return await get_elo_leaderboard(3), get_elo_title
+    except Exception:
+        return None, None
+
+
+async def _fetch_elo_top3():
+    try:
+        from elo import get_elo_leaderboard
+        return await get_elo_leaderboard(3)
+    except Exception:
+        return None
+
+
+async def _fetch_champions():
+    try:
+        from features import _get_best_player_since
+        from datetime import datetime, timedelta
+        week_ago = (datetime.now() - timedelta(days=7)).isoformat()
+        month_ago = (datetime.now() - timedelta(days=30)).isoformat()
+        weekly, monthly = await asyncio.gather(
+            _get_best_player_since(week_ago),
+            _get_best_player_since(month_ago),
+        )
+        return weekly, monthly
+    except Exception:
+        return None
+
+
+async def _fetch_comms():
+    try:
+        all_ann, all_news, all_fb = await asyncio.gather(
+            db.get_all_announcements(),
+            db.get_all_news(),
+            db.get_all_feedback(),
+        )
+        return all_ann, all_news, all_fb
+    except Exception:
+        return [], [], []
+
+
 async def build_dashboard_pishva_text() -> str:
     try:
-        admins = await db.get_active_admins()
-        all_players = await db.get_all_players()
-        active_players = await db.get_continuing_players()
-        all_matches = await db.get_matches_by_filter("all")
-        today_matches = await db.get_matches_by_filter("today")
-        pending_matches = await db.get_pending_matches()
-        done_matches = [m for m in all_matches if m["result"]]
-        all_tasks = await db.get_all_tasks()
-        pending_tasks = [t for t in all_tasks if t["status"] == "pending"]
-        pending_req = await db.get_pending_requests()
-        default_t = await db.get_default_tournament()
-        status = await db.get_setting("system_status", "normal")
-        wh = await db.get_setting("working_hours_active", "0")
+        # قبلاً اینجا حدود ۲۰ تا await پشتِ‌سرِهم به Turso بود — یعنی حتی با
+        # کشِ گرمِ تنظیمات، حداقل ۱۵-۱۶ رفت‌وبرگشتِ شبکه‌ایِ کاملاً سریالی
+        # فقط برای باز کردنِ داشبورد. همون بیماری‌ای که قبلاً توی
+        # check_status_gate فیکس شد، اینجا دست‌نخورده مونده بود. الان همه‌ی
+        # کوئری‌های مستقل با هم (asyncio.gather) اجرا می‌شن، نه یکی‌یکی.
+        (
+            admins, all_players, active_players, all_matches, today_matches,
+            pending_matches, all_tasks, pending_req, default_t,
+            status, wh, group_id, channel_id, reminder_master,
+            r_match, r_task, r_db, r_admin,
+            auto_backup_on, auto_backup_interval,
+            db_manual, repair_mode, team_mode,
+            elo_result, champ_result, comms_result,
+        ) = await asyncio.gather(
+            db.get_active_admins(),
+            db.get_all_players(),
+            db.get_continuing_players(),
+            db.get_matches_by_filter("all"),
+            db.get_matches_by_filter("today"),
+            db.get_pending_matches(),
+            db.get_all_tasks(),
+            db.get_pending_requests(),
+            db.get_default_tournament(),
+            db.get_setting("system_status", "normal"),
+            db.get_setting("working_hours_active", "0"),
+            db.get_setting("announcement_group_id", ""),
+            db.get_setting("announcement_channel_id", ""),
+            db.get_setting("reminder_master_enabled", "1"),
+            db.get_setting("reminder_match_enabled", "1"),
+            db.get_setting("reminder_task_enabled", "1"),
+            db.get_setting("reminder_db_enabled", "1"),
+            db.get_setting("reminder_admin_enabled", "1"),
+            db.get_setting("auto_backup_enabled", "0"),
+            db.get_setting("auto_backup_interval", "24"),
+            db.get_setting("db_manual_status", "1"),
+            db.get_setting("repair_mode", "0"),
+            db.get_setting("team_mode_enabled", "1"),
+            _fetch_elo_top3_with_title(),
+            _fetch_champions(),
+            _fetch_comms(),
+        )
+
         status_map = {
             "normal": "🟢 نرمال", "bad": "🟡 احتیاطی",
             "danger": "🔴 خطرناک", "aps": "🪽 APS"
         }
         wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
+        done_matches = [m for m in all_matches if m["result"]]
+        pending_tasks = [t for t in all_tasks if t["status"] == "pending"]
         pct = int(len(done_matches) / len(all_matches) * 100) if all_matches else 0
         bar = progress_bar(pct)
 
@@ -48,72 +124,43 @@ async def build_dashboard_pishva_text() -> str:
                     last_txt = "🤝 تساوی"
                 break
 
+        elo_top, get_elo_title = elo_result
         elo_lines = ["_هنوز مسابقه‌ای ثبت نشده_"]
-        try:
-            from elo import get_elo_leaderboard, get_elo_title
-            elo_top = await get_elo_leaderboard(3)
-            if elo_top:
-                medals = ["🥇", "🥈", "🥉"]
-                elo_lines = [
-                    f"{medals[i]} {p['full_name']} — `{int(p['rating'])}` ({get_elo_title(p['rating'])})"
-                    for i, p in enumerate(elo_top)
-                ]
-        except Exception:
-            pass
+        if elo_top:
+            medals = ["🥇", "🥈", "🥉"]
+            elo_lines = [
+                f"{medals[i]} {p['full_name']} — `{int(p['rating'])}` ({get_elo_title(p['rating'])})"
+                for i, p in enumerate(elo_top)
+            ]
 
         champ_lines = ["_داده کافی نیست_"]
-        try:
-            from features import _get_best_player_since
-            from datetime import datetime, timedelta
-            week_ago = (datetime.now() - timedelta(days=7)).isoformat()
-            month_ago = (datetime.now() - timedelta(days=30)).isoformat()
-            weekly = await _get_best_player_since(week_ago)
-            monthly = await _get_best_player_since(month_ago)
+        if champ_result:
+            weekly, monthly = champ_result
             champ_lines = [
                 f"🌟 هفته: {weekly['name'] + ' (' + str(weekly['wins']) + ' برد)' if weekly else '—'}",
                 f"👑 ماه: {monthly['name'] + ' (' + str(monthly['wins']) + ' برد)' if monthly else '—'}",
             ]
-        except Exception:
-            pass
 
-        group_id = await db.get_setting("announcement_group_id", "")
-        channel_id = await db.get_setting("announcement_channel_id", "")
         group_txt = "✅ تنظیم شده" if group_id else "❌ تنظیم نشده"
         channel_txt = "✅ تنظیم شده" if channel_id else "❌ تنظیم نشده"
 
-        reminder_master = await db.get_setting("reminder_master_enabled", "1")
-        reminder_keys = ["reminder_match_enabled", "reminder_task_enabled",
-            "reminder_db_enabled", "reminder_admin_enabled"]
-        reminder_on_count = 0
-        for k in reminder_keys:
-            if (await db.get_setting(k, "1")) == "1":
-                reminder_on_count += 1
+        reminder_on_count = sum(1 for v in (r_match, r_task, r_db, r_admin) if v == "1")
         reminder_txt = (
             f"🟢 فعال ({reminder_on_count}/۴ نوع روشن)"
             if reminder_master == "1" else "🔴 غیرفعال"
         )
 
-        auto_backup_on = await db.get_setting("auto_backup_enabled", "0")
-        auto_backup_interval = await db.get_setting("auto_backup_interval", "24")
         backup_txt = (
             f"🟢 فعال (هر {auto_backup_interval} ساعت)"
             if auto_backup_on == "1" else "🔴 غیرفعال"
         )
 
-        db_manual = await db.get_setting("db_manual_status", "1")
         db_manual_txt = "🟢 فعال" if db_manual == "1" else "⚠️ غیرفعال"
-        repair_mode = await db.get_setting("repair_mode", "0")
         repair_txt = "🔧 در حال تعمیر" if repair_mode == "1" else "✅ عادی"
 
-        try:
-            all_ann = await db.get_all_announcements()
-            all_news = await db.get_all_news()
-            all_fb = await db.get_all_feedback()
-            reports_pending = [f for f in all_fb if f["fb_type"] == "report"]
-        except Exception:
-            all_ann, all_news, reports_pending = [], [], []
+        all_ann, all_news, all_fb = comms_result
+        reports_pending = [f for f in all_fb if f["fb_type"] == "report"]
 
-        team_mode = await db.get_setting("team_mode_enabled", "1")
         team_mode_txt = "🟢 فعال" if team_mode == "1" else "🔴 غیرفعال"
 
         lines = [
@@ -173,21 +220,29 @@ async def build_dashboard_pishva_text() -> str:
 
 async def build_dashboard_admin_text(uid: int) -> str:
     try:
-        admin = await db.get_admin(uid)
+        # همون فیکس: ۹ تا await سریالی -> یک asyncio.gather.
+        (
+            admin, pending_matches, active_players, all_players, tasks,
+            today_matches, all_matches, default_t, status, elo_top,
+        ) = await asyncio.gather(
+            db.get_admin(uid),
+            db.get_pending_matches(),
+            db.get_continuing_players(),
+            db.get_all_players(),
+            db.get_tasks_for(uid),
+            db.get_matches_by_filter("today"),
+            db.get_matches_by_filter("all"),
+            db.get_default_tournament(),
+            db.get_setting("system_status", "normal"),
+            _fetch_elo_top3(),
+        )
+
         _aname = admin["display_name"] or admin["full_name"] if admin else str(uid)
         role_label = "🏆 مدیر مسابقات" if (admin and admin["role"] == ROLE_TOURNAMENT_MANAGER) else "🛡️ مدیر امنیتی"
-        pending_matches = await db.get_pending_matches()
-        active_players = await db.get_continuing_players()
-        all_players = await db.get_all_players()
         warned = [p for p in all_players if p["warnings"] > 0]
-        tasks = await db.get_tasks_for(uid)
         pending_tasks = [t for t in tasks if t["status"] == "pending"]
         done_tasks = [t for t in tasks if t["status"] == "done"]
-        today_matches = await db.get_matches_by_filter("today")
         done_today = [m for m in today_matches if m["result"]]
-        all_matches = await db.get_matches_by_filter("all")
-        default_t = await db.get_default_tournament()
-        status = await db.get_setting("system_status", "normal")
         status_map = {
             "normal": "🟢 نرمال", "bad": "🟡 احتیاطی",
             "danger": "🔴 خطرناک", "aps": "🪽 APS"
@@ -205,17 +260,12 @@ async def build_dashboard_admin_text(uid: int) -> str:
                 break
 
         elo_lines = ["_هنوز مسابقه‌ای ثبت نشده_"]
-        try:
-            from elo import get_elo_leaderboard
-            elo_top = await get_elo_leaderboard(3)
-            if elo_top:
-                medals = ["🥇", "🥈", "🥉"]
-                elo_lines = [
-                    f"{medals[i]} {p['full_name']} — `{int(p['rating'])}`"
-                    for i, p in enumerate(elo_top)
-                ]
-        except Exception:
-            pass
+        if elo_top:
+            medals = ["🥇", "🥈", "🥉"]
+            elo_lines = [
+                f"{medals[i]} {p['full_name']} — `{int(p['rating'])}`"
+                for i, p in enumerate(elo_top)
+            ]
 
         lines = [
             box("📊 داشبورد — " + _aname),
@@ -257,8 +307,10 @@ async def dashboard_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = query.from_user.id
 
     # ─── چک امنیتی: وضعیت سیستم و تنظیم داشبورد ادمین ────────────────
-    status = await db.get_setting("system_status", "normal")
-    dashboard_enabled = await db.get_setting("admin_dashboard_enabled", "1")
+    status, dashboard_enabled = await asyncio.gather(
+        db.get_setting("system_status", "normal"),
+        db.get_setting("admin_dashboard_enabled", "1"),
+    )
 
     if status in ("danger", "aps"):
         await query.answer(
