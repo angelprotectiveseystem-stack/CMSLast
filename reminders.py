@@ -213,9 +213,10 @@ async def reminder_interval_menu(update, ctx):
     conf = REMINDER_TYPES.get(rtype)
     if not conf:
         return
+    current = await _get_interval_hours(rtype)
     await safe_edit_message_text(query, 
         f"⏰ بازه‌ی زمانی «{conf['label']}» را انتخاب کنید:",
-        reply_markup=kb.kb_reminder_interval_options(rtype)
+        reply_markup=kb.kb_reminder_interval_options(rtype, current)
     )
 
 

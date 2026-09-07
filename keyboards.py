@@ -842,23 +842,25 @@ def kb_bulk_preview():
 def kb_reminders_menu(master_on, items):
     rows = [[InlineKeyboardButton(
         f"{'✅' if master_on else '❌'} فعال‌سازی کلی یادآورها",
-        callback_data="reminder_toggle_master", style="success")]]
+        callback_data="reminder_toggle_master", style="success" if master_on else "danger")]]
     for rtype, label, enabled, interval in items:
         icon = "✅" if enabled else "❌"
         rows.append([
-            InlineKeyboardButton(f"{icon} {label}", callback_data=f"reminder_toggle_{rtype}", style="primary"),
+            InlineKeyboardButton(f"{icon} {label}", callback_data=f"reminder_toggle_{rtype}", style="success" if enabled else "danger"),
             InlineKeyboardButton(f"⏰ هر {interval} ساعت", callback_data=f"reminder_interval_{rtype}", style="primary"),
         ])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")])
     return InlineKeyboardMarkup(rows)
 
 
-def kb_reminder_interval_options(rtype):
+def kb_reminder_interval_options(rtype, current=None):
     hours_options = [1, 3, 6, 12, 24, 48]
     rows = []
     row = []
     for h in hours_options:
-        row.append(InlineKeyboardButton(f"⏰ هر {h} ساعت", callback_data=f"reminder_set_{rtype}_{h}", style="primary"))
+        selected = current is not None and h == current
+        icon = "🟢" if selected else "⏰"
+        row.append(InlineKeyboardButton(f"{icon} هر {h} ساعت", callback_data=f"reminder_set_{rtype}_{h}", style="success" if selected else "primary"))
         if len(row) == 2:
             rows.append(row)
             row = []
