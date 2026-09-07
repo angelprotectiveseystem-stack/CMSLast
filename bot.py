@@ -118,7 +118,7 @@ from misc import (
     task_followup, task_history, task_history_filter,
     admin_view, admin_perms, perm_toggle, admin_warn_start, admin_warn_reason,
     admin_clear_warnings,
-    admin_kick, admin_msg_start, admin_task_start,
+    admin_kick, admin_revive, admin_msg_start, admin_task_start,
     cmd_ss, fb_start, fb_text_received, fb_feature_desc, fb_view,
     help_section, teams_menu, teams_list, team_view, team_members_view,
     team_member_actions, team_remove_member, team_captain_start, team_captain_set,
@@ -985,6 +985,7 @@ def build_application():
     app.add_handler(CallbackQueryHandler(admin_perms, pattern="^admin_perms_"))
     app.add_handler(CallbackQueryHandler(perm_toggle, pattern="^perm_"))
     app.add_handler(CallbackQueryHandler(admin_kick, pattern="^admin_kick_"))
+    app.add_handler(CallbackQueryHandler(admin_revive, pattern="^admin_revive_"))
     app.add_handler(CallbackQueryHandler(admin_clear_warnings, pattern="^admin_clearwarn_"))
 
     # Feedback

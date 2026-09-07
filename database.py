@@ -747,6 +747,15 @@ async def kick_admin(telegram_id: int):
     _invalidate_admin_cache(telegram_id)
 
 
+async def revive_admin(telegram_id: int):
+    """برگردوندنِ مدیری که اخراج شده (is_active=0 -> 1) — پیش از این هیچ
+    راهی برای برگردوندنِ یک مدیرِ اخراج‌شده وجود نداشت."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE admins SET is_active=1 WHERE telegram_id=?", (telegram_id,))
+        await db.commit()
+    _invalidate_admin_cache(telegram_id)
+
+
 async def set_admin_warnings(telegram_id: int, count: int):
     """تنظیم دقیق تعداد اخطارهای یک ادمین (برای پاک‌کردن، count=0 بفرست)."""
     count = max(0, int(count))

@@ -1,5 +1,6 @@
 import random
 import time
+import asyncio
 from datetime import datetime, timezone, timedelta
 
 from telegram import Update
@@ -233,6 +234,24 @@ async def get_weather_line() -> str:
         return cached[0] if cached is not None else ""
 
 
+async def get_weather_line_nowait() -> str:
+    """نسخه‌ی «هرگز منتظر شبکه نمون» برای استفاده در پنل خوش‌آمدگویی.
+    FIX: کشِ آب‌وهوا ۱۵ دقیقه‌ست، ولی همون اولین باری که کش خالی/منقضی
+    می‌شه، get_weather_line تا ۴ ثانیه (timeout) منتظرِ open-meteo.com
+    می‌مونه — دقیقاً همون لحظه‌ای که کاربر منتظرِ باز شدنِ پنله. این نسخه
+    اگه کش معتبر باشه همونو برمی‌گردونه؛ وگرنه گرفتنِ آب‌وهوا رو در
+    پس‌زمینه می‌فرسته (برای دفعه‌ی بعد) و همین الان بدونِ معطلی یا رشته‌ی
+    خالی یا آخرین مقدارِ شناخته‌شده رو برمی‌گردونه."""
+    now = time.monotonic()
+    cached = _weather_cache
+    if cached is not None and (now - cached[1]) < _WEATHER_CACHE_TTL:
+        return cached[0]
+    if httpx is not None:
+        asyncio.create_task(get_weather_line())
+    return cached[0] if cached is not None else ""
+
+
+
 def _status_line(status: str) -> str:
     status_map = {
         "normal": "🟢 نرمال",
@@ -336,22 +355,31 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await db.log_action(PISHVA_ID, "login", "ورود مدیر ارشد")
-    pname = await pishva_display()
+    await db.log_action(PISHVA_ID, "login", "ورود مدیر ارشد")  # خودِ تابع fire-and-forget است، شبکه‌ای بلاک نمی‌کنه
+
+    # FIX: قبلاً pishva_display + weather + ۸ کوئری/تنظیمِ مستقلِ دیگه همه
+    # پشتِ‌سرِهم await می‌شدن (۹-۱۰ رفت‌وبرگشتِ سریالی به Turso، دقیقاً همون
+    # بیماریِ داشبورد) — همینه که پنل خوش‌آمدگویی چند ثانیه طول می‌کشید.
+    # الان همه با هم (asyncio.gather) اجرا می‌شن، و آب‌وهوا هم دیگه هرگز
+    # پنل رو معطلِ شبکه نگه نمی‌داره.
+    pname, weather, admins, pending, pending_matches, all_tasks, status, wh, db_stat, ai_on = await asyncio.gather(
+        pishva_display(),
+        get_weather_line_nowait(),
+        db.get_active_admins(),
+        db.get_pending_requests(),
+        db.get_pending_matches(),
+        db.get_all_tasks(),
+        db.get_setting("system_status", "normal"),
+        db.get_setting("working_hours_active", "0"),
+        db.get_setting("db_manual_status", "1"),
+        db.get_setting("ai_online", "1"),
+    )
     greeting = time_greeting(pname)
-    weather = await get_weather_line()
 
     try:
-        admins = await db.get_active_admins()
-        pending = await db.get_pending_requests()
-        pending_matches = await db.get_pending_matches()
-        pending_tasks = [t for t in await db.get_all_tasks() if t["status"] == "pending"]
-        status = await db.get_setting("system_status", "normal")
-        wh = await db.get_setting("working_hours_active", "0")
+        pending_tasks = [t for t in all_tasks if t["status"] == "pending"]
         wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
-        db_stat = await db.get_setting("db_manual_status", "1")
         db_txt = "🔗 فعال" if db_stat == "1" else "⚠️ غیرفعال"
-        ai_on = await db.get_setting("ai_online", "1")
         ai_txt = "🟢 آنلاین" if ai_on == "1" else "🔴 آفلاین"
 
         text = (
@@ -382,16 +410,22 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
     role_label = "🏆 مدیر مسابقات" if admin["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
     _aname = admin["display_name"] or admin["full_name"]
     greeting = time_greeting(_aname)
-    weather = await get_weather_line()
+
+    # همون فیکس: همه‌ی کوئری‌های مستقل با هم، نه یکی‌یکی.
+    weather, pending_matches, admin_tasks, all_players, status, wh, ai_on = await asyncio.gather(
+        get_weather_line_nowait(),
+        db.get_pending_matches(),
+        db.get_tasks_for(admin["telegram_id"]),
+        db.get_all_players(),
+        db.get_setting("system_status", "normal"),
+        db.get_setting("working_hours_active", "0"),
+        db.get_setting("ai_online", "1"),
+    )
 
     try:
-        pending_matches = await db.get_pending_matches()
-        pending_tasks = [t for t in await db.get_tasks_for(admin["telegram_id"]) if t["status"] == "pending"]
-        warned = [p for p in await db.get_all_players() if p["warnings"] > 0]
-        status = await db.get_setting("system_status", "normal")
-        wh = await db.get_setting("working_hours_active", "0")
+        pending_tasks = [t for t in admin_tasks if t["status"] == "pending"]
+        warned = [p for p in all_players if p["warnings"] > 0]
         wh_txt = "🟢 باز" if wh == "1" else "🔴 بسته"
-        ai_on = await db.get_setting("ai_online", "1")
         ai_txt = "🟢 آنلاین" if ai_on == "1" else "🔴 آفلاین (فعلا در دسترس نیست)"
 
         text = (

@@ -266,7 +266,7 @@ async def admin_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{separator('⚠️ اخطارها')}\n"
         f"{warn_bar}"
     )
-    await safe_edit_message_text(query, text, reply_markup=kb.kb_admin_actions(tid), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_admin_actions(tid, admin["is_active"]), parse_mode="Markdown")
 
 
 async def admin_perms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -405,7 +405,7 @@ async def admin_clear_warnings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{separator('⚠️ اخطارها')}\n"
         f"{warn_bar}"
     )
-    await safe_edit_message_text(query, text, reply_markup=kb.kb_admin_actions(tid), parse_mode="Markdown")
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_admin_actions(tid, admin2["is_active"]), parse_mode="Markdown")
 
 
 async def admin_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -423,6 +423,27 @@ async def admin_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
     await safe_edit_message_text(query, f"🚫 مدیر *{admin['full_name']}* اخراج شد.", reply_markup=kb.kb_back("menu_admins"), parse_mode="Markdown")
+
+
+async def admin_revive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """FIX: قبلاً بعد از اخراجِ یک مدیر، هیچ دکمه/راهی برای برگردوندنش نبود."""
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    tid = int(query.data.split("_")[-1])
+    admin = await db.get_admin(tid)
+    if not admin:
+        await query.answer("مدیر یافت نشد.", show_alert=True)
+        return
+    await db.revive_admin(tid)
+    await db.log_action(PISHVA_ID, "revive_admin", f"احیای مدیر: {admin['full_name']}", tid)
+    try:
+        await ctx.bot.send_message(chat_id=tid, text="✅ دسترسی شما به ربات توسط مدیر ارشد دوباره فعال شد.\n/start بزنید.")
+    except Exception:
+        pass
+    await safe_edit_message_text(query, f"🔄 مدیر *{admin['full_name']}* احیا شد.", reply_markup=kb.kb_back("menu_admins"), parse_mode="Markdown")
 
 
 async def admin_msg_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

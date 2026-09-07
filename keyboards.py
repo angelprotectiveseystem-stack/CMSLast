@@ -529,12 +529,20 @@ def kb_admin_list(admins):
     rows.append(kb_back_row("main"))
     return InlineKeyboardMarkup(rows)
 
-def kb_admin_actions(tid):
+def kb_admin_actions(tid, is_active=True):
+    """FIX: قبلاً دکمه‌ی «🚫 اخراج» بدون توجه به وضعیتِ فعلیِ مدیر همیشه
+    نشون داده می‌شد و هیچ دکمه‌ای برای برگردوندنِ مدیرِ اخراج‌شده نبود.
+    حالا: اگه مدیر فعاله «🚫 اخراج» نشون داده می‌شه، وگرنه «🔄 احیا»."""
+    kick_or_revive = (
+        InlineKeyboardButton("🚫 اخراج", callback_data=f"admin_kick_{tid}", style="danger")
+        if is_active else
+        InlineKeyboardButton("🔄 احیا", callback_data=f"admin_revive_{tid}", style="success")
+    )
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⬆️ دسترسی‌ها", callback_data=f"admin_perms_{tid}", style="primary"),
         InlineKeyboardButton("⚠️ ثبت اخطار", callback_data=f"admin_warn_{tid}", style="danger")],
         [InlineKeyboardButton("🧹 پاک‌کردن اخطارها", callback_data=f"admin_clearwarn_{tid}", style="danger"),
-        InlineKeyboardButton("🚫 اخراج", callback_data=f"admin_kick_{tid}", style="danger")],
+        kick_or_revive],
         [InlineKeyboardButton("💬 ارسال پیام", callback_data=f"admin_msg_{tid}", style="success"),
         InlineKeyboardButton("📋 اعطای وظیفه", callback_data=f"admin_task_{tid}", style="primary")],
         [InlineKeyboardButton("🔍 پیگیری اقدامات", callback_data=f"adminlogsmenu_{tid}", style="primary"),
