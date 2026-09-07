@@ -49,6 +49,9 @@ SIMPLE_KEYWORDS = {
     "بستن": "close_panel",
     "خروج": "close_panel",
     "مدیر ارشد": "pishva_panel",       # فقط برای مدیر ارشد پنلش رو باز می‌کنه
+    "مدیریت": "pishva_panel",         # مترادف «مدیر ارشد» — مستقیم پنل مدیر ارشد
+    "دست": "ai_manage_panel",         # فقط برای مدیر ارشد — پنل مدیریت دستیار
+    "رصد": "ai_manage_panel",         # مترادف «دست» — پنل مدیریت دستیار
     "اطلاعات": "reply_info",       # ریپلای روی یه پیام → جزئیات کاربر
     "درباره": "reply_info",        # مترادف اطلاعات
     "کیه": "reply_info",           # مترادف اطلاعات
@@ -66,7 +69,7 @@ SIMPLE_KEYWORDS = {
 
 PISHVA_ONLY_ACTIONS = {
     "security", "status", "backup", "requests", "logs", "reminders", "settings",
-    "pishva_panel", "online_admins",
+    "pishva_panel", "online_admins", "ai_manage_panel",
 }
 
 
@@ -236,6 +239,7 @@ def _action_label(action: str) -> str:
         "classes": "کلاس‌ها",
         "lottery": "قرعه‌کشی",
         "pishva_panel": "پنل مدیر ارشد",
+        "ai_manage_panel": "مدیریت دستیار",
         "security": "امنیت",
         "backup": "بکاپ",
         "requests": "درخواست‌ها",
@@ -262,6 +266,16 @@ async def _panel_content(action: str, uid: int, is_pishva: bool, admin):
         if not is_pishva:
             return None, None, "⛔ شما مجوز باز کردن این پنل را ندارید."
         return box("👑 پنل مدیر ارشد"), kb.kb_pishva_main(), None
+
+    if action == "ai_manage_panel":
+        if not is_pishva:
+            return None, None, "⛔ شما مجوز باز کردن این پنل را ندارید."
+        ai_online = await db.get_setting("ai_online", "1")
+        return (
+            f"{box('🧑\u200d💻 مدیریت دستیار')}\n\n📌 یک گزینه را انتخاب کنید:",
+            kb.kb_ai_manage_menu(ai_online, "menu_pishva"),
+            None,
+        )
 
     if action == "dashboard":
         from dashboard import build_dashboard_pishva_text, build_dashboard_admin_text
@@ -417,6 +431,22 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         else:
             sent = await update.message.reply_text(
                 box("👑 پنل مدیر ارشد"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
+            )
+            await register_panel_owner(update, ctx, sent.message_id)
+        raise ApplicationHandlerStop()
+
+    # ─── مدیریت دستیار (کلمه «دست» یا «رصد») ───
+    if action == "ai_manage_panel":
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "ai_manage_panel")
+        else:
+            ai_online = await db.get_setting("ai_online", "1")
+            ctx.user_data["ai_manage_back"] = "menu_pishva"
+            sent = await update.message.reply_text(
+                f"{box('🧑\u200d💻 مدیریت دستیار')}\n\n📌 یک گزینه را انتخاب کنید:",
+                reply_markup=kb.kb_ai_manage_menu(ai_online, "menu_pishva"),
+                parse_mode="Markdown"
             )
             await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
