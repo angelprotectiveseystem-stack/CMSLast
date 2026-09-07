@@ -119,9 +119,7 @@ html,body{
   transition: transform .25s cubic-bezier(.34,1.56,.64,1), background .28s ease, border-color .28s ease;
 }
 .icon-btn svg{ width:22px; height:22px; transition: transform .25s cubic-bezier(.34,1.56,.64,1); }
-/* transform اینجا دیگه از :active نمیاد — با کِشِ شیشه‌ایِ واقعی
-   (رهگیریِ pointer در app.js) جایگزین شده، پایین‌تر توضیح داده شده. */
-.icon-btn:active{ background: var(--bg-2); }
+.icon-btn:active{ transform: scale(.88); background: var(--bg-2); }
 /* دکمه‌ی بستنِ پنل‌ها (تاریخچه/تم/چت): به‌جای مربعِ کوچکِ آیکونیِ عمومی
    (که فقط ۴۴px عرض داشت)، یک کپسولِ به‌وضوح کشیده‌تر و بلندتر — تمامِ
    ابعاد (نه فقط عرض) به‌صورتِ صریح override می‌شود تا از هر مقدارِ
@@ -164,17 +162,7 @@ html,body{
   opacity:0; transition: opacity .25s ease;
 }
 .avatar-img.loaded{ opacity:1; }
-/* رفعِ افتادگیِ اسم: قبلاً player-info یه بلاکِ معمولی بود (نه flex)، پس
-   کل مجموعه‌ی «اسم + ردیفِ مهره‌های گرفته‌شده» به‌عنوانِ یه واحد وسطِ
-   کارت قرار می‌گرفت — چون اسم بالای همون واحده و ردیفِ گرفته‌شده‌ها
-   زیرش، مرکزِ اون واحد با مرکزِ خودِ اسم یکی نبود. اینجا با min-height
-   دقیقاً برابرِ ارتفاعِ آواتار (۴۶px) + flex column + justify-content:
-   center، این ستون رو دقیقاً هم‌قدِ آواتار می‌کنیم تا وسط‌چینیِ داخلش
-   واقعاً با مرکزِ آواتار یکی باشه. */
-.player-info{
-  flex:1; min-width:0; min-height:46px;
-  display:flex; flex-direction:column; justify-content:center; gap:2px;
-}
+.player-info{ flex:1; min-width:0; }
 .player-name{ font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .captured-row{ display:flex; gap:1px; font-size:16px; min-height:19px; color: var(--text-2); letter-spacing:-2px; }
 .clock{
@@ -371,8 +359,7 @@ html,body{
   font-family: var(--font);
   transition: transform .22s cubic-bezier(.34,1.56,.64,1), background .25s ease, box-shadow .25s ease;
 }
-/* .action-btn:active دیگه اینجا transform نمی‌ده — کِشِ شیشه‌ای در
-   app.js این نقش رو با رهگیریِ واقعیِ انگشت انجام می‌ده. */
+.action-btn:active{ transform: scale(.95); }
 .action-btn:disabled{ opacity:.55; }
 .action-btn.danger{ color: var(--danger); border-color: rgba(240,84,110,.35); }
 .action-btn.primary{ background: linear-gradient(135deg, var(--accent), var(--accent-2)); border:none; color:#fff; }
@@ -403,7 +390,7 @@ html,body{
   position:static; inset:auto; margin:0;
   width:54px; height:54px; background: var(--bg-1); border-radius:10px; font-size:36px; cursor:pointer;
 }
-/* .promo-options .piece:active هم همین‌طور — کِشِ شیشه‌ای در app.js. */
+.promo-options .piece:active{ transform: scale(.9); }
 
 .history-panel{
   position:absolute; inset:0; background: var(--bg-0);
@@ -432,8 +419,7 @@ html,body{
   border-radius:14px; padding:14px 16px; font-size:16px; font-family: var(--font); font-weight:600;
   transition: transform .22s cubic-bezier(.34,1.56,.64,1), border-color .25s ease, box-shadow .25s ease;
 }
-/* .theme-opt:active هم به همون دلیل transform نداره — کِشِ شیشه‌ای در
-   app.js. */
+.theme-opt:active{ transform: scale(.96); }
 .theme-opt.active{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .theme-swatch{ width:32px; height:32px; border-radius:8px; flex-shrink:0; border:1px solid rgba(0,0,0,.15); }
 .theme-swatch-dark{ background: linear-gradient(135deg,#1a2038,#2c3557); }
