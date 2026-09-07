@@ -1546,4 +1546,70 @@ function init(){
 
 init();
 })();
+
+/* ============================================================
+   کِشِ شیشه‌ای (Liquid Glass press) — افزایشی، کاملاً جدا از IIFEِ
+   بالا و بازیِ اصلی؛ فقط روی دکمه‌های شیشه‌ای (icon-btn/action-btn/
+   theme-opt/گزینه‌های ترفیع) کار می‌کنه، هیچ ربطی به FLIPِ حرکتِ
+   مهره‌ها (renderPieces بالاتر) نداره و به‌هیچ‌وجه بهش دست نمی‌زنه.
+
+   قبلاً فقط با CSS :active یه scaleِ ساده روی فشردن بود («می‌ره
+   عقب»)؛ اینجا با pointermove واقعیِ انگشت رو دنبال می‌کنیم (با یه
+   rubber-band محدود، نه بی‌نهایت) — دقیقاً همون حسِ «کِش‌آمدنِ خمیر»ی
+   که خواسته شده — و موقعِ رهاکردن با یه اسپرینگِ نرم برمی‌گرده سرِ جاش.
+
+   فقط transform (translate+scale) نوشته می‌شه — نه فیلتر، نه بلور، نه
+   ری‌فلو/getBoundingClientRect در هر فریم (فقط یه‌بار در لحظه‌ی
+   pointerdown خونده می‌شه) — پس روی WebViewِ قدیمیِ اندروید هم ارزونه.
+   با event delegation روی document کار می‌کنه، پس دکمه‌های ترفیع که
+   دیر/داینامیک ساخته می‌شن (promo-options .piece) هم بدونِ نیاز به
+   attach جداگانه پوشش داده می‌شن. */
+(function(){
+  var SEL = ".icon-btn, .action-btn, .theme-opt, .promo-options .piece";
+  var MAX_PULL = 10;       // حداکثر پیکسل کِش‌آمدن (rubber-band)
+  var PULL_FACTOR = 0.35;  // نسبتِ دنبال‌کردنِ حرکتِ واقعیِ انگشت
+
+  function clamp(v, max){ return Math.max(-max, Math.min(max, v)); }
+
+  var active = null;       // { el, pointerId, cx, cy }
+  var raf = null, pendingEvent = null;
+
+  function apply(dx, dy){
+    var px = clamp(dx * PULL_FACTOR, MAX_PULL);
+    var py = clamp(dy * PULL_FACTOR, MAX_PULL);
+    active.el.style.transform = "translate(" + px + "px," + py + "px) scale(.96)";
+  }
+
+  document.addEventListener("pointerdown", function(e){
+    if(active) return;
+    var el = e.target.closest ? e.target.closest(SEL) : null;
+    if(!el) return;
+    var r = el.getBoundingClientRect();
+    active = { el: el, pointerId: e.pointerId, cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+    if(el.setPointerCapture){ try{ el.setPointerCapture(e.pointerId); }catch(err){} }
+    el.style.transition = "transform .08s linear";
+    apply(e.clientX - active.cx, e.clientY - active.cy);
+  });
+
+  document.addEventListener("pointermove", function(e){
+    if(!active || e.pointerId !== active.pointerId) return;
+    pendingEvent = e;
+    if(raf) return;
+    raf = requestAnimationFrame(function(){
+      raf = null;
+      if(active && pendingEvent) apply(pendingEvent.clientX - active.cx, pendingEvent.clientY - active.cy);
+    });
+  });
+
+  function release(e){
+    if(!active || e.pointerId !== active.pointerId) return;
+    var el = active.el;
+    active = null;
+    if(raf){ cancelAnimationFrame(raf); raf = null; }
+    el.style.transition = "transform .5s cubic-bezier(.18,1.4,.4,1)";
+    el.style.transform = "";
+  }
+  document.addEventListener("pointerup", release);
+  document.addEventListener("pointercancel", release);
+})();
                                       
