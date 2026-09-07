@@ -23,15 +23,28 @@ from config import PISHVA_ID
 
 
 async def ai_manage_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """FIX: این منو هم از پنل اصلی/خوش‌آمدگویی باز می‌شه (callback
+    "ai_manage_menu_main") و هم از پنل مدیر ارشد (callback "ai_manage_menu")،
+    و «بازگشت» زیرمنوها هم دوباره میاد اینجا (callback
+    "ai_manage_menu_return") — پس فقط وقتی callback_data صراحتاً یکی از دو
+    مبدأ رو مشخص می‌کنه مقصدِ «بازگشت» رو ست/عوض می‌کنیم؛ در حالت
+    "_return" همون چیزی که قبلاً ست شده (مبدأ واقعی که کاربر اول از آنجا
+    وارد شده) دست‌نخورده می‌مونه، وگرنه هر بار برمی‌گشت به پنل مدیر ارشد
+    حتی اگه از پنل اصلی باز شده باشه."""
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
+    if query.data == "ai_manage_menu_main":
+        ctx.user_data["ai_manage_back"] = "back_main"
+    elif query.data == "ai_manage_menu":
+        ctx.user_data["ai_manage_back"] = "menu_pishva"
+    back_target = ctx.user_data.get("ai_manage_back", "menu_pishva")
     ai_online = await db.get_setting("ai_online", "1")
     await safe_edit_message_text(query,
         f"{box('🧑‍💻 مدیریت دستیار')}\n\n📌 یک گزینه را انتخاب کنید:",
-        reply_markup=kb.kb_ai_manage_menu(ai_online),
+        reply_markup=kb.kb_ai_manage_menu(ai_online, back_target),
         parse_mode="Markdown"
     )
 
@@ -48,9 +61,10 @@ async def ai_manage_toggle_online(update: Update, ctx: ContextTypes.DEFAULT_TYPE
     new_val = "0" if current == "1" else "1"
     await db.set_setting("ai_online", new_val)
     await db.log_action(PISHVA_ID, "toggle_setting", f"ai_online -> {new_val}")
+    back_target = ctx.user_data.get("ai_manage_back", "menu_pishva")
     await safe_edit_message_text(query,
         f"{box('🧑‍💻 مدیریت دستیار')}\n\n📌 یک گزینه را انتخاب کنید:",
-        reply_markup=kb.kb_ai_manage_menu(new_val),
+        reply_markup=kb.kb_ai_manage_menu(new_val, back_target),
         parse_mode="Markdown"
     )
 
@@ -107,7 +121,7 @@ async def ai_admtg_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not admins:
         await safe_edit_message_text(query,
             f"{box('🔕 خاموشی هوش مصنوعی برای ادمین')}\n\n❗ هیچ مدیری ثبت نشده.",
-            reply_markup=kb.kb_back("ai_manage"), parse_mode="Markdown")
+            reply_markup=kb.kb_back("ai_manage_return"), parse_mode="Markdown")
         return
     await safe_edit_message_text(query,
         f"{box('🔕 خاموشی هوش مصنوعی برای ادمین')}\n\n"

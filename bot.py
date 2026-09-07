@@ -387,7 +387,7 @@ def _register_back_targets():
         "class_list": class_list,
         "teams_list": teams_list,
         "match_history": match_history,
-        "ai_manage": ai_manage_menu,
+        "ai_manage_return": ai_manage_menu,
     })
 
 
@@ -1068,6 +1068,8 @@ def build_application():
     app.add_handler(CallbackQueryHandler(ai_admlog_range, pattern="^ai_admlog_range_"))
     app.add_handler(CallbackQueryHandler(ai_admlog_view, pattern="^ai_admlog_view_"))
     app.add_handler(CallbackQueryHandler(ai_manage_menu, pattern="^ai_manage_menu$"))
+    app.add_handler(CallbackQueryHandler(ai_manage_menu, pattern="^ai_manage_menu_main$"))
+    app.add_handler(CallbackQueryHandler(ai_manage_menu, pattern="^ai_manage_menu_return$"))
     app.add_handler(CallbackQueryHandler(ai_manage_toggle_online, pattern="^ai_manage_toggle_online$"))
     app.add_handler(CallbackQueryHandler(ai_perms_menu, pattern="^ai_perms_menu$"))
     app.add_handler(CallbackQueryHandler(ai_perms_toggle, pattern="^aiperm_toggle_"))

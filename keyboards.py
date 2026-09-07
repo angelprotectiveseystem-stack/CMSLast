@@ -37,7 +37,7 @@ def kb_pishva_main():
         [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],
         [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
         [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open"),
-        InlineKeyboardButton("🧑‍💻 مدیریت دستیار", callback_data="ai_manage_menu")],
+        InlineKeyboardButton("🧑‍💻 مدیریت دستیار", callback_data="ai_manage_menu_main")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
@@ -338,15 +338,18 @@ def kb_ai_scheduled_list(rows):
     return InlineKeyboardMarkup(kb_rows)
 
 
-# ─── مدیریت دستیار (پنل مدیر ارشد) ──────────────────────────────
-def kb_ai_manage_menu(ai_online: str = "1"):
+# ─── مدیریت دستیار (قابل بازشدن هم از پنل اصلی، هم از پنل مدیر ارشد) ─
+def kb_ai_manage_menu(ai_online: str = "1", back_target: str = "menu_pishva"):
+    """back_target: کجا برگرده وقتی رو «بازگشت» بزنه — بسته به اینکه از
+    کجا باز شده (پنل اصلی/خوش‌آمدگویی یا پنل مدیر ارشد)، در ai_manage.py
+    تعیین و اینجا فقط رندر می‌شه."""
     tog = "✅" if ai_online == "1" else "❌"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🗂️ سوابق چت‌های دستیار", callback_data="ai_admlog_menu", style="primary")],
         [InlineKeyboardButton("🛠️ اختیارات دستیار", callback_data="ai_perms_menu", style="primary")],
         [InlineKeyboardButton(f"🔌 هوش مصنوعی {tog}", callback_data="ai_manage_toggle_online", style="primary")],
         [InlineKeyboardButton("🔕 خاموشی برای ادمین خاص", callback_data="ai_admtg_menu", style="danger")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data=back_target, style="danger")],
     ])
 
 
@@ -357,7 +360,7 @@ def kb_ai_perms_menu(states: dict):
     for key, label, _tools in AI_PERMISSION_CATEGORIES:
         icon = "✅" if states.get(key, "1") == "1" else "❌"
         rows.append([InlineKeyboardButton(f"{icon} {label}", callback_data=f"aiperm_toggle_{key}", style="primary")])
-    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="ai_manage_menu", style="danger")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="ai_manage_menu_return", style="danger")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -379,7 +382,7 @@ def kb_ai_admin_toggle_list(admins):
                 f"{icon} {a['display_name'] or a['full_name']}",
                 callback_data=f"ai_admtg_pick_{a['telegram_id']}", style="primary"))
         rows.append(row)
-    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="ai_manage_menu", style="danger")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="ai_manage_menu_return", style="danger")])
     return InlineKeyboardMarkup(rows)
 
 
