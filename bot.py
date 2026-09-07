@@ -12,6 +12,7 @@ from ai_history import (
     ai_exit, ai_menu, ai_menu_close, ai_new_start, ai_hist_list, ai_hist_open,
     ai_admlog_menu, ai_admlog_pick, ai_admlog_range, ai_admlog_view,
 )
+from chess_ai_history import chess_ai_admlog_menu, chess_ai_admlog_pick, chess_ai_admlog_range
 from ai_manage import (
     ai_manage_menu, ai_manage_toggle_online, ai_perms_menu, ai_perms_toggle,
     ai_admtg_menu, ai_admtg_pick, ai_admtg_set,
@@ -1047,6 +1048,9 @@ def build_application():
     app.add_handler(CallbackQueryHandler(chess_ai_pick_time, pattern="^chessai_time_"))
     app.add_handler(CallbackQueryHandler(chess_ai_pick_color, pattern="^chessai_color_"))
     app.add_handler(CallbackQueryHandler(chess_ai_start, pattern="^chessai_go_"))
+    app.add_handler(CallbackQueryHandler(chess_ai_admlog_menu, pattern="^chess_ai_admlog_menu$"))
+    app.add_handler(CallbackQueryHandler(chess_ai_admlog_pick, pattern="^chess_ai_admlog_pick_"))
+    app.add_handler(CallbackQueryHandler(chess_ai_admlog_range, pattern="^chess_ai_admlog_range_"))
 
     # Teams
     app.add_handler(CallbackQueryHandler(teams_menu, pattern="^teams_menu$"))

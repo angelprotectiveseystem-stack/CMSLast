@@ -2326,6 +2326,37 @@ async def clear_chess_draw_offer(token):
         await db.commit()
 
 
+async def get_chess_ai_games_for_user(user_id: int, period: str = "all", limit: int = 100):
+    """لیستِ بازی‌های «شطرنج زنده مقابل هوش مصنوعی» یک کاربر (مدیر/پیشوا)،
+    برای پنلِ «سوابق چتِ بازی با هوش مصنوعی» در پنل مدیر ارشد — چه بازی
+    هنوز فعال باشد چه تمام‌شده (بر خلافِ get_chess_games_log که فقط
+    تمام‌شده‌ها را می‌دهد، چون آنجا هدف نتیجه‌ی بازی است نه سابقه‌ی چت).
+    period مثل get_chess_games_log (today/week/month/all) عمل می‌کند ولی
+    بر اساسِ created_at فیلتر می‌شود، چون بازیِ فعال هنوز finished_at ندارد.
+    مرتب‌سازی: قدیمی‌ترین اول (برای ساختِ یک تراسکریپتِ زمانیِ پشتِ‌سرِهم)."""
+    from datetime import timedelta
+    now = datetime.now()
+    conditions = ["ai_level IS NOT NULL", "(white_id=? OR black_id=?)"]
+    params = [user_id, user_id]
+    if period == "today":
+        conditions.append("created_at LIKE ?")
+        params.append(now.strftime("%Y-%m-%d") + "%")
+    elif period == "week":
+        conditions.append("created_at >= ?")
+        params.append((now - timedelta(days=7)).isoformat())
+    elif period == "month":
+        conditions.append("created_at >= ?")
+        params.append((now - timedelta(days=30)).isoformat())
+    where = "WHERE " + " AND ".join(conditions)
+    params.append(limit)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"SELECT * FROM chess_games {where} ORDER BY created_at ASC LIMIT ?", params
+        ) as cur:
+            return await cur.fetchall()
+
+
 async def add_chess_chat_message(token: str, sender_id: int, sender_name: str, text: str):
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:

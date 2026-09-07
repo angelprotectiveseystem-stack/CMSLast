@@ -189,6 +189,9 @@ async def _chess_menu_content(uid: int, chat_type: str = "private", bot=None):
                 rows.append([btn])
 
     rows.append([InlineKeyboardButton("🏆 جدول Elo شطرنج زنده", callback_data="chess_elo_board")])
+    if uid == PISHVA_ID:
+        # فقط مدیر ارشد: مرورِ سوابقِ چتِ مدیران با حریفِ هوش‌مصنوعی (chess_ai_history.py)
+        rows.append([InlineKeyboardButton("🗂️ سوابق چت با هوش مصنوعی", callback_data="chess_ai_admlog_menu")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")])
 
     text = f"{box('♟️ شطرنج زنده')}\n\n"
