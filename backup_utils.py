@@ -349,6 +349,18 @@ async def send_backup(bot, chat_id: int, period: str, fmt: str):
 # ──────────────────────────────────────────────────────────────
 # بکاپ خودکار (Job Queue)
 # ──────────────────────────────────────────────────────────────
+# باگ قبلی: هر بار که این job ثبت می‌شد (چه با تغییرِ تایمر توسطِ کاربر،
+# چه با هر ری‌استارتِ خودِ ربات روی Railway که restartPolicyType آن
+# ON_FAILURE است) با first=timedelta(seconds=30) یک بکاپِ فوری، ۳۰ ثانیه
+# بعد از همان لحظه، زمان‌بندی می‌شد — کاملاً مستقل از این‌که آخرین بکاپِ
+# واقعی کِی فرستاده شده. اگر ربات مکرراً ری‌استارت شود (کرش، دیپلویِ
+# مجدد، Conflict بینِ چند instance و…)، همین رفتار دقیقاً همان حسِ
+# «هرچی تایمر رو عوض می‌کنم بازم زود/بی‌نظم میاد» را ایجاد می‌کند.
+# رفعِ باگ: زمانِ آخرین بکاپِ واقعی در دیتابیس ذخیره می‌شود؛ first از
+# رویِ فاصله‌ی واقعیِ باقی‌مانده تا سررسیدِ بعدی محاسبه می‌شود، نه یک
+# عددِ ثابتِ ۳۰ ثانیه‌ای. اگر بکاپِ قبلی خیلی وقت پیش بوده (یا اصلاً
+# نبوده)، همان لحظه (۳۰ ثانیه) اجرا می‌شود؛ وگرنه صبر می‌کند تا دقیقاً
+# سرِ موعدِ interval انتخابیِ کاربر برسد.
 async def auto_backup_job(context):
     """این تابع توسط job queue صدا زده میشه"""
     from config import PISHVA_ID
@@ -358,6 +370,10 @@ async def auto_backup_job(context):
     try:
         await send_backup(context.bot, PISHVA_ID, period, fmt)
         await db.log_action(PISHVA_ID, "auto_backup", f"بکاپ خودکار: {fmt}/{period}")
+        # ثبتِ لحظه‌ی دقیقِ این بکاپِ موفق، تا اگر ربات بینِ این و بکاپِ
+        # بعدی ری‌استارت شد، schedule_auto_backup بداند چقدر از موعدِ
+        # واقعی باقی مانده و یک بکاپِ زودهنگامِ اضافه نفرستد.
+        await db.set_setting("auto_backup_last_run", datetime.now().isoformat())
     except Exception as e:
         logger.error(f"Auto backup job failed: {e}")
         try:
@@ -370,7 +386,7 @@ async def auto_backup_job(context):
             pass
 
 
-def schedule_auto_backup(app, interval_hours: int = 24):
+def schedule_auto_backup(app, interval_hours: int = 24, _first_override: timedelta = None):
     """ثبت job بکاپ خودکار"""
     if not hasattr(app, 'job_queue') or app.job_queue is None:
         logger.warning("Job queue not available for auto backup")
@@ -379,12 +395,50 @@ def schedule_auto_backup(app, interval_hours: int = 24):
     current = app.job_queue.get_jobs_by_name("auto_backup")
     for job in current:
         job.schedule_removal()
+
+    if _first_override is not None:
+        first = _first_override
+    else:
+        first = timedelta(seconds=30)
+
     # ثبت job جدید
     app.job_queue.run_repeating(
         auto_backup_job,
         interval=timedelta(hours=interval_hours),
-        first=timedelta(seconds=30),
+        first=first,
         name="auto_backup"
     )
-    logger.info(f"Auto backup scheduled every {interval_hours} hours")
+    logger.info(
+        f"Auto backup scheduled every {interval_hours}h (first run in {first})"
+    )
     return True
+
+
+async def schedule_auto_backup_smart(app, interval_hours: int = 24):
+    """
+    نسخه‌ی «آگاه از تاریخچه»ی schedule_auto_backup: قبل از ثبتِ job، آخرین
+    زمانِ بکاپِ موفق را از دیتابیس می‌خواند و first را طوری تنظیم می‌کند
+    که سررسیدِ بعدی دقیقاً interval_hours ساعت پس از همان بکاپِ قبلی
+    باشد — نه ۳۰ ثانیه پس از این ری‌استارت. برای فعال‌سازیِ اولیه یا
+    زمانی که هنوز هیچ بکاپی ثبت نشده، همان رفتارِ قبلی (اجرای فوری بعد
+    از ۳۰ ثانیه) حفظ می‌شود.
+    این تابع را باید در startup ربات (bot.py) به‌جای فراخوانیِ مستقیمِ
+    schedule_auto_backup صدا زد. توجه: خودِ schedule_auto_backup (sync)
+    دست‌نخورده می‌ماند تا جاهایی که کاربر همین لحظه تایمر را عوض می‌کند
+    (و طبیعتاً باید همین الان یک چرخه‌ی جدید شروع شود) رفتارِ قبلی‌شان
+    را حفظ کنند.
+    """
+    last_run_raw = await db.get_setting("auto_backup_last_run", "")
+    first = timedelta(seconds=30)
+    if last_run_raw:
+        try:
+            last_run = datetime.fromisoformat(last_run_raw)
+            elapsed = datetime.now() - last_run
+            remaining = timedelta(hours=interval_hours) - elapsed
+            # اگر موعدِ بعدی هنوز نرسیده، دقیقاً به‌اندازه‌ی باقی‌مانده صبر کن؛
+            # حداقلِ ۳۰ ثانیه برای جلوگیری از first منفی/صفر.
+            if remaining.total_seconds() > 30:
+                first = remaining
+        except (ValueError, TypeError):
+            pass
+    return schedule_auto_backup(app, interval_hours, _first_override=first)

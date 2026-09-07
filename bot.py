@@ -260,13 +260,18 @@ async def post_init(application: Application) -> None:
         logger.warning(f"Could not restore AI scheduler jobs: {e}")
 
     # Schedule auto-backup if enabled
+    # نکته: در startup از نسخه‌ی smart استفاده می‌شود (نه schedule_auto_backup
+    # مستقیم) تا با هر ری‌استارتِ ربات روی Railway، بکاپِ فوریِ ناخواسته
+    # نفرستد — بلکه از رویِ آخرین بکاپِ واقعیِ ثبت‌شده در دیتابیس، فاصله‌ی
+    # باقی‌مانده تا سررسیدِ درست را حساب می‌کند. جزئیاتِ کامل در
+    # backup_utils.schedule_auto_backup_smart مستند شده.
     try:
         enabled = await db.get_setting("auto_backup_enabled", "0")
         if enabled == "1":
             interval = int(await db.get_setting("auto_backup_interval", "24"))
-            from backup_utils import schedule_auto_backup
-            schedule_auto_backup(application, interval)
-            logger.info(f"Auto-backup scheduled every {interval}h")
+            from backup_utils import schedule_auto_backup_smart
+            await schedule_auto_backup_smart(application, interval)
+            logger.info(f"Auto-backup (re)scheduled every {interval}h — startup-aware")
     except Exception as e:
         logger.warning(f"Could not schedule auto-backup: {e}")
 
