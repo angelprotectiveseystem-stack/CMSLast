@@ -1598,6 +1598,12 @@ init();
     var r = el.getBoundingClientRect();
     active = { el: el, pointerId: e.pointerId, cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
     if(el.setPointerCapture){ try{ el.setPointerCapture(e.pointerId); }catch(err){} }
+    // will-change فقط از لحظه‌ی لمس تا رهاشدن: به مرورگر از قبل می‌گه این
+    // المان قراره transform بخوره، پس لایه‌ی GPU را همین اول (نه با تأخیرِ
+    // اولین فریمِ واقعیِ تغییر) می‌سازه — روی WebViewِ ضعیف همین یه فریم
+    // تأخیر حس "دیر واکنش دادن" دکمه رو می‌ده. بعد از release برداشته
+    // می‌شه تا لایه‌های GPU الکی روی حافظه نمونن (۶۴ خونه دستِ‌نخورده).
+    el.style.willChange = "transform";
     el.style.transition = "transform .08s linear";
     apply(e.clientX - active.cx, e.clientY - active.cy);
   });
@@ -1619,6 +1625,10 @@ init();
     if(raf){ cancelAnimationFrame(raf); raf = null; }
     el.style.transition = "transform .5s cubic-bezier(.18,1.4,.4,1)";
     el.style.transform = "";
+    // بعد از پایانِ اسپرینگِ برگشت، will-change برداشته می‌شه (نه فوری)؛
+    // برداشتنِ زودتر از پایانِ transition باعث می‌شه مرورگر لایه رو وسطِ
+    // خودِ انیمیشنِ برگشت جمع کنه و یه ریزلرزش/جمپ بده.
+    setTimeout(function(){ el.style.willChange = ""; }, 520);
   }
   document.addEventListener("pointerup", release);
   document.addEventListener("pointercancel", release);
