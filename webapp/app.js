@@ -547,9 +547,15 @@ function renderPieces(animateFrom, animateTo, silent){
           // نمی‌شود — فقط translate خالص. chess.com مهره را در طول حرکت
           // بزرگ/کوچک نمی‌کند؛ فقط با یک سایه‌ی نرم (که در CSS اضافه شد)
           // حسِ «بلندشدن از سطح تخته» را می‌دهد، و اندازه ثابت می‌ماند.
-          // ease-out قاطع: شروعِ نسبتاً سریع، فرود بسیار نرم — دقیقاً حسِ
-          // حرکتِ مهره‌ی chess.com، بدون هیچ overshoot/بانسی در مسیر.
-          el.style.transition = "transform " + dur + "ms cubic-bezier(.22,.61,.36,1)";
+          // به‌روزرسانیِ Liquid Glass: طبق درخواست، ایزینگ به یه
+          // spring-like واقعی‌تر با overshootِ خیلی کوچک عوض شد
+          // (cubic-bezier(.22,1.15,.36,1) به‌جای .22,.61,.36,1 قبلی).
+          // فقط همین رشته‌ی timing-function عوض شده؛ خودِ منطقِ
+          // FLIP/rect/reflow (توضیح‌داده‌شده در کامنتِ بالای این تابع)
+          // دست‌نخورده مونده — هیچ transform یا محاسبه‌ی rect جدیدی
+          // اضافه نشده، فقط منحنیِ همون transition روی همون یک
+          // translate عوض شده.
+          el.style.transition = "transform " + dur + "ms cubic-bezier(.22,1.15,.36,1)";
           el.style.transform = "translate(0px,0px)";
 
           var entry = { el: el, done: false };
@@ -1292,19 +1298,30 @@ function launchConfetti(){
 }
 
 // ─── Theme ──────────────────────────────────────────────────
+// باگ: .theme-opt یه کلاسِ عمومیِ استایلی‌ست که دکمه‌های روشن/خاموشِ
+// صدا (#btn-sound-on / #btn-sound-off) هم برای ظاهرِ یکسان از همون
+// کلاس استفاده می‌کنن (نگاه کن به index.html، #sound-toggle-list).
+// querySelectorAll(".theme-opt") قبلاً همه‌ی این چهارتا دکمه‌ی تم رو
+// *و* اون دو دکمه‌ی صدا رو با هم می‌گرفت — یعنی کلیک روی دکمه‌ی صدا
+// هم به این لیسنر می‌خورد و applyTheme(undefined) صدا زده می‌شد (چون
+// دکمه‌های صدا data-theme ندارن)، و برعکس، عوض‌کردنِ تم با همون حلقه
+// active/inactive رو روی دکمه‌های صدا هم ریست می‌کرد (چون
+// btn.dataset.theme هم برای دکمه‌های صدا و هم برای name=undefined
+// برابر undefined بود، پس شرط === true می‌شد). رفعش: فقط دکمه‌هایی که
+// واقعاً data-theme دارن رو انتخاب کن، نه هر چیزی با کلاسِ .theme-opt.
 function applyTheme(name){
   document.documentElement.setAttribute("data-theme", name);
   try{ localStorage.setItem("chess_theme", name); }catch(e){}
-  document.querySelectorAll(".theme-opt").forEach(function(btn){
+  document.querySelectorAll(".theme-opt[data-theme]").forEach(function(btn){
     btn.classList.toggle("active", btn.dataset.theme === name);
   });
 }
-document.querySelectorAll(".theme-opt").forEach(function(btn){
+document.querySelectorAll(".theme-opt[data-theme]").forEach(function(btn){
   btn.addEventListener("click", function(){ applyTheme(btn.dataset.theme); });
 });
 (function initThemeHighlight(){
   var current = document.documentElement.getAttribute("data-theme") || "dark";
-  document.querySelectorAll(".theme-opt").forEach(function(btn){
+  document.querySelectorAll(".theme-opt[data-theme]").forEach(function(btn){
     btn.classList.toggle("active", btn.dataset.theme === current);
   });
 })();
@@ -1539,5 +1556,71 @@ function init(){
 }
 
 init();
+})();
+
+/* ============================================================
+   کِشِ شیشه‌ای (Liquid Glass press) — افزایشی، کاملاً جدا از IIFEِ
+   بالا و بازیِ اصلی؛ فقط روی دکمه‌های شیشه‌ای (icon-btn/action-btn/
+   theme-opt/گزینه‌های ترفیع) کار می‌کنه، هیچ ربطی به FLIPِ حرکتِ
+   مهره‌ها (renderPieces بالاتر) نداره و به‌هیچ‌وجه بهش دست نمی‌زنه.
+
+   قبلاً فقط با CSS :active یه scaleِ ساده روی فشردن بود («می‌ره
+   عقب»)؛ اینجا با pointermove واقعیِ انگشت رو دنبال می‌کنیم (با یه
+   rubber-band محدود، نه بی‌نهایت) — دقیقاً همون حسِ «کِش‌آمدنِ خمیر»ی
+   که خواسته شده — و موقعِ رهاکردن با یه اسپرینگِ نرم برمی‌گرده سرِ جاش.
+
+   فقط transform (translate+scale) نوشته می‌شه — نه فیلتر، نه بلور، نه
+   ری‌فلو/getBoundingClientRect در هر فریم (فقط یه‌بار در لحظه‌ی
+   pointerdown خونده می‌شه) — پس روی WebViewِ قدیمیِ اندروید هم ارزونه.
+   با event delegation روی document کار می‌کنه، پس دکمه‌های ترفیع که
+   دیر/داینامیک ساخته می‌شن (promo-options .piece) هم بدونِ نیاز به
+   attach جداگانه پوشش داده می‌شن. */
+(function(){
+  var SEL = ".icon-btn, .action-btn, .theme-opt, .promo-options .piece";
+  var MAX_PULL = 10;       // حداکثر پیکسل کِش‌آمدن (rubber-band)
+  var PULL_FACTOR = 0.35;  // نسبتِ دنبال‌کردنِ حرکتِ واقعیِ انگشت
+
+  function clamp(v, max){ return Math.max(-max, Math.min(max, v)); }
+
+  var active = null;       // { el, pointerId, cx, cy }
+  var raf = null, pendingEvent = null;
+
+  function apply(dx, dy){
+    var px = clamp(dx * PULL_FACTOR, MAX_PULL);
+    var py = clamp(dy * PULL_FACTOR, MAX_PULL);
+    active.el.style.transform = "translate(" + px + "px," + py + "px) scale(.96)";
+  }
+
+  document.addEventListener("pointerdown", function(e){
+    if(active) return;
+    var el = e.target.closest ? e.target.closest(SEL) : null;
+    if(!el) return;
+    var r = el.getBoundingClientRect();
+    active = { el: el, pointerId: e.pointerId, cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+    if(el.setPointerCapture){ try{ el.setPointerCapture(e.pointerId); }catch(err){} }
+    el.style.transition = "transform .08s linear";
+    apply(e.clientX - active.cx, e.clientY - active.cy);
+  });
+
+  document.addEventListener("pointermove", function(e){
+    if(!active || e.pointerId !== active.pointerId) return;
+    pendingEvent = e;
+    if(raf) return;
+    raf = requestAnimationFrame(function(){
+      raf = null;
+      if(active && pendingEvent) apply(pendingEvent.clientX - active.cx, pendingEvent.clientY - active.cy);
+    });
+  });
+
+  function release(e){
+    if(!active || e.pointerId !== active.pointerId) return;
+    var el = active.el;
+    active = null;
+    if(raf){ cancelAnimationFrame(raf); raf = null; }
+    el.style.transition = "transform .5s cubic-bezier(.18,1.4,.4,1)";
+    el.style.transform = "";
+  }
+  document.addEventListener("pointerup", release);
+  document.addEventListener("pointercancel", release);
 })();
                                       
