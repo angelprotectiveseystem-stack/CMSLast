@@ -8,6 +8,7 @@ chess_challenge.py
 import logging
 import random
 import time
+import asyncio
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ParseMode
@@ -62,21 +63,40 @@ async def _telegram_profile_name(bot, user_id: int):
 
 async def _chess_block_reason(uid: int) -> str:
     """اگر شطرنج زنده برای این کاربر مسدود باشد، متن پیام مناسب را برمی‌گرداند؛
-    در غیر این صورت رشته‌ی خالی (یعنی مجاز است)."""
-    if await db.is_chess_locked_by_status():
+    در غیر این صورت رشته‌ی خالی (یعنی مجاز است).
+
+    FIX: قبلاً این ۳ چک (قفل‌بودنِ کلی / خاموشیِ دستیِ مدیر ارشد / دسترسیِ
+    خودِ ادمین) پشتِ‌سرِهم صدا زده می‌شدن؛ برای بیشترِ ادمین‌ها (که هر سه‌تا
+    باید چک بشه تا مجاز بشناسیمش) این یعنی ۳ رفت‌وبرگشتِ شبکه‌ایِ پشتِ‌سرِهم
+    فقط برای باز کردنِ منوی شطرنج. حالا هر سه هم‌زمان با asyncio.gather
+    خونده می‌شن؛ اولویتِ پیام‌ها (قفلِ کلی > خاموشیِ دستی > بی‌دسترسی) دقیقاً
+    مثل قبل حفظ شده، فقط زمانِ صبر کمتر شده."""
+    if uid == PISHVA_ID:
+        if await db.is_chess_locked_by_status():
+            return (
+                f"{box('♟️ شطرنج زنده غیرفعال است')}\n\n"
+                "🔴 به‌دلیل وضعیت امنیتی فعلی سیستم (خطرناک/APS)، این بخش به‌طور کامل از کار افتاده است.\n"
+                "به‌محض بازگشت وضعیت به «بد» یا «نرمال»، دوباره در دسترس قرار می‌گیرد."
+            )
+        return ""
+
+    locked, switched_off, can_use = await asyncio.gather(
+        db.is_chess_locked_by_status(),
+        db.is_chess_admin_switch_off(),
+        db.can_use_live_chess(uid),
+    )
+    if locked:
         return (
             f"{box('♟️ شطرنج زنده غیرفعال است')}\n\n"
             "🔴 به‌دلیل وضعیت امنیتی فعلی سیستم (خطرناک/APS)، این بخش به‌طور کامل از کار افتاده است.\n"
             "به‌محض بازگشت وضعیت به «بد» یا «نرمال»، دوباره در دسترس قرار می‌گیرد."
         )
-    if uid == PISHVA_ID:
-        return ""
-    if await db.is_chess_admin_switch_off():
+    if switched_off:
         return (
             f"{box('♟️ شطرنج زنده غیرفعال است')}\n\n"
             "⛔ این بخش در حال حاضر توسط مدیر ارشد خاموش شده است."
         )
-    if not await db.can_use_live_chess(uid):
+    if not can_use:
         return (
             f"{box('♟️ شطرنج زنده غیرفعال است')}\n\n"
             "⛔ شما دسترسی استفاده از شطرنج زنده را ندارید. برای فعال‌سازی با مدیر ارشد در ارتباط باشید."
@@ -97,11 +117,15 @@ async def _display_name(user_id: int, bot=None) -> str:
 
 
 async def _eligible_opponents(requester_id: int):
-    """پیشوا + همه‌ی مدیران فعال به‌جز خود درخواست‌دهنده."""
+    """پیشوا + همه‌ی مدیران فعال به‌جز خود درخواست‌دهنده.
+    FIX: pishva_display() و get_active_admins() به هم وابسته نیستن؛ قبلاً
+    پشتِ‌سرِهم صدا زده می‌شدن، حالا هم‌زمان."""
     opponents = []
     if requester_id != PISHVA_ID:
-        opponents.append((PISHVA_ID, await pishva_display()))
-    admins = await db.get_active_admins()
+        pname, admins = await asyncio.gather(pishva_display(), db.get_active_admins())
+        opponents.append((PISHVA_ID, pname))
+    else:
+        admins = await db.get_active_admins()
     for a in admins:
         if a["telegram_id"] != requester_id:
             opponents.append((a["telegram_id"], a["display_name"] or a["full_name"]))
@@ -127,9 +151,16 @@ async def _chess_menu_content(uid: int, chat_type: str = "private", bot=None):
         return None, None, reason
 
     is_group = chat_type in ("group", "supergroup")
-    bot_username = await _resolve_bot_username(bot) if is_group else None
+    # FIX: resolve_bot_username (فقط لازمِ حالتِ گروه) و گرفتنِ بازیِ فعالِ
+    # کاربر، به هم وابسته نیستن؛ حالا هم‌زمان اجرا می‌شن به‌جای پشتِ‌سرِهم.
+    if is_group:
+        bot_username, active_game = await asyncio.gather(
+            _resolve_bot_username(bot), db.get_active_chess_game_for(uid)
+        )
+    else:
+        bot_username = None
+        active_game = await db.get_active_chess_game_for(uid)
 
-    active_game = await db.get_active_chess_game_for(uid)
     if active_game:
         text = (
             f"{box('♟️ شطرنج زنده')}\n\n"
@@ -137,13 +168,11 @@ async def _chess_menu_content(uid: int, chat_type: str = "private", bot=None):
         )
         return text, _kb_play_for_chat(active_game["token"], is_group, bot_username), None
 
-    opponents = await _eligible_opponents(uid)
-    # بازی‌های دیگرانی که همین الان در جریانند (خود uid در آن‌ها بازیکن
-    # نیست) — رفعِ نبودِ گزینه‌ی «تماشا» برای شخص ثالث: قبلاً فقط یک پیامِ
-    # یک‌باره وقتِ شروعِ بازی به بقیه می‌رفت که اگر در چت گم می‌شد دیگر راهی
-    # برای پیدا کردنِ بازیِ در حال انجام نبود؛ حالا همیشه در همین پنل
-    # لیست می‌شود.
-    other_games = await db.get_active_chess_games_excluding(uid)
+    # FIX: فهرستِ حریف‌های مجاز و فهرستِ بازی‌های دیگرانِ درحالِ‌اجرا هم به هم
+    # وابسته نیستن؛ هم‌زمان اجرا می‌شن.
+    opponents, other_games = await asyncio.gather(
+        _eligible_opponents(uid), db.get_active_chess_games_excluding(uid)
+    )
 
     rows = []
     rows.append([InlineKeyboardButton("🤖 بازی با هوش مصنوعی", callback_data="chessai_menu")])

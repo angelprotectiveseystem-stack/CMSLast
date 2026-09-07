@@ -1,4 +1,5 @@
 import random
+import time
 from datetime import datetime, timezone, timedelta
 
 from telegram import Update
@@ -154,6 +155,10 @@ _ICE_CODES = {56, 57, 66, 67}
 _PRECIP_CODES = {51, 53, 55, 61, 63, 65, 80, 81, 82} | _ICE_CODES | _STORM_CODES
 _FOG_CODES = {45, 48}
 
+# FIX: کشِ سراسریِ خطِ آب‌وهوا — به get_weather_line نگاه کنید.
+_weather_cache = None  # (line, fetched_at_monotonic) | None
+_WEATHER_CACHE_TTL = 900  # ۱۵ دقیقه
+
 
 def _weather_emoji(code: int, is_day: int) -> str:
     if code in (0, 1):
@@ -178,7 +183,19 @@ def _weather_emoji(code: int, is_day: int) -> str:
 async def get_weather_line() -> str:
     """یک جمله‌ی کوتاه و خودمونی درباره‌ی آب‌وهوای سرپل‌ذهاب.
     نوعِ توصیف صرفاً بر اساس دما نیست؛ کدِ واقعیِ آب‌وهوا تعیین‌کننده‌ست.
-    اگر در دسترس نبود، رشته‌ی خالی برمی‌گرداند."""
+    اگر در دسترس نبود، رشته‌ی خالی برمی‌گرداند.
+
+    FIX: قبلاً این تابع روی *هر* بازِ شدنِ پنل خوش‌آمدگویی (یعنی /start، دستور
+    «پنل»/«شروع»، و حتی دکمه‌ی 🔄 «به‌روزرسانی») یک درخواستِ HTTP واقعی به
+    open-meteo.com می‌زد (با timeout تا ۴ ثانیه). یعنی همون یک پنل، صرفاً
+    برای نمایشِ یک خطِ آب‌وهوا، هر بار تا ۴ ثانیه معطل می‌موند. چون آب‌وهوا
+    ظرف چند دقیقه عملاً تغییری نمی‌کنه، حالا نتیجه به‌مدت ۱۵ دقیقه در حافظه
+    کش می‌شه؛ فقط اولین درخواست بعد از هر بازه واقعاً به شبکه می‌ره."""
+    global _weather_cache
+    now = time.monotonic()
+    cached = _weather_cache
+    if cached is not None and (now - cached[1]) < _WEATHER_CACHE_TTL:
+        return cached[0]
     if httpx is None:
         return ""
     try:
@@ -207,9 +224,13 @@ async def get_weather_line() -> str:
             line = f"{emoji} سرپل‌ذهاب {time_word} {mood} به‌نظر می‌رسه! (`{temp:.0f}°C`)"
             if wind is not None and wind >= 35:
                 line += f" 💨 بادش هم شدیده"
+            _weather_cache = (line, now)
             return line
     except Exception:
-        return ""
+        # اگر شبکه/سرویس در دسترس نبود، حداقل نتیجه‌ی قبلی (even if slightly
+        # stale) رو نگه می‌داریم تا پنل خالی از این خط نمونه؛ اگر قبلاً هم
+        # چیزی نداشتیم، رشته‌ی خالی برمی‌گرده (رفتار قبلی).
+        return cached[0] if cached is not None else ""
 
 
 def _status_line(status: str) -> str:

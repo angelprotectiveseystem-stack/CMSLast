@@ -1,6 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from telegram.error import BadRequest
+import asyncio
 import database as db
 import keyboards as kb
 from helpers import (safe_edit_message_text, box, separator, now_shamsi, broadcast_to_admins,
@@ -89,9 +90,14 @@ async def pishva_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
         "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
         "bug_report_to_pishva_enabled"]
-    settings = {}
-    for k in keys:
-        settings[k] = await db.get_setting(k, "1")
+    # FIX: قبلاً این ۱۳ تا db.get_setting یکی‌یکی و پشتِ‌سرِهم صدا زده می‌شدن —
+    # یعنی با کشِ سرد (که با هر ری‌استارت یا بعد از ۴۵ ثانیه بی‌تحرکی پیش
+    # می‌اومد)، باز کردنِ همین یک صفحه تا ۱۳ رفت‌وبرگشتِ شبکه‌ایِ کامل به
+    # دیتابیس (Turso) پشتِ‌سرِهم طول می‌کشید. با asyncio.gather همه‌شون
+    # هم‌زمان اجرا می‌شن، یعنی زمانِ کل تقریباً برابرِ کندترینِ تک‌کوئری می‌شه،
+    # نه مجموعِ همه‌شون.
+    values = await asyncio.gather(*(db.get_setting(k, "1") for k in keys))
+    settings = dict(zip(keys, values))
     await safe_edit_message_text(query, 
         f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",
         reply_markup=kb.kb_pishva_settings_simple(settings),
@@ -186,17 +192,30 @@ LOGS_PERIOD_LABEL = {"today": "امروز", "week": "این هفته", "month": 
 LOGS_PAGE_SIZE = 10
 
 
+async def _return_none():
+    """placeholder برای asyncio.gather وقتی یکی از شاخه‌ها نیازی به کوئری نداره
+    (مثلاً وقتی admin_id خالیه) ولی باید تعداد آیتم‌های gather ثابت بمونه."""
+    return None
+
+
 async def _render_logs_page(query, period: str, page: int):
     """یک صفحه از لاگِ اقدامات (بر اساس فیلتر بازه‌ی زمانی) را رندر می‌کند.
     از صفحه‌بندیِ واقعیِ سمت دیتابیس استفاده می‌کند، پس حتی اگه تعداد کل
-    نتایج خیلی زیاد باشه (ده‌ها هزار ردیف)، فقط همون صفحه خونده می‌شه."""
-    rows, total = await db.get_action_logs(period, page=page, page_size=LOGS_PAGE_SIZE)
+    نتایج خیلی زیاد باشه (ده‌ها هزار ردیف)، فقط همون صفحه خونده می‌شه.
+
+    FIX: قبلاً get_action_logs، get_all_admins و pishva_display پشتِ‌سرِهم
+    صدا زده می‌شدن؛ این سه به‌هم وابسته نیستن، پس حالا هم‌زمان اجرا می‌شن
+    (۳ رفت‌وبرگشتِ شبکه‌ای پشتِ‌سرِهم → عملاً زمانِ کندترینِ تکی)."""
+    (rows, total), all_admins, pname = await asyncio.gather(
+        db.get_action_logs(period, page=page, page_size=LOGS_PAGE_SIZE),
+        db.get_all_admins(),
+        pishva_display(),
+    )
     if not rows:
         await safe_edit_message_text(query, "❗ هیچ اقدامی در این بازه ثبت نشده.", reply_markup=kb.kb_logs_filter())
         return
 
-    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
-    pname = await pishva_display()
+    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in all_admins}
     label = LOGS_PERIOD_LABEL.get(period, period)
     total_pages = max(1, (total + LOGS_PAGE_SIZE - 1) // LOGS_PAGE_SIZE)
 
@@ -315,14 +334,21 @@ async def _build_logs_search_view(ctx: ContextTypes.DEFAULT_TYPE, page: int):
     ht = ctx.user_data.get("logs_search_hour_to")
     admin_id = ctx.user_data.get("logs_search_admin_id")
 
-    rows, total = await db.search_action_logs(
-        term=term, hour_from=hf, hour_to=ht, admin_id=admin_id, page=page, page_size=LOGS_PAGE_SIZE
+    # FIX: search_action_logs، get_admin(admin_id)، get_all_admins و
+    # pishva_display به‌هم وابسته نیستن؛ همه با هم موازی خونده می‌شن به‌جای
+    # پشتِ‌سرِهم (فقط برای حالتِ رایج — نتیجه پیدا شدن — کمی کوئریِ اضافه/
+    # بی‌استفاده در حالتِ نادرِ «نتیجه‌ای نبود» می‌خوریم که ارزششو داره).
+    (rows, total), scope_admin, all_admins, pname = await asyncio.gather(
+        db.search_action_logs(term=term, hour_from=hf, hour_to=ht, admin_id=admin_id,
+                               page=page, page_size=LOGS_PAGE_SIZE),
+        db.get_admin(admin_id) if admin_id else _return_none(),
+        db.get_all_admins(),
+        pishva_display(),
     )
 
     scope_name = None
     if admin_id:
-        a = await db.get_admin(admin_id)
-        scope_name = (a["display_name"] or a["full_name"]) if a else str(admin_id)
+        scope_name = (scope_admin["display_name"] or scope_admin["full_name"]) if scope_admin else str(admin_id)
     title = ("🔍 نتایج جستجو — " + scope_name) if scope_name else "🔍 نتایج جستجو"
 
     if not rows:
@@ -330,8 +356,7 @@ async def _build_logs_search_view(ctx: ContextTypes.DEFAULT_TYPE, page: int):
         keyboard = kb.kb_admin_logs_search_list(admin_id, 0, 1) if admin_id else kb.kb_logs_search_list(0, 1)
         return text, keyboard
 
-    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
-    pname = await pishva_display()
+    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in all_admins}
     total_pages = max(1, (total + LOGS_PAGE_SIZE - 1) // LOGS_PAGE_SIZE)
 
     lines = [f"{box(title)}", f"یافت‌شده: {total} مورد — صفحه {page + 1} از {total_pages}", ""]
@@ -411,8 +436,11 @@ async def admin_logs_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def _render_admin_logs_page(query, tid: int, period: str, page: int):
-    rows, total = await db.get_action_logs(period, admin_id=tid, page=page, page_size=LOGS_PAGE_SIZE)
-    admin = await db.get_admin(tid)
+    # FIX: دو کوئریِ مستقل، قبلاً پشتِ‌سرِهم — حالا هم‌زمان.
+    (rows, total), admin = await asyncio.gather(
+        db.get_action_logs(period, admin_id=tid, page=page, page_size=LOGS_PAGE_SIZE),
+        db.get_admin(tid),
+    )
     name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
 
     if not rows:

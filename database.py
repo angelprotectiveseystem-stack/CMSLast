@@ -1438,7 +1438,11 @@ async def log_action(admin_id, action_type, description, target_id=None):
 async def get_action_logs(period="all", admin_id=None, page=0, page_size=10):
     """لاگِ اقدامات رو صفحه‌بندی‌شده برمی‌گردونه: (ردیف‌ها, تعداد کل).
     page از ۰ شروع می‌شه؛ حتی اگه تعداد کل نتایج خیلی زیاد باشه (مثلاً
-    ده‌ها هزار ردیف)، فقط همون صفحه‌ی درخواستی از دیتابیس خونده می‌شه."""
+    ده‌ها هزار ردیف)، فقط همون صفحه‌ی درخواستی از دیتابیس خونده می‌شه.
+
+    FIX: چون دیتابیس روی Turso (اتصال شبکه‌ای) است، هر db.execute یعنی یک
+    رفت‌وبرگشتِ کاملِ HTTP. کوئریِ COUNT(*) و کوئریِ SELECT صفحه‌ی فعلی به‌هم
+    وابسته نیستن، پس قبلاً پشتِ‌سرِهم اجرا می‌شدن، حالا هم‌زمان (asyncio.gather)."""
     from datetime import timedelta
     now = datetime.now()
     conditions = []
@@ -1462,14 +1466,16 @@ async def get_action_logs(period="all", admin_id=None, page=0, page_size=10):
     offset = max(page, 0) * page_size
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(f"SELECT COUNT(*) AS c FROM action_logs {where}", params) as cur:
-            row = await cur.fetchone()
-            total = row["c"] if row else 0
-        async with db.execute(
-            f"SELECT * FROM action_logs {where} ORDER BY logged_at DESC LIMIT ? OFFSET ?",
-            params + [page_size, offset]
-        ) as cur:
-            rows = await cur.fetchall()
+        count_cur, rows_cur = await asyncio.gather(
+            db.execute(f"SELECT COUNT(*) AS c FROM action_logs {where}", params),
+            db.execute(
+                f"SELECT * FROM action_logs {where} ORDER BY logged_at DESC LIMIT ? OFFSET ?",
+                params + [page_size, offset]
+            ),
+        )
+        count_row = await count_cur.fetchone()
+        total = count_row["c"] if count_row else 0
+        rows = await rows_cur.fetchall()
         return rows, total
 
 
@@ -1523,14 +1529,19 @@ async def search_action_logs(term: str = "", hour_from=None, hour_to=None, admin
     offset = max(page, 0) * page_size
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(f"SELECT COUNT(*) AS c FROM action_logs {where}", params) as cur:
-            row = await cur.fetchone()
-            total = row["c"] if row else 0
-        async with db.execute(
-            f"SELECT * FROM action_logs {where} ORDER BY logged_at DESC LIMIT ? OFFSET ?",
-            params + [page_size, offset]
-        ) as cur:
-            rows = await cur.fetchall()
+        # FIX: مثل get_action_logs — COUNT و SELECT صفحه به‌هم وابسته نیستن،
+        # پس هم‌زمان اجرا می‌شن (این یکی، برخلاف بالا، نمی‌شد از قبل موازی
+        # کرد چون هنوز باید بعد از کوئریِ admin_ids بالاتر منتظر می‌موند).
+        count_cur, rows_cur = await asyncio.gather(
+            db.execute(f"SELECT COUNT(*) AS c FROM action_logs {where}", params),
+            db.execute(
+                f"SELECT * FROM action_logs {where} ORDER BY logged_at DESC LIMIT ? OFFSET ?",
+                params + [page_size, offset]
+            ),
+        )
+        count_row = await count_cur.fetchone()
+        total = count_row["c"] if count_row else 0
+        rows = await rows_cur.fetchall()
         return rows, total
 
 
