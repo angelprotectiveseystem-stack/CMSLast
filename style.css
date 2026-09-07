@@ -1,4 +1,10 @@
-* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; }
+/* touch-action: manipulation حذفِ تاخیرِ ذاتیِ ~300ms مرورگر قبل از ثبتِ
+   تپ (که برای تشخیصِ دابل-تپ-زوم است) را برای کلِ اپ تضمین می‌کند؛ چون
+   این صفحه اصلاً قابلِ اسکرول/زوم نیست، این تاخیر صرفاً روی هر تپِ روی
+   خانه/دکمه یک لگِ ورودیِ قابل‌حس اضافه می‌کرد که ربطی به کیفیتِ خودِ
+   انیمیشن نداشت — این یکی از منابعِ حسِ «لگ» است که مستقل از انجینِ
+   حرکتِ مهره‌ها روی WebViewهای موبایل وجود دارد. */
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; touch-action: manipulation; }
 
 :root{
   --bg-0:#0e1220;
@@ -18,7 +24,32 @@
   --dark-sq:#1a2038;
   --hi-sq:rgba(91,124,250,.45);
   --move-dot:rgba(255,255,255,.55);
+  --piece-white:#f4f6ff; --piece-white-stroke:transparent; --piece-black:#0c0f1e; --piece-black-stroke:#545f8c;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Vazirmatn', Tahoma, sans-serif;
+}
+
+[data-theme="light"]{
+  --bg-0:#eef1f8; --bg-1:#ffffff; --bg-2:#e7ebf6; --surface:#ffffff; --border:#dbe0ef;
+  --text-1:#1b2035; --text-2:#5b6280; --text-3:#8790ab;
+  --light-sq:#f2f4fb; --dark-sq:#c3cae4;
+  --hi-sq:rgba(91,124,250,.35); --move-dot:rgba(30,40,80,.35);
+  --piece-white:#ffffff; --piece-white-stroke:#8b93b8; --piece-black:#1b2035; --piece-black-stroke:transparent;
+}
+[data-theme="wood"]{
+  --bg-0:#241a10; --bg-1:#2c2013; --bg-2:#382a19; --surface:#332619; --border:#54402a;
+  --text-1:#f5e9d6; --text-2:#c9b291; --text-3:#8f7a5e;
+  --light-sq:#e8c99b; --dark-sq:#a06b3f;
+  --accent:#c68642; --accent-2:#8a5a2e;
+  --hi-sq:rgba(198,134,66,.45); --move-dot:rgba(60,35,10,.5);
+  --piece-white:#fbf1e0; --piece-white-stroke:#8a6a44; --piece-black:#2b1a0d; --piece-black-stroke:transparent;
+}
+[data-theme="green"]{
+  --bg-0:#12190f; --bg-1:#182219; --bg-2:#1e2c1e; --surface:#1e2c1e; --border:#2d4029;
+  --text-1:#eef3ea; --text-2:#a9baa3; --text-3:#728768;
+  --light-sq:#eeeed2; --dark-sq:#6f9152;
+  --accent:#6fa84c; --accent-2:#4c8a3e;
+  --hi-sq:rgba(111,168,76,.45); --move-dot:rgba(30,20,10,.4);
+  --piece-white:#fbfbf0; --piece-white-stroke:#5b7250; --piece-black:#22301c; --piece-black-stroke:transparent;
 }
 
 html,body{
@@ -27,6 +58,7 @@ html,body{
   color: var(--text-1);
   font-family: var(--font);
   overflow:hidden;
+  transition: background-color .25s ease, color .25s ease;
 }
 
 #app{ height:100vh; height:100dvh; position:relative; }
@@ -36,20 +68,21 @@ html,body{
   display:none;
   flex-direction:column;
   opacity:0;
-  transition: opacity .35s ease;
+  transform: scale(.98);
+  transition: opacity .45s cubic-bezier(.4,0,.2,1), transform .45s cubic-bezier(.4,0,.2,1);
 }
-.screen.active{ display:flex; opacity:1; }
+.screen.active{ display:flex; opacity:1; transform: scale(1); }
 
 /* loading */
 #screen-loading{ align-items:center; justify-content:center; gap:18px; }
 .brand-mark{
-  width:88px; height:88px; border-radius:24px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  width:96px; height:96px; border-radius:24px;
+  overflow:hidden;
   display:flex; align-items:center; justify-content:center;
-  color:#fff;
   animation: floaty 2.4s ease-in-out infinite;
-  box-shadow: 0 10px 40px rgba(91,124,250,.35);
+  box-shadow: 0 10px 40px rgba(138,15,15,.4);
 }
+.brand-svg{ width:100%; height:100%; display:block; }
 @keyframes floaty{ 0%,100%{ transform: translateY(0) rotate(0deg);} 50%{ transform: translateY(-8px) rotate(4deg);} }
 .loading-text{ color: var(--text-2); font-size:14px; }
 .spinner{
@@ -74,16 +107,35 @@ html,body{
 #screen-game{ padding: 10px 12px 14px; gap:8px; }
 
 .topbar{ display:flex; align-items:center; justify-content:space-between; padding: 2px 2px 0; }
+.topbar-actions{ display:flex; gap:8px; }
 .topbar-status{ display:flex; align-items:center; gap:6px; font-size:12px; color: var(--text-2); }
 .dot{ width:7px; height:7px; border-radius:50%; background: var(--success); box-shadow: 0 0 6px var(--success); animation: pulse 1.8s ease-in-out infinite; }
 @keyframes pulse{ 0%,100%{ opacity:1;} 50%{ opacity:.4;} }
 .icon-btn{
+  position:relative;
   background: var(--surface); border:1px solid var(--border); color: var(--text-1);
-  width:32px; height:32px; border-radius:10px;
+  width:44px; height:44px; border-radius:10px;
   display:flex; align-items:center; justify-content:center;
-  transition: transform .15s ease, background .2s ease;
+  transition: transform .25s cubic-bezier(.34,1.56,.64,1), background .28s ease, border-color .28s ease;
 }
-.icon-btn:active{ transform: scale(.9); background: var(--bg-2); }
+.icon-btn svg{ width:22px; height:22px; transition: transform .25s cubic-bezier(.34,1.56,.64,1); }
+.icon-btn:active{ transform: scale(.88); background: var(--bg-2); }
+/* دکمه‌ی بستنِ پنل‌ها (تاریخچه/تم/چت): به‌جای مربعِ کوچکِ آیکونیِ عمومی
+   (که فقط ۴۴px عرض داشت)، یک کپسولِ به‌وضوح کشیده‌تر و بلندتر — تمامِ
+   ابعاد (نه فقط عرض) به‌صورتِ صریح override می‌شود تا از هر مقدارِ
+   ارثی‌شده‌ی .icon-btn مستقل باشد. */
+.icon-btn-close{
+  width:96px; height:44px; min-width:96px;
+  padding:0 18px; border-radius:12px;
+  font-size:15px; font-weight:700; letter-spacing:.5px;
+  flex-shrink:0;
+}
+.chat-badge{
+  position:absolute; top:-4px; left:-4px; min-width:16px; height:16px; padding:0 3px;
+  border-radius:8px; background: var(--danger); color:#fff; font-size:10px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; line-height:1;
+}
+.chat-badge.hidden{ display:none; }
 
 .player-card{
   display:flex; align-items:center; gap:10px;
@@ -91,28 +143,40 @@ html,body{
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 8px 12px;
+  min-height: 58px;
 }
 .avatar{
-  width:36px; height:36px; border-radius:50%;
+  width:46px; height:46px; border-radius:50%;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   display:flex; align-items:center; justify-content:center;
-  font-size:14px; font-weight:700; color:#fff; flex-shrink:0;
+  font-size:17px; font-weight:700; color:#fff; flex-shrink:0;
+  position: relative; overflow:hidden;
 }
+/* عکسِ پروفایلِ تلگرام: به‌صورتِ absolute روی حرفِ fallback قرار می‌گیرد
+   (نه جایگزینِ innerHTML) تا اگر لود نشد/۴۰۴ داد، همان دایره‌ی رنگیِ حرفِ
+   اول بدونِ هیچ پرش/جای‌خالیِ بصری زیرش باقی بماند — عکس با یک فِیدِ نرم
+   روی آن ظاهر می‌شود، نه این‌که یک‌دفعه جایگزین شود. */
+.avatar-img{
+  position:absolute; inset:0; width:100%; height:100%;
+  object-fit:cover; border-radius:50%;
+  opacity:0; transition: opacity .25s ease;
+}
+.avatar-img.loaded{ opacity:1; }
 .player-info{ flex:1; min-width:0; }
-.player-name{ font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.captured-row{ display:flex; gap:1px; font-size:13px; min-height:16px; color: var(--text-2); letter-spacing:-2px; }
+.player-name{ font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.captured-row{ display:flex; gap:1px; font-size:16px; min-height:19px; color: var(--text-2); letter-spacing:-2px; }
 .clock{
-  font-family: 'SF Mono', ui-monospace, monospace; font-size:15px; font-weight:600;
-  background: var(--bg-1); border-radius:8px; padding:5px 10px;
-  min-width:64px; text-align:center; color: var(--text-2);
-  transition: color .2s ease, background .2s ease;
+  font-family: 'SF Mono', ui-monospace, monospace; font-size:18px; font-weight:700;
+  background: var(--bg-1); border-radius:8px; padding:7px 13px;
+  min-width:76px; text-align:center; color: var(--text-2);
+  transition: color .3s cubic-bezier(.4,0,.2,1), background .3s cubic-bezier(.4,0,.2,1), box-shadow .3s ease;
 }
 .clock.active{ color:#fff; background: var(--accent); box-shadow: 0 0 14px rgba(91,124,250,.5); }
 .clock.low{ color:#fff; background: var(--danger); animation: pulse 1s ease-in-out infinite; }
 
-.board-wrap{ position:relative; flex: 1; display:flex; align-items:center; justify-content:center; min-height:0; }
+.board-wrap{ position:relative; flex: 1; display:flex; align-items:center; justify-content:center; min-height:0; width:100%; contain: layout size; }
 .board{
-  width:min(100%, calc(100vh - 340px), 480px);
+  width: var(--board-size, min(96vw, 560px));
   aspect-ratio:1;
   display:grid;
   grid-template-columns: repeat(8,1fr);
@@ -121,25 +185,46 @@ html,body{
   overflow:hidden;
   border: 1px solid var(--border);
   box-shadow: 0 20px 60px rgba(0,0,0,.45);
+  flex-shrink: 0;
 }
 
-.square{ position:relative; display:flex; align-items:center; justify-content:center; }
+/* توجه مهم: قبلاً اینجا contain:layout paint بود. paint دقیقاً مثل
+   overflow:hidden محتوای خانه رو به مرز خودش کلیپ می‌کنه — اما مهره‌ای که
+   در حال سُرخوردن بین خانه‌هاست (با transform: translate) لازمه از مرز
+   خانه‌ی مبدأ/مقصدش بیرون بزنه تا حرکتش پیوسته دیده بشه. با paint، مهره‌ی
+   در حال حرکت درست سرِ مرز هر خانه قطع/ناپدید می‌شد — یعنی به‌جای یک
+   سُرخوردنِ نرم، برای حرکت‌های چندخانه‌ای (وزیر/رخ/فیل) تکه‌تکه و بریده‌بریده
+   دیده می‌شد. layout به‌تنهایی (بدون paint) همون فایده‌ی اصلیِ فریم‌ریت رو
+   می‌ده — مرورگر لازم نیست ۶۳ خانه‌ی دیگه رو برای احتمالِ تغییرِ لِی‌آوت
+   بررسی کنه — بدون این‌که هیچ کلیپی روی محتوای بیرون‌زننده اعمال بشه. */
+.square{ position:relative; display:flex; align-items:center; justify-content:center; contain: layout; }
 .square.light{ background: var(--light-sq); }
 .square.dark{ background: var(--dark-sq); }
+.square::before{
+  content:''; position:absolute; inset:0; opacity:0;
+  transform: scale(.82);
+  transition: opacity .22s cubic-bezier(.4,0,.2,1), transform .22s cubic-bezier(.34,1.56,.64,1);
+  pointer-events:none;
+}
 .square.selected::before{
-  content:''; position:absolute; inset:0; background: var(--hi-sq);
+  background: var(--hi-sq); opacity:1; transform: scale(1);
 }
 .square.last-from::before, .square.last-to::before{
-  content:''; position:absolute; inset:0; background: rgba(240,185,63,.28);
+  background: rgba(240,185,63,.28); opacity:1;
 }
 .square.check::before{
-  content:''; position:absolute; inset:0;
-  background: radial-gradient(circle, rgba(240,84,110,.65) 0%, rgba(240,84,110,0) 72%);
+  background: radial-gradient(circle, rgba(240,84,110,.65) 0%, rgba(240,84,110,0) 72%); opacity:1;
+  animation: checkpulse 1s ease-in-out infinite;
+}
+@keyframes checkpulse{
+  0%,100%{ opacity:.55; }
+  50%{ opacity:1; }
 }
 .move-dot{
   position:absolute; width:26%; height:26%; border-radius:50%;
   background: var(--move-dot); pointer-events:none;
-  animation: dotpop .18s ease-out;
+  animation: dotpop .26s cubic-bezier(.34,1.56,.64,1);
+  will-change: transform;
 }
 .move-dot.capture{
   width:82%; height:82%; background:transparent;
@@ -148,40 +233,134 @@ html,body{
 @keyframes dotpop{ from{ transform: scale(0);} to{ transform: scale(1);} }
 
 .piece{
-  width:82%; height:82%;
+  width:92%; height:92%;
   display:flex; align-items:center; justify-content:center;
-  font-size: clamp(22px, 7vw, 38px);
+  font-size: calc(var(--board-size, 320px) / 8 * 0.8);
+  line-height: 1;
   cursor:grab;
-  position:relative; z-index:2;
-  transition: transform .18s cubic-bezier(.34,1.56,.64,1), filter .15s ease;
-  filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
+  position:absolute; inset:0; margin:auto; z-index:2;
+  transition: text-shadow .2s ease;
+  text-shadow: 0 2px 3px rgba(0,0,0,.5);
+  /* لایه‌ی ترکیبِ خودش را از قبل (نه فقط در لحظه‌ی شروعِ انیمیشن) دارد،
+     چون هر مهره ممکن است هر لحظه انتخاب/جابه‌جا شود؛ promote دیرهنگامِ
+     لایه (که فقط با will-change روی .moving/.piece-selected اتفاق
+     می‌افتد) خودش یک فریمِ افتاده تولید می‌کند. */
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
-.piece.white-p{ color:#f4f6ff; }
-.piece.black-p{ color:#0c0f1e; -webkit-text-stroke: .5px #545f8c; }
-.piece.dragging{ transform: scale(1.18); z-index:20; cursor:grabbing; }
-.piece.moving{ z-index:15; }
-.piece.captured-anim{ animation: capturepop .25s ease forwards; }
-@keyframes capturepop{ to{ transform: scale(0); opacity:0; } }
-.piece.landed{ animation: land .22s ease; }
-@keyframes land{ 0%{ transform: scale(1.25);} 100%{ transform: scale(1);} }
+.piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }
+.piece.black-p{ color: var(--piece-black); -webkit-text-stroke: .5px var(--piece-black-stroke); }
+/* پیکِ نرمِ خودِ مهره در لحظه‌ی انتخاب — علاوه بر هایلایتِ زیرِ خانه
+   (square.selected)، خودِ مهره هم کمی بزرگ‌تر و با یک سایه‌ی درخشانِ ملایم
+   نشان داده می‌شود تا واضح باشد این مهره همان چیزی است که برای حرکت
+   انتخاب شده، نه فقط خانه‌اش. selected فقط زمانی ست می‌شود که هیچ
+   انیمیشنِ حرکتی در جریان نیست (paintHighlights بعد از پایانِ moving صدا
+   زده می‌شود)، پس این افکت و انیمیشنِ جابه‌جاییِ transform هرگز هم‌زمان
+   روی یک مهره فعال نیستند. */
+/* رفعِ افتِ فریم‌ریت: drop-shadow روی هر فریمِ انیمیشن باید از نو
+   محاسبه شود (مثلِ همان مشکلی که در .moving مستند شده) و روی
+   WebViewهای موبایل مخصوصاً وقتی هم‌زمان با انیمیشنِ حرکتِ مهره یا
+   move-dotها اجرا می‌شود، فریم افت می‌کند. text-shadow (که خودِ .piece
+   همین الان هم دارد) بدونِ نیاز به لایه‌ی جداگانه compositable است، پس
+   به‌جای filter از یک text-shadow قوی‌تر برای حسِ درخشش استفاده شده. */
+.piece.piece-selected{
+  transform: translateZ(0) scale(1.1);
+  text-shadow: 0 0 6px var(--accent), 0 0 12px var(--accent), 0 2px 3px rgba(0,0,0,.5);
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1), text-shadow .22s ease;
+}
+.piece.dragging{ transform: translateZ(0) scale(1.18); z-index:20; cursor:grabbing; text-shadow: 0 4px 6px rgba(0,0,0,.45); }
+.piece.moving{ z-index:15; will-change: transform; transform: translateZ(0); }
+/* توجه: عمداً هیچ filter/drop-shadow روی .moving گذاشته نشد. drop-shadow
+   برخلاف box-shadow روی خیلی از WebViewهای موبایل (به‌خصوص اندرویدِ
+   داخلِ تلگرام) قابلِ compositing ارزان نیست و باید هر فریم از نو
+   محاسبه شود — درست همان چیزی که باعثِ افتِ نرخِ فریم و «سکته»ایِ شدنِ
+   انیمیشنِ حرکت شد. سایه‌ی زیرِ مهره در حینِ حرکت حذف شد تا حرکت به
+   روانیِ نسخه‌ی قبل (که این افکت را نداشت) برگردد. */
+
+.piece.captured-anim{
+  animation: capturepop .22s cubic-bezier(.4,0,1,1) forwards;
+  z-index: 1; /* زیر مهره‌ی مهاجمی که دارد وارد همان خانه می‌شود می‌ماند */
+}
+@keyframes capturepop{ to{ transform: scale(.35); opacity:0; } }
+/* مدت‌زمان این افکت عمداً کوتاه‌تر از قبل شد (بود ۰٫۳۲s) تا محوشدنِ
+   مهره‌ی گرفته‌شده تقریباً هم‌زمان با رسیدنِ مهره‌ی مهاجم به همان خانه
+   تمام شود — دقیقاً شبیه chess.com، نه اینکه مهاجم برسد و مهره‌ی گرفته‌شده
+   هنوز چند فریمِ دیگر روی صفحه بماند. */
+
+.piece.landed{ animation: land .28s cubic-bezier(.34,1.56,.64,1); }
+@keyframes land{ 0%{ transform: scale(1.22);} 60%{ transform: scale(.96);} 100%{ transform: scale(1);} }
+
+/* .piece.just-arrived عمداً دیگر هیچ انیمیشنی ندارد. قبلاً اینجا یک
+   پالسِ کوچکِ scale (به اسم settle) بعد از نشستنِ مهره روی خانه‌ی
+   مقصد اجرا می‌شد؛ همانِ همین انیمیشنِ بعد-از-فرود، هرچند خیلی کوچک،
+   دقیقاً همان تکونی بود که حسِ «سکته» می‌داد. چون خودِ انیمیشنِ اومدن
+   (سُرخوردنِ translate) مشکلی نداشت و فقط انیمیشنِ *بعد از* رسیدن
+   مزاحم بود، ساده‌ترین و مطمئن‌ترین رفع، خاموش‌کردنِ کاملِ آن است.
+   کلاسِ just-arrived در app.js دیگر اصلاً اضافه نمی‌شود؛ این قانونِ
+   خالی هم برای مستندسازی نگه داشته شده که اگر جایی هنوز به این کلاس
+   رجوع شود، عمداً بدون افکت بماند. */
+.piece.just-arrived{ animation: none; }
+
+.piece.mated-king{ animation: kingfall .6s cubic-bezier(.55,0,.55,1) .15s forwards; transform-origin: 50% 85%; }
+@keyframes kingfall{
+  0%{ transform: rotate(0deg) scale(1); }
+  100%{ transform: rotate(88deg) scale(.92) translateY(6%); opacity:.85; }
+}
+/* افکتِ امضادارِ chess.com در لحظه‌ی کیش‌ومات: شاهِ بازنده روی صفحه
+   می‌افتد/کج می‌شود. جهتِ سقوط (مثبت/منفی) در جاوااسکریپت بر اساس
+   رنگِ خانه انتخاب می‌شود تا شاه همیشه به‌سمتِ «بیرونِ صفحه» بیفتد. */
 
 .turn-banner{
-  text-align:center; font-size:13px; font-weight:600;
-  color: var(--text-2); padding:2px 0;
+  text-align:center; font-size:15px; font-weight:700;
+  color: var(--text-2); padding:4px 0;
   transition: color .2s ease;
 }
 .turn-banner.mine{ color: var(--success); }
 .turn-banner.theirs{ color: var(--text-3); }
 
+.spectator-note{
+  display:flex; align-items:center; justify-content:center; gap:7px;
+  text-align:center; font-size:13px; font-weight:600; color: var(--text-2);
+  background: var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:8px 0;
+}
+.spectator-note.hidden{ display:none; }
+/* چراغِ ضربان‌دارِ آرام به‌جای یک اموجیِ چشمِ دوم (کنارِ اموجیِ چشمِ
+   spectators-banner که تعدادِ بیننده‌ها را نشان می‌دهد) — تا وقتی کسی
+   در حال تماشا است دو اموجیِ چشم پشتِ‌سرِهم دیده نشود. سرعتِ pulse
+   کندتر از چراغِ وضعیتِ اتصال (که ۱٫۸s است) انتخاب شده تا حسِ «ضربانِ
+   آرام» بدهد، نه چشمک‌زدنِ عصبی. */
+.spectator-pulse{
+  width:8px; height:8px; border-radius:50%; flex:none;
+  background: var(--accent); box-shadow: 0 0 7px var(--accent);
+  animation: spectatorPulse 2.6s ease-in-out infinite;
+}
+@keyframes spectatorPulse{
+  0%,100%{ opacity:1; transform:scale(1); }
+  50%{ opacity:.35; transform:scale(.82); }
+}
+
+.spectators-banner{
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  text-align:center; font-size:12.5px; font-weight:600; color: var(--text-2);
+  background: var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:6px 10px; margin:0 0 4px 0;
+}
+.spectators-banner.hidden{ display:none; }
+.spectators-icon{ font-size:14px; line-height:1; }
+
+.action-row.hidden{ display:none; }
+
 .action-row{ display:flex; gap:8px; }
 .action-btn{
-  flex:1; padding:11px 0; border-radius:12px;
+  flex:1; padding:14px 0; border-radius:12px;
   background: var(--surface); border:1px solid var(--border);
-  color: var(--text-1); font-size:13px; font-weight:600;
+  color: var(--text-1); font-size:15px; font-weight:700;
   font-family: var(--font);
-  transition: transform .12s ease, background .2s ease;
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1), background .25s ease, box-shadow .25s ease;
 }
-.action-btn:active{ transform: scale(.96); }
+.action-btn:active{ transform: scale(.95); }
+.action-btn:disabled{ opacity:.55; }
 .action-btn.danger{ color: var(--danger); border-color: rgba(240,84,110,.35); }
 .action-btn.primary{ background: linear-gradient(135deg, var(--accent), var(--accent-2)); border:none; color:#fff; }
 
@@ -189,55 +368,340 @@ html,body{
   position:absolute; inset:0; background: rgba(10,13,26,.72);
   display:flex; align-items:center; justify-content:center;
   border-radius:12px; z-index:30;
-  animation: fadein .18s ease;
+  animation: fadein .28s cubic-bezier(.4,0,.2,1);
 }
 .promo-modal.hidden{ display:none; }
 .promo-card{
   background: var(--surface); border:1px solid var(--border);
   border-radius:16px; padding:16px; text-align:center;
-  animation: popin .22s cubic-bezier(.34,1.56,.64,1);
+  animation: popin .34s cubic-bezier(.34,1.56,.64,1);
 }
-.promo-title{ font-size:13px; color: var(--text-2); margin-bottom:10px; }
+.promo-title{ font-size:14px; color: var(--text-2); margin-bottom:10px; }
 .promo-options{ display:flex; gap:8px; }
-.promo-options .piece{ width:44px; height:44px; background: var(--bg-1); border-radius:10px; font-size:28px; cursor:pointer; }
+.promo-options .piece{
+  /* رفعِ باگِ «فقط اسب قابل‌انتخابه»: کلاسِ پایه‌ی .piece برای مهره‌های
+     روی صفحه position:absolute + inset:0 + margin:auto دارد (تا دقیقاً
+     وسطِ خانه‌شان بنشینند). این چهار گزینه‌ی ترفیع همان کلاس را به ارث
+     می‌برند، پس همه‌شان دقیقاً روی هم (وسطِ promo-modal) قرار می‌گرفتند؛
+     چون آخرین موردِ اضافه‌شده (اسب) در DOM بالاتر می‌افتد، فقط کلیک روی
+     او ثبت می‌شد و بقیه دقیقاً زیرش پنهان بودند. با ریست‌کردنِ position
+     به static، دوباره داخل flex‌ی promo-options به‌صورت افقی و جدا از هم
+     چیده می‌شوند. */
+  position:static; inset:auto; margin:0;
+  width:54px; height:54px; background: var(--bg-1); border-radius:10px; font-size:36px; cursor:pointer;
+}
 .promo-options .piece:active{ transform: scale(.9); }
 
 .history-panel{
   position:absolute; inset:0; background: var(--bg-0);
   z-index:40; display:flex; flex-direction:column;
   transform: translateX(100%);
-  transition: transform .28s cubic-bezier(.34,1.1,.64,1);
+  transition: transform .4s cubic-bezier(.16,1,.3,1);
 }
 .history-panel.hidden{ display:flex; }
 .history-panel.open{ transform: translateX(0); }
 .history-head{
   display:flex; align-items:center; justify-content:space-between;
-  padding:14px 16px; border-bottom:1px solid var(--border); font-weight:600; font-size:14px;
+  padding:16px; border-bottom:1px solid var(--border); font-weight:700; font-size:16px;
 }
 .history-list{ flex:1; overflow-y:auto; padding: 8px 16px; }
 .history-row{
-  display:flex; align-items:center; gap:12px; padding:9px 0;
-  border-bottom: 1px solid var(--border); font-size:14px;
+  display:flex; align-items:center; gap:12px; padding:11px 0;
+  border-bottom: 1px solid var(--border); font-size:16px;
 }
-.history-num{ color: var(--text-3); width:26px; font-family: monospace; }
-.history-move{ flex:1; font-family: monospace; }
+.history-num{ color: var(--text-3); width:30px; font-family: monospace; }
+.history-move{ flex:1; font-family: monospace; font-weight:600; }
+
+.theme-list{ flex:1; overflow-y:auto; padding: 14px 16px; display:flex; flex-direction:column; gap:10px; }
+.theme-opt{
+  display:flex; align-items:center; gap:12px;
+  background: var(--surface); border:1px solid var(--border); color: var(--text-1);
+  border-radius:14px; padding:14px 16px; font-size:16px; font-family: var(--font); font-weight:600;
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1), border-color .25s ease, box-shadow .25s ease;
+}
+.theme-opt:active{ transform: scale(.96); }
+.theme-opt.active{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.theme-swatch{ width:32px; height:32px; border-radius:8px; flex-shrink:0; border:1px solid rgba(0,0,0,.15); }
+.theme-swatch-dark{ background: linear-gradient(135deg,#1a2038,#2c3557); }
+.theme-swatch-light{ background: linear-gradient(135deg,#f2f4fb,#c3cae4); }
+.theme-swatch-wood{ background: linear-gradient(135deg,#e8c99b,#a06b3f); }
+.theme-swatch-green{ background: linear-gradient(135deg,#eeeed2,#6f9152); }
+
+.chat-list{ flex:1; overflow-y:auto; padding: 10px 14px; display:flex; flex-direction:column; gap:10px; }
+.chat-bubble{
+  max-width:80%; padding:10px 14px; border-radius:14px; font-size:16px; line-height:1.7;
+  background: var(--surface); border:1px solid var(--border); align-self:flex-start;
+  word-break:break-word;
+  animation: bubblein .32s cubic-bezier(.34,1.56,.64,1);
+  transition: opacity .25s ease;
+}
+@keyframes bubblein{ from{ opacity:0; transform: translateY(6px) scale(.96);} to{ opacity:1; transform: translateY(0) scale(1);} }
+.chat-bubble.sending{ opacity:.55; }
+.chat-bubble.failed{ border-color: var(--danger); }
+.chat-bubble .chat-sender{ display:block; font-size:12px; color: var(--text-3); margin-bottom:3px; font-weight:700; }
+.chat-bubble.mine{
+  align-self:flex-end; background: linear-gradient(135deg, var(--accent), var(--accent-2)); border:none; color:#fff;
+}
+.chat-bubble.mine .chat-sender{ color: rgba(255,255,255,.75); }
+.chat-empty{ color: var(--text-3); font-size:14px; text-align:center; margin-top:24px; }
+.chat-input-row{ display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--border); }
+.chat-input{
+  flex:1; background: var(--bg-1); border:1px solid var(--border); border-radius:12px;
+  padding:12px 14px; color: var(--text-1); font-size:16px; font-family: var(--font);
+}
+.chat-input:focus{ outline:none; border-color: var(--accent); }
+.chat-send{ flex-shrink:0; }
 
 .modal-overlay{
   position:absolute; inset:0; background: rgba(10,13,26,.82);
   z-index:50; display:flex; align-items:center; justify-content:center;
-  animation: fadein .2s ease;
+  animation: fadein .32s cubic-bezier(.4,0,.2,1);
+  backdrop-filter: blur(2px);
 }
 .modal-overlay.hidden{ display:none; }
 .modal-card{
   background: var(--surface); border:1px solid var(--border);
   border-radius:20px; padding:28px 26px; text-align:center; width: min(80vw, 300px);
-  animation: popin .28s cubic-bezier(.34,1.56,.64,1);
+  animation: popin .42s cubic-bezier(.34,1.56,.64,1);
 }
-.modal-icon{ font-size:46px; margin-bottom:10px; }
-.modal-title{ font-size:18px; font-weight:700; margin-bottom:6px; }
-.modal-sub{ font-size:13px; color: var(--text-2); margin-bottom:20px; line-height:1.8; }
+.modal-icon{ font-size:52px; margin-bottom:10px; animation: iconpop .5s cubic-bezier(.34,1.56,.64,1) .05s both; }
+.modal-title{ font-size:20px; font-weight:700; margin-bottom:6px; }
+.modal-sub{ font-size:14px; color: var(--text-2); margin-bottom:14px; line-height:1.8; }
+.modal-elo{ font-size:14px; color: var(--text-2); margin-bottom:20px; line-height:1.9; }
+.modal-elo:empty{ display:none; }
+.draw-response-row{ display:flex; gap:8px; margin-top:4px; }
+
+/* دکمه‌ی «بستن» پایان‌بازی: به‌جای دکمه‌ی مسطحِ عمومیِ اکشن‌ها (که هم‌شکلِ
+   تسلیم/پیشنهاد تساوی بود و به‌نظر جدا و بی‌روح می‌آمد)، یک دکمه‌ی
+   برجسته‌ی مخصوصِ خودش با فرم capsule، گرادیان، سایه‌ی نرم و افکت فشردن
+   فنری — هم‌راستا با حس کلی برد/باخت این مودال. */
+#modal-close{
+  /* باگ: .action-btn به flex:1 تکیه دارد که فقط داخلِ یک والدِ flex اثر
+     دارد؛ اینجا modal-card والدِ flex نیست، پس flex:1 هیچ کاری نمی‌کرد و
+     دکمه فقط به‌اندازه‌ی متنِ «بستن» + پدینگِ افقیِ صفر جمع می‌شد (کوتاه و
+     نامتناسب با بقیه‌ی مودال). width:100% دکمه را به عرضِ کاملِ کارتِ
+     مودال می‌کشد — همان درازترشدنی که خواسته شده بود. */
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border: none;
+  border-radius: 999px;
+  padding: 15px 0;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: .3px;
+  color: #fff;
+  box-shadow: 0 10px 26px rgba(91,124,250,.4), inset 0 1px 0 rgba(255,255,255,.25);
+  transition: transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .3s ease, opacity .2s ease;
+}
+#modal-close:active{
+  transform: scale(.94);
+  box-shadow: 0 4px 14px rgba(91,124,250,.32), inset 0 1px 0 rgba(255,255,255,.2);
+}
 
 @keyframes fadein{ from{ opacity:0;} to{ opacity:1;} }
-@keyframes popin{ from{ opacity:0; transform: scale(.8);} to{ opacity:1; transform: scale(1);} }
+@keyframes popin{ from{ opacity:0; transform: scale(.78) translateY(14px);} to{ opacity:1; transform: scale(1) translateY(0);} }
+@keyframes iconpop{ from{ opacity:0; transform: scale(.4) rotate(-15deg);} to{ opacity:1; transform: scale(1) rotate(0deg);} }
 
 #confetti{ position:absolute; inset:0; pointer-events:none; z-index:60; display:none; }
+
+/* ============================================================
+   لایه‌ی Liquid Glass (iOS 26) — فقط روی کروم/UI بیرونی
+   ============================================================
+   افزایشی: هیچ قانونِ بالا حذف/بازنویسی نشده؛ چون specificity این
+   سلکتورها با نسخه‌ی قبلیِ همان کلاس برابر است، صرفِ پایین‌تر بودن
+   در فایل باعثِ override می‌شود (کاسکِیدِ استاندارد CSS).
+
+   محدودیتِ حیاتی: خودِ ۶۴ خانه‌ی تخته (.square) در این بخش هیچ
+   backdrop-filter نمی‌گیرد — بلورِ هم‌زمان روی ۶۴ المان روی WebView
+   قدیمیِ اندرویدِ داخلِ تلگرام فریم‌ریت را نابود می‌کند. افکتِ شیشه فقط
+   روی چند المانِ UI بیرونی (دکمه/پنل/مودال/کارت) و روی نشانگرِ خانه‌ی
+   انتخاب‌شده اعمال شده — که همیشه حداکثر یکی‌ست، نه ۶۴‌تا. move-dot
+   می‌تواند هم‌زمان تا ~۲۷ نمونه داشته باشد (همه‌ی حرکت‌های مجاز)، پس
+   عمداً به‌جای backdrop-filter از gradient/box-shadوی ایستا برای حسِ
+   frosted استفاده شده — دقیقاً همان فلسفه‌ی «هرچه ارزان‌تر compositable
+   بشه» که در بقیه‌ی فایل (مثلاً کامنتِ .piece.moving) رعایت شده.
+
+   رنگ‌ها هاردکد نیستند: هر ۴ تم یک نسخه‌ی RGB (بدونِ #، جدا با کاما)
+   از --surface/--border/--accent خودشان تعریف می‌کنند تا با
+   rgba(var(--x-rgb), alpha) بشود نسخه‌ی نیمه‌شفافِ همان رنگِ تمِ فعال
+   را ساخت — بدونِ color-mix() (که پشتیبانی‌اش از backdrop-filter هم
+   جدیدتر و محدودتره) و بدونِ هیچ مقدارِ رنگیِ مستقل از تم. */
+
+:root{
+  --surface-rgb: 35,44,72;
+  --border-rgb: 47,58,92;
+  --accent-rgb: 91,124,250;
+  --glass-sheen: rgba(255,255,255,.16);
+  --glass-shadow: rgba(0,0,0,.35);
+}
+[data-theme="light"]{
+  --surface-rgb: 255,255,255;
+  --border-rgb: 219,224,239;
+  --glass-sheen: rgba(120,140,210,.18);
+  --glass-shadow: rgba(30,40,80,.14);
+}
+[data-theme="wood"]{
+  --surface-rgb: 51,38,25;
+  --border-rgb: 84,64,42;
+  --accent-rgb: 198,134,66;
+  --glass-sheen: rgba(255,238,210,.16);
+  --glass-shadow: rgba(15,8,3,.4);
+}
+[data-theme="green"]{
+  --surface-rgb: 30,44,30;
+  --border-rgb: 45,64,41;
+  --accent-rgb: 111,168,76;
+  --glass-sheen: rgba(230,255,225,.14);
+  --glass-shadow: rgba(4,10,4,.38);
+}
+
+/* fallback بدونِ backdrop-filter: نیمه‌شفافِ ساده (بدونِ بلور) — طبق
+   خواسته نباید کلاً محو/نامرئی بشه؛ rgba مستقیماً از خودِ تم مشتق شده،
+   پس روی مرورگرهای خیلی قدیمی هم رنگِ درستِ تمِ فعال را نشان می‌دهد. */
+.icon-btn, .action-btn:not(.primary), .player-card, .clock,
+.turn-banner, .spectators-banner, .promo-card, .history-panel{
+  background: rgba(var(--surface-rgb), .8);
+  border-color: rgba(var(--border-rgb), .75);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)){
+
+  .icon-btn, .action-btn:not(.primary), .player-card, .clock,
+  .turn-banner, .spectators-banner, .promo-card, .history-panel{
+    background: rgba(var(--surface-rgb), .46);
+    -webkit-backdrop-filter: blur(18px) saturate(170%);
+    backdrop-filter: blur(18px) saturate(170%);
+  }
+
+  /* دکمه‌های آیکونی بالای صفحه */
+  .icon-btn{
+    border-color: rgba(var(--border-rgb), .55);
+    box-shadow: inset 0 1px 0 var(--glass-sheen), 0 6px 16px var(--glass-shadow);
+  }
+  .icon-btn:active{ background: rgba(var(--surface-rgb), .62); }
+
+  /* تسلیم/پیشنهاد تساوی */
+  .action-btn:not(.primary){
+    border-color: rgba(var(--border-rgb), .55);
+    box-shadow: inset 0 1px 0 var(--glass-sheen), 0 8px 20px var(--glass-shadow);
+  }
+  .action-btn.danger{ border-color: rgba(240,84,110,.45); }
+
+  /* مودالِ ترفیعِ مهره: پسِ‌زمینه‌ی تیره‌ی خودِ overlay هم کمی بلور
+     می‌گیرد (فقط همین یک المان، نه ۶۴ خانه) تا تخته‌ی پشتش محو بشه */
+  .promo-modal{
+    background: rgba(10,13,26,.42);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+  .promo-card{
+    border-color: rgba(var(--border-rgb), .55);
+    box-shadow: inset 0 1px 0 var(--glass-sheen), 0 16px 40px var(--glass-shadow);
+  }
+  .promo-options .piece{ background: rgba(var(--surface-rgb), .55); }
+
+  /* کارتِ بازیکن و کرنومتر */
+  .player-card{
+    border-color: rgba(var(--border-rgb), .55);
+    box-shadow: inset 0 1px 0 var(--glass-sheen);
+  }
+  .clock{ background: rgba(var(--surface-rgb), .55); }
+  .clock.active{ background: rgba(var(--accent-rgb), .55); }
+  .clock.low{ background: rgba(240,84,110,.55); }
+
+  /* بنرِ نوبت و بنرِ تماشاگر */
+  .turn-banner{
+    border: 1px solid rgba(var(--border-rgb), .4);
+    border-radius: 999px;
+    padding: 6px 14px;
+    box-shadow: inset 0 1px 0 var(--glass-sheen);
+  }
+  .spectators-banner{ border-color: rgba(var(--border-rgb), .55); }
+  .spectator-note{ background: rgba(var(--surface-rgb), .46); border-color: rgba(var(--border-rgb), .55); }
+
+  /* پنل‌های تمام‌صفحه: تاریخچه / تم / چت (هر سه از .history-panel) */
+  .history-panel{
+    -webkit-backdrop-filter: blur(26px) saturate(160%);
+    backdrop-filter: blur(26px) saturate(160%);
+    border-inline-start: 1px solid rgba(var(--border-rgb), .5);
+  }
+  .theme-opt, .chat-bubble:not(.mine), .chat-input{
+    background: rgba(var(--surface-rgb), .5);
+    border-color: rgba(var(--border-rgb), .55);
+  }
+  .theme-opt{ box-shadow: inset 0 1px 0 var(--glass-sheen); }
+
+  /* اسپرینگِ نرم‌تر برای اسلایدِ ورودِ پنل‌ها به‌جای easeِ ساده‌ی قبلی؛
+     overshoot خیلی کوچک، مناسبِ یه شیتِ تمام‌صفحه (نه پرشِ زیاد) */
+  .history-panel{ transition: transform .45s cubic-bezier(.25,1.1,.35,1); }
+
+  /* نشانگرِ خانه‌ی انتخاب‌شده: تکی‌ست (حداکثر یک خانه)، پس بلور اینجا
+     امن است — یه گلوی شیشه‌ای به‌جای یه مربعِ تخت‌رنگ */
+  .square.selected::before{
+    background: radial-gradient(circle at 50% 45%,
+      rgba(var(--accent-rgb),.5) 0%, rgba(var(--accent-rgb),.22) 62%, transparent 78%);
+    border: 1px solid rgba(var(--accent-rgb),.55);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
+    -webkit-backdrop-filter: blur(6px) saturate(140%);
+    backdrop-filter: blur(6px) saturate(140%);
+  }
+}
+
+/* نقطه‌های حرکتِ مجاز و حلقه‌ی گرفتن: تا ~۲۷ نمونه هم‌زمان ممکنه
+   باشند، پس عمداً backdrop-filter نمی‌گیرن (توضیح در سرِ این بخش) —
+   حسِ frosted فقط با gradient/box-shadowِ ایستا (ارزان و compositable)
+   ساخته می‌شه، نه با بلورِ واقعی. */
+.move-dot{
+  background: radial-gradient(circle at 40% 35%,
+    rgba(255,255,255,.65) 0%, rgba(var(--surface-rgb),.35) 38%, rgba(var(--surface-rgb),.15) 70%, transparent 82%);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.18) inset, 0 2px 6px rgba(0,0,0,.25);
+}
+.move-dot.capture{
+  background: radial-gradient(circle, transparent 60%, rgba(var(--surface-rgb),.25) 78%, transparent 84%);
+  border: 3px solid rgba(255,255,255,.35);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb),.35) inset, 0 2px 8px rgba(0,0,0,.25);
+}
+
+/* هاله‌ی شیشه‌ای دورِ مهره‌ی انتخاب‌شده: به‌جای یه بردرِ سفت، یه
+   ::before بزرگ‌تر از خودِ مهره با یه رادیال‌گرادیِنتِ نرم — چون فقط
+   حداکثر یه مهره در آنِ واحد می‌تونه انتخاب‌شده باشه (تکی)، اضافه‌کردنِ
+   یه بلورِ واقعی هم اینجا بی‌خطره. هیچ rect/JS جدیدی لازم نیست چون
+   ::before به‌صورتِ پیش‌فرض با transform والدش حرکت می‌کنه. */
+.piece{ position:relative; }
+.piece::before{
+  content:''; position:absolute; inset:-32%; border-radius:50%;
+  opacity:0; pointer-events:none; z-index:-1;
+  background: radial-gradient(circle, rgba(var(--accent-rgb),.38) 0%, rgba(var(--accent-rgb),.12) 55%, transparent 75%);
+  transition: opacity .22s ease;
+}
+.piece.piece-selected::before{ opacity:1; }
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)){
+  .piece.piece-selected::before{
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+}
+
+/* سایه‌ی نرمِ زیرِ مهره در لحظه‌ی فرود — نه در طولِ کلِ .moving (که
+   قبلاً عمداً حذف شده بود، دقیقاً به‌همون دلیلِ perf که در کامنتِ بالای
+   .piece.moving مستند شده)، بلکه فقط در بازه‌ی کوتاهِ خودِ کیف‌فریمِ
+   land: یه radial-gradientِ آماده (بلورش «پخته»‌ست، نه filter زنده)
+   که فقط opacity/scale اش عوض می‌شه — همون الگویی که capturepop و
+   بقیه‌ی انیمیشن‌های این فایل استفاده می‌کنن (فقط transform/opacity،
+   بدونِ فیلترِ پرهزینه‌ی هر-فریم). */
+.piece::after{
+  content:''; position:absolute; left:50%; bottom:-6%;
+  width:70%; height:22%; transform: translateX(-50%) scale(.4);
+  border-radius:50%; opacity:0; pointer-events:none; z-index:-1;
+  background: radial-gradient(ellipse, rgba(0,0,0,.38) 0%, rgba(0,0,0,.15) 55%, transparent 75%);
+}
+.piece.landed{ animation: land .34s cubic-bezier(.22,1.3,.36,1); }
+.piece.landed::after{ animation: landShadow .34s cubic-bezier(.22,1.3,.36,1); }
+@keyframes land{ 0%{ transform: scale(1.26);} 55%{ transform: scale(.94);} 100%{ transform: scale(1);} }
+@keyframes landShadow{
+  0%{ opacity:0; transform: translateX(-50%) scale(.3); }
+  55%{ opacity:.9; transform: translateX(-50%) scale(1.15); }
+  100%{ opacity:0; transform: translateX(-50%) scale(.55); }
+}
