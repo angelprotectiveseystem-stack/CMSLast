@@ -1,3 +1,4 @@
+import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 import database as db
@@ -6,6 +7,8 @@ from helpers import (safe_edit_message_text, now_shamsi, box, separator, pishva_
                      check_status_gate, get_user_role, power_bar, progress_bar,
                      warning_bar_player, check_perm)
 from config import PISHVA_ID, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
+
+logger = logging.getLogger(__name__)
 
 
 async def get_main_markup(user_id: int):
@@ -85,17 +88,38 @@ async def menu_pishva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔ این بخش فقط برای مدیر ارشد است.", show_alert=True)
         return
     await query.answer()
-    pname = await pishva_display()
-    status = await db.get_setting("system_status", "normal")
-    status_map = {"normal": "🟢 نرمال", "bad": "🟡 بد", "danger": "🔴 خطرناک", "aps": "🪽 APS"}
-    await safe_edit_message_text(query, 
-        f"{box(f'👑 پنل مدیر ارشد — {pname}')}\n\n"
-        f"🚦 وضعیت فعلی: {status_map.get(status, status)}\n"
-        f"⏱️ `{now_shamsi()}`\n\n"
-        f"📌 بخش موردنظر را انتخاب کنید:",
-        reply_markup=kb.kb_pishva_panel(),
-        parse_mode="Markdown"
-    )
+    try:
+        pname = await pishva_display()
+        status = await db.get_setting("system_status", "normal")
+        status_map = {"normal": "🟢 نرمال", "bad": "🟡 بد", "danger": "🔴 خطرناک", "aps": "🪽 APS"}
+        await safe_edit_message_text(query,
+            f"{box(f'👑 پنل مدیر ارشد — {pname}')}\n\n"
+            f"🚦 وضعیت فعلی: {status_map.get(status, status)}\n"
+            f"⏱️ `{now_shamsi()}`\n\n"
+            f"📌 بخش موردنظر را انتخاب کنید:",
+            reply_markup=kb.kb_pishva_panel(),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        # این پنل قبلاً در سکوت خراب می‌شد (کوئری DB خطا می‌داد، پیام هم ادیت
+        # نمی‌شد، کاربر هم هیچ خطایی نمی‌دید — فقط دکمه لود می‌شد و هیچی باز نمی‌شد).
+        # حالا خطا لاگ می‌شه و یه نسخه‌ی حداقلی از پنل (بدون وضعیت زنده) باز می‌شه
+        # تا مدیر ارشد گیر نکنه.
+        logger.error(f"[MENU-PISHVA-DEBUG] failed to build/edit پنل مدیر ارشد: {e}", exc_info=True)
+        try:
+            await safe_edit_message_text(query,
+                f"{box('👑 پنل مدیر ارشد')}\n\n📌 بخش موردنظر را انتخاب کنید:",
+                reply_markup=kb.kb_pishva_panel(),
+                parse_mode="Markdown"
+            )
+        except Exception as e2:
+            logger.error(f"[MENU-PISHVA-DEBUG] fallback edit also failed: {e2}", exc_info=True)
+            try:
+                await query.message.reply_text(
+                    "⚠️ خطا در باز کردن پنل مدیر ارشد. لطفاً دوباره تلاش کنید یا /start را بزنید."
+                )
+            except Exception:
+                pass
 
 
 async def menu_comms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
