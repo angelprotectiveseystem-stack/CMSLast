@@ -4,6 +4,7 @@ import database as db
 import keyboards as kb
 from helpers import (safe_edit_message_text, now_shamsi, box, separator, progress_bar,
                      broadcast_to_admins, notify_pishva, check_status_gate)
+from anomaly_alerts import record_destructive_action
 from config import (PISHVA_ID, ST_TOURNAMENT_NAME, ST_TOURNAMENT_EDIT)
 
 
@@ -167,6 +168,7 @@ async def tourn_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     t = await db.get_tournament(tid)
     await db.update_tournament(tid, status="deleted", is_default=0)
     await db.log_action(uid, "delete_tournament", f"حذف تورنمنت: {t['name']}", tid)
+    await record_destructive_action(ctx.bot, uid, "delete_tournament")
     await safe_edit_message_text(query, 
         f"🗑️ تورنمنت *{t['name']}* حذف شد.",
         reply_markup=kb.kb_tournament_menu(),

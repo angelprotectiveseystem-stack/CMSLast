@@ -8,6 +8,7 @@ import keyboards as kb
 from helpers import (safe_edit_message_text, box, separator, now_shamsi, broadcast_to_admins,
                      notify_pishva, pishva_display, warning_bar_admin,
                      power_bar, send_notification, check_perm, check_status_gate)
+from anomaly_alerts import record_destructive_action
 from config import (PISHVA_ID, ST_TASK_SELECT_ADMIN, ST_TASK_TITLE,
                     ST_TASK_DESC, ST_TASK_DONE_REASON, ST_FEEDBACK_TEXT,
                     ST_SUGGESTION_TEXT, ST_FEATURE_TITLE, ST_FEATURE_DESC,
@@ -869,6 +870,7 @@ async def team_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     team = await db.get_team(tid)
     await db.delete_team(tid)
     await db.log_action(query.from_user.id, "delete_team", f"حذف تیم: {team['name']}", tid)
+    await record_destructive_action(ctx.bot, query.from_user.id, "delete_team")
     await safe_edit_message_text(query, f"🗑️ تیم *{team['name']}* حذف شد.", reply_markup=kb.kb_back("teams_list"), parse_mode="Markdown")
 
 

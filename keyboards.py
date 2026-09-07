@@ -404,6 +404,48 @@ def kb_status_select(current):
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
     ])
 
+def kb_suspicious_alert(admin_id, date_compact):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("↩️ خنثی‌سازی کل اقدامات این ادمین (امروز)",
+            callback_data=f"sadel_undo_{admin_id}_{date_compact}", style="primary")],
+        [InlineKeyboardButton("🔇 خاموشی ربات برای این ادمین",
+            callback_data=f"sadel_disable_{admin_id}", style="danger")],
+        [InlineKeyboardButton("✅ مشکلی نیست",
+            callback_data=f"sadel_dismiss_{admin_id}_{date_compact}", style="success")],
+    ])
+
+
+# ─── پنل تنظیمِ آستانه‌ی هشدار حذف مشکوک ────────────────────────
+def kb_suspicious_settings(enabled, threshold, window):
+    e_icon = "✅" if enabled == "1" else "❌"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"🚨 هشدار حذف مشکوک {e_icon}", callback_data="sadel_toggle", style="primary")],
+        [InlineKeyboardButton(f"🔢 آستانه: {threshold} حذف", callback_data="sadel_threshold_menu", style="primary"),
+        InlineKeyboardButton(f"⏱️ بازه: {window} دقیقه", callback_data="sadel_window_menu", style="primary")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_settings", style="danger")],
+    ])
+
+
+def kb_suspicious_threshold():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔢 ۳ حذف", callback_data="sadel_set_threshold_3", style="primary"),
+        InlineKeyboardButton("🔢 ۵ حذف", callback_data="sadel_set_threshold_5", style="primary")],
+        [InlineKeyboardButton("🔢 ۷ حذف", callback_data="sadel_set_threshold_7", style="primary"),
+        InlineKeyboardButton("🔢 ۱۰ حذف", callback_data="sadel_set_threshold_10", style="primary")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="sadel_panel", style="danger")],
+    ])
+
+
+def kb_suspicious_window():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏱️ ۵ دقیقه", callback_data="sadel_set_window_5", style="primary"),
+        InlineKeyboardButton("⏱️ ۱۰ دقیقه", callback_data="sadel_set_window_10", style="primary")],
+        [InlineKeyboardButton("⏱️ ۱۵ دقیقه", callback_data="sadel_set_window_15", style="primary"),
+        InlineKeyboardButton("⏱️ ۳۰ دقیقه", callback_data="sadel_set_window_30", style="primary")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="sadel_panel", style="danger")],
+    ])
+
+
 def kb_pishva_settings_simple(settings):
     def tog(k): return "✅" if settings.get(k) == "1" else "❌"
     return InlineKeyboardMarkup([
@@ -420,6 +462,7 @@ def kb_pishva_settings_simple(settings):
         [InlineKeyboardButton(f"🤖 هوش مصنوعی {tog('ai_online')}", callback_data="setting_ai_online", style="primary")],
         [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('live_chess_enabled')}", callback_data="setting_live_chess", style="primary")],
         [InlineKeyboardButton(f"🚨 گزارش باگ به مدیر ارشد {tog('bug_report_to_pishva_enabled')}", callback_data="setting_bug_report", style="primary")],
+        [InlineKeyboardButton("🚨 هشدار حذف مشکوک ⚙️", callback_data="sadel_panel", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
     ])
 

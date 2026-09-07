@@ -204,6 +204,7 @@ ACTION_LOG_LABELS = {
     "block_user":                 ("⛔", "بلاک کاربر"),
     "unblock_user":               ("✅", "آنبلاک کاربر"),
     "weekly_champion":            ("🏅", "قهرمان هفته"),
+    "undo_admin_actions":         ("↩️", "خنثی‌سازی اقدامات ادمین"),
 }
 
 

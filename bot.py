@@ -106,6 +106,8 @@ from pishva import (
     auto_backup_set_interval, auto_backup_fmt_toggle, auto_backup_period_toggle,
     pishva_restore_start, restore_file_received, restore_confirm_apply, restore_cancel,
     pishva_ai_scheduled, ai_scheduled_cancel,
+    pishva_suspicious_settings, sadel_toggle, sadel_threshold_menu, sadel_set_threshold,
+    sadel_window_menu, sadel_set_window,
 )
 from comms import (
     comms_msg_admin_start, comms_msg_target, comms_msg_send,
@@ -161,6 +163,7 @@ from security import (
     request_block_ask, block_confirm, security_blocked_list,
     security_blocked_item, unblock_action, block_gate,
 )
+from anomaly_alerts import suspicious_undo, suspicious_disable, suspicious_dismiss
 
 logging.basicConfig(
     format="%(asctime)s — %(name)s — %(levelname)s — %(message)s",
@@ -955,6 +958,15 @@ def build_application():
     app.add_handler(CallbackQueryHandler(security_blocked_list, pattern="^security_blocked$"))
     app.add_handler(CallbackQueryHandler(security_blocked_item, pattern="^blockedview_"))
     app.add_handler(CallbackQueryHandler(unblock_action, pattern="^unblock_"))
+    app.add_handler(CallbackQueryHandler(suspicious_undo, pattern="^sadel_undo_"))
+    app.add_handler(CallbackQueryHandler(suspicious_disable, pattern="^sadel_disable_"))
+    app.add_handler(CallbackQueryHandler(suspicious_dismiss, pattern="^sadel_dismiss_"))
+    app.add_handler(CallbackQueryHandler(pishva_suspicious_settings, pattern="^sadel_panel$"))
+    app.add_handler(CallbackQueryHandler(sadel_toggle, pattern="^sadel_toggle$"))
+    app.add_handler(CallbackQueryHandler(sadel_threshold_menu, pattern="^sadel_threshold_menu$"))
+    app.add_handler(CallbackQueryHandler(sadel_set_threshold, pattern="^sadel_set_threshold_"))
+    app.add_handler(CallbackQueryHandler(sadel_window_menu, pattern="^sadel_window_menu$"))
+    app.add_handler(CallbackQueryHandler(sadel_set_window, pattern="^sadel_set_window_"))
     app.add_handler(CallbackQueryHandler(pishva_ai_scheduled, pattern="^pishva_ai_scheduled$"))
     app.add_handler(CallbackQueryHandler(ai_scheduled_cancel, pattern="^aischedcancel_"))
     app.add_handler(CallbackQueryHandler(pishva_reminders, pattern="^pishva_reminders$"))

@@ -1,11 +1,13 @@
 import random
 import asyncio
+import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 import database as db
 import keyboards as kb
 from helpers import (safe_edit_message_text, box, separator, now_shamsi, today_gregorian, today_shamsi,
     notify_pishva, check_status_gate, smart_lottery, progress_bar, check_perm)
+from anomaly_alerts import record_destructive_action
 from config import (PISHVA_ID, ST_MATCH_WHITE, ST_MATCH_BLACK, ST_MATCH_DATE,
     ST_MATCH_DRAW_REASON, ST_MATCH_CANCEL_REASON, ST_SEARCH_MATCH, ST_ADV_LOTTERY_SCOPE,
     ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT)
@@ -473,6 +475,7 @@ async def eliminate_yes(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     p = await db.get_player(pid)
     await db.update_player(pid, status="eliminated")
     await db.log_action(query.from_user.id, "eliminate_player", f"حذف: {p['full_name']}", pid)
+    await record_destructive_action(ctx.bot, query.from_user.id, "eliminate_player")
     await safe_edit_message_text(query, 
         f"⛔ *{p['full_name']}* از لیست ادامه‌دهندگان حذف شد.",
         reply_markup=kb.kb_back("matches"), parse_mode="Markdown")
@@ -578,8 +581,20 @@ async def match_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
     await query.answer()
     mid = int(query.data.split("_")[-1])
+    m = await db.get_match(mid)
+    snap = None
+    if m:
+        snap = json.dumps({
+            "id": m["id"], "white_player_id": m["white_player_id"],
+            "black_player_id": m["black_player_id"], "result": m["result"],
+            "draw_reason": m["draw_reason"], "match_date": m["match_date"],
+            "tournament_id": m["tournament_id"], "created_by": m["created_by"],
+            "created_at": m["created_at"], "updated_by": m["updated_by"],
+            "updated_at": m["updated_at"], "is_pinned": m["is_pinned"],
+        }, ensure_ascii=False)
     await db.delete_match(mid)
-    await db.log_action(uid, "delete_match", f"حذف مسابقه {mid}", mid)
+    await db.log_action(uid, "delete_match", f"حذف مسابقه {mid}", mid, snapshot=snap)
+    await record_destructive_action(ctx.bot, uid, "delete_match")
     await safe_edit_message_text(query, "🗑️ مسابقه حذف شد.", reply_markup=kb.kb_back("match_history"))
 
 async def match_pin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

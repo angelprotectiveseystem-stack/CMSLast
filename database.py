@@ -390,6 +390,11 @@ async def init_db():
             # send_announcement، message_admin و...) با خطای «no column named
             # content» شکست می‌خورد و عملاً کل قابلیت حافظه‌ی بلندمدت کار نمی‌کرد.
             "ALTER TABLE ai_memory ADD COLUMN content TEXT",
+            # ─── هشدار حذف مشکوک: اسنپ‌شات (برای بازگردانیِ حذف‌های واقعی مثل
+            # حذف مسابقه) و پرچمِ «قبلاً خنثی شده» (تا دکمه‌ی خنثی‌سازی روی
+            # یک اقدام دوبار اجرا نشه) ───
+            "ALTER TABLE action_logs ADD COLUMN snapshot TEXT",
+            "ALTER TABLE action_logs ADD COLUMN undone INTEGER DEFAULT 0",
         ):
             try:
                 await db.execute(stmt)
@@ -420,6 +425,10 @@ async def init_db():
             "bot_update_mode": "0",
             "ai_online": "1",
             "live_chess_enabled": "1",
+            # ─── هشدار حذف مشکوک (پنل تنظیمات مدیر ارشد) ───
+            "suspicious_alert_enabled": "1",
+            "suspicious_deletion_threshold": "5",
+            "suspicious_deletion_window_minutes": "10",
         }
         for k, v in defaults.items():
             await db.execute(
@@ -1425,19 +1434,24 @@ async def reply_feedback(fb_id: int, reply: str):
 
 
 # ─── Action Logs ─────────────────────────────────────────────
-async def log_action(admin_id, action_type, description, target_id=None):
+async def log_action(admin_id, action_type, description, target_id=None, snapshot=None):
     """لاگِ اقدامات صرفاً برای تاریخچه/گزارش‌گیریه — هیچ کدی نتیجه‌ی این
     نوشتن رو نمی‌خونه، پس دلیلی نداره کاربر رو معطلِ ثبتش کنیم. با ۶۶ جای
     صدا زده‌شدن توی کل پروژه (روی تقریباً هر اقدامِ واقعیِ ادمین)، awaited
     بودنش قبلاً یعنی یک رفت‌وبرگشتِ اضافه‌ی شبکه‌ای درست وسطِ هر اقدام،
-    درست قبل از این‌که کاربر پیامِ تاییدیه رو ببینه."""
+    درست قبل از این‌که کاربر پیامِ تاییدیه رو ببینه.
+
+    snapshot (اختیاری): برای اقدام‌هایی که واقعاً ردیف رو از دیتابیس پاک
+    می‌کنن (نه فقط status رو عوض می‌کنن)، یه JSON از حالتِ قبل از حذف؛
+    تا دکمه‌ی «خنثی‌سازی» بعداً بتونه دقیقاً همون رکورد رو برگردونه."""
     now = datetime.now().isoformat()
 
     async def _write():
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
-                "INSERT INTO action_logs(admin_id,action_type,description,target_id,logged_at) VALUES (?,?,?,?,?)",
-                (admin_id, action_type, description, target_id, now)
+                "INSERT INTO action_logs(admin_id,action_type,description,target_id,logged_at,snapshot) "
+                "VALUES (?,?,?,?,?,?)",
+                (admin_id, action_type, description, target_id, now, snapshot)
             )
             await db.commit()
 
@@ -1552,6 +1566,87 @@ async def search_action_logs(term: str = "", hour_from=None, hour_to=None, admin
         total = count_row["c"] if count_row else 0
         rows = await rows_cur.fetchall()
         return rows, total
+
+
+# ─── هشدار حذف مشکوک: خنثی‌سازیِ اقدام‌های یک ادمین در یک روز مشخص ───
+# نوع اقدام‌هایی که می‌دونیم چطور برمی‌گردن. برای اونایی که فقط status
+# رو عوض کردن (اخراج/تعلیق/حذف از مسابقه/حذف تیم/حذف تورنمنت)، برگردوندن
+# status به «active» کافیه. برای حذف مسابقه که واقعاً ردیف رو پاک می‌کنه،
+# از snapshot ثبت‌شده‌ی وقتِ حذف استفاده می‌کنیم.
+UNDOABLE_ACTIONS = {
+    "kick_player", "eliminate_player", "suspend_player",
+    "delete_team", "delete_tournament", "kick_admin", "delete_match",
+}
+
+
+async def get_admin_actions_on_date(admin_id: int, date_str: str):
+    """همه‌ی ردیف‌های action_logs یک ادمین توی یک روز میلادی مشخص
+    (فرمت 'YYYY-MM-DD') — به ترتیب وقوع (قدیمی‌ترین اول)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM action_logs WHERE admin_id=? AND logged_at LIKE ? ORDER BY id ASC",
+            (admin_id, f"{date_str}%")
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def mark_action_undone(log_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE action_logs SET undone=1 WHERE id=?", (log_id,))
+        await db.commit()
+
+
+async def reinsert_match(row: dict):
+    """برگردوندنِ یک مسابقه‌ی حذف‌شده، دقیقاً با همون id و همون مقادیر
+    (از روی snapshot ثبت‌شده‌ی وقتِ حذف)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT OR IGNORE INTO matches
+               (id, white_player_id, black_player_id, result, draw_reason, match_date,
+                tournament_id, created_by, created_at, updated_by, updated_at, is_pinned)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (row.get("id"), row.get("white_player_id"), row.get("black_player_id"),
+             row.get("result"), row.get("draw_reason"), row.get("match_date"),
+             row.get("tournament_id"), row.get("created_by"), row.get("created_at"),
+             row.get("updated_by"), row.get("updated_at"), row.get("is_pinned"))
+        )
+        await db.commit()
+
+
+async def undo_admin_actions(admin_id: int, date_str: str):
+    """تمام اقدام‌های قابل‌برگشتِ یک ادمین در یک روز مشخص رو خنثی می‌کنه.
+    برمی‌گردونه: (لیستِ خنثی‌شده‌ها, لیستِ ردشده‌ها) — هر کدوم لیستی از
+    ردیف‌های action_logs."""
+    rows = await get_admin_actions_on_date(admin_id, date_str)
+    reverted, skipped = [], []
+    for r in rows:
+        if r["undone"] or r["action_type"] not in UNDOABLE_ACTIONS:
+            if r["action_type"] not in UNDOABLE_ACTIONS:
+                skipped.append(r)
+            continue
+        at = r["action_type"]
+        tid = r["target_id"]
+        try:
+            if at in ("kick_player", "eliminate_player", "suspend_player") and tid:
+                await update_player(tid, status="active")
+            elif at == "delete_team" and tid:
+                await update_team(tid, status="active")
+            elif at == "delete_tournament" and tid:
+                await update_tournament(tid, status="active")
+            elif at == "kick_admin" and tid:
+                await revive_admin(tid)
+            elif at == "delete_match" and tid and r["snapshot"]:
+                await reinsert_match(json.loads(r["snapshot"]))
+            else:
+                skipped.append(r)
+                continue
+            await mark_action_undone(r["id"])
+            reverted.append(r)
+        except Exception:
+            logger.exception(f"undo_admin_actions failed for log id={r['id']}")
+            skipped.append(r)
+    return reverted, skipped
 
 
 # ─── Access Requests ─────────────────────────────────────────

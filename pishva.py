@@ -143,6 +143,86 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+# ─── تنظیمِ آستانه‌ی هشدار حذف مشکوک ───────────────────────────
+async def pishva_suspicious_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    enabled = await db.get_setting("suspicious_alert_enabled", "1")
+    threshold = await db.get_setting("suspicious_deletion_threshold", "5")
+    window = await db.get_setting("suspicious_deletion_window_minutes", "10")
+    status = "🟢 فعال" if enabled == "1" else "🔴 غیرفعال"
+    text = (
+        f"{box('🚨 هشدار حذف مشکوک')}\n\n"
+        f"📊 وضعیت: {status}\n"
+        f"🔢 آستانه: `{threshold}` حذف\n"
+        f"⏱️ بازه: `{window}` دقیقه\n\n"
+        f"💡 اگه یک ادمین توی این بازه به تعداد این آستانه یا بیشتر "
+        f"عملیات مخرب (اخراج/تعلیق/حذف بازیکن، حذف مسابقه، حذف تیم، "
+        f"حذف تورنمنت) انجام بده، فوراً به شما هشدار داده می‌شه."
+    )
+    await safe_edit_message_text(query, text,
+        reply_markup=kb.kb_suspicious_settings(enabled, threshold, window),
+        parse_mode="Markdown")
+
+async def sadel_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    current = await db.get_setting("suspicious_alert_enabled", "1")
+    new_val = "0" if current == "1" else "1"
+    await db.set_setting("suspicious_alert_enabled", new_val)
+    await db.log_action(PISHVA_ID, "toggle_setting", f"suspicious_alert_enabled -> {new_val}")
+    await pishva_suspicious_settings(update, ctx)
+
+async def sadel_threshold_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    await safe_edit_message_text(query, 
+        "🔢 حداکثر تعداد حذف مجاز (در بازه‌ی زمانی) را انتخاب کنید:",
+        reply_markup=kb.kb_suspicious_threshold())
+
+async def sadel_set_threshold(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    n = int(query.data.split("_")[-1])
+    await db.set_setting("suspicious_deletion_threshold", str(n))
+    await db.log_action(PISHVA_ID, "toggle_setting", f"suspicious_deletion_threshold -> {n}")
+    await query.answer(f"✅ آستانه به {n} حذف تغییر یافت", show_alert=True)
+    await pishva_suspicious_settings(update, ctx)
+
+async def sadel_window_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    await safe_edit_message_text(query, 
+        "⏱️ بازه‌ی زمانیِ شمارش حذف‌ها را انتخاب کنید:",
+        reply_markup=kb.kb_suspicious_window())
+
+async def sadel_set_window(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    n = int(query.data.split("_")[-1])
+    await db.set_setting("suspicious_deletion_window_minutes", str(n))
+    await db.log_action(PISHVA_ID, "toggle_setting", f"suspicious_deletion_window_minutes -> {n}")
+    await query.answer(f"✅ بازه به {n} دقیقه تغییر یافت", show_alert=True)
+    await pishva_suspicious_settings(update, ctx)
+
 # ─── کارهای زمان‌بندی‌شدهٔ دستیار هوشمند ───────────────────────
 async def pishva_ai_scheduled(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

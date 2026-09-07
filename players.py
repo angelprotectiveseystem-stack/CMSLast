@@ -5,6 +5,7 @@ import keyboards as kb
 from helpers import (safe_edit_message_text, box, separator, warning_bar_player, power_bar,
                      now_shamsi, notify_pishva, log_line, check_status_gate,
                      progress_bar, get_rank_label, check_perm)
+from anomaly_alerts import record_destructive_action
 from config import (PISHVA_ID, ST_CLASS_NAME, ST_PLAYER_CLASS_SELECT,
                     ST_PLAYER_NAME, ST_WARNING_REASON, ST_NOTE_TEXT,
                     ST_EDIT_PLAYER_NAME, ST_SEARCH_PLAYER)
@@ -343,6 +344,7 @@ async def player_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer(f"⚠️ این بازیکن {icon} است! برای تأیید دوباره بزنید.", show_alert=True)
     await db.update_player(pid, status="kicked")
     await db.log_action(query.from_user.id, "kick_player", f"اخراج: {p['full_name']}", pid)
+    await record_destructive_action(ctx.bot, query.from_user.id, "kick_player")
     await safe_edit_message_text(query, f"🚫 *{p['full_name']}* اخراج شد.",
                                    reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
 
@@ -357,6 +359,7 @@ async def player_suspend(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     p = await db.get_player(pid)
     await db.update_player(pid, status="suspended")
     await db.log_action(query.from_user.id, "suspend_player", f"تعلیق: {p['full_name']}", pid)
+    await record_destructive_action(ctx.bot, query.from_user.id, "suspend_player")
     await safe_edit_message_text(query, f"⏸️ *{p['full_name']}* تعلیق شد.",
                                    reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
 
