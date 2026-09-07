@@ -730,17 +730,26 @@ def _kb_spectate(token: str) -> InlineKeyboardMarkup:
     ])
 
 
+_cached_bot_username = None  # کشِ سطحِ پروسه — یک‌بار از تلگرام می‌پرسیم و دیگه تکرار نمی‌کنیم
+
+
 async def _resolve_bot_username(bot) -> str:
     """یوزرنیم ربات رو برمی‌گردونه (برای ساختِ لینکِ دیپ‌لینک به پیوی).
-    اول از config.BOT_USERNAME می‌خونه، اگه ست نشده بود از خودِ تلگرام
-    می‌پرسه (get_me)."""
+    اول از config.BOT_USERNAME می‌خونه، بعد از کشِ حافظه، و فقط اگه هیچ‌کدوم
+    نبود یک بار از خودِ تلگرام می‌پرسه (get_me) و نتیجه رو کش می‌کنه.
+    قبلاً این get_me هر بار (روی هر کلمه‌ی کلیدی توی گروه) صدا زده می‌شد
+    که باعثِ کندیِ محسوسِ دکمه‌های کلمه‌ای می‌شد."""
+    global _cached_bot_username
     if BOT_USERNAME:
         return BOT_USERNAME
+    if _cached_bot_username:
+        return _cached_bot_username
     if bot is None:
         return ""
     try:
         me = await bot.get_me()
-        return me.username or ""
+        _cached_bot_username = me.username or ""
+        return _cached_bot_username
     except Exception:
         logger.exception("Failed to resolve bot username")
         return ""

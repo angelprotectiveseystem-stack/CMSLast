@@ -206,7 +206,8 @@ async def ask_panel_location(update: Update, ctx: ContextTypes.DEFAULT_TYPE, act
     # ذخیره action برای استفاده بعد از انتخاب
     ctx.user_data["pending_panel_action"] = action
 
-    bot_username = BOT_USERNAME or (await ctx.bot.get_me()).username
+    from chess_challenge import _resolve_bot_username
+    bot_username = await _resolve_bot_username(ctx.bot)
 
     markup = InlineKeyboardMarkup([
         [
