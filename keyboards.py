@@ -1,3 +1,4 @@
+import json
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from config import BOT_USERNAME
 
@@ -36,7 +37,7 @@ def kb_pishva_main():
         [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],
         [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
         [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open"),
-        InlineKeyboardButton("🗂️ سوابق AI ادمین‌ها", callback_data="ai_admlog_menu")],
+        InlineKeyboardButton("🧑‍💻 مدیریت دستیار", callback_data="ai_manage_menu")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
@@ -316,7 +317,7 @@ def kb_pishva_panel():
         [InlineKeyboardButton("🆔 تنظیم کانال اعلانات", callback_data="pishva_channel"),
         InlineKeyboardButton("📡 پخش خودکار", callback_data="pishva_broadcast")],
         [InlineKeyboardButton("🛡️ پنل امنیتی APS", callback_data="security_panel"),
-        InlineKeyboardButton("🗂️ سوابق AI ادمین‌ها", callback_data="ai_admlog_menu")],
+        InlineKeyboardButton("🧑‍💻 مدیریت دستیار", callback_data="ai_manage_menu")],
         [InlineKeyboardButton("⏰ یادآورها", callback_data="pishva_reminders"),
         InlineKeyboardButton("🤖 کارهای دستیار", callback_data="pishva_ai_scheduled")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main", style="danger")],
@@ -335,6 +336,59 @@ def kb_ai_scheduled_list(rows):
             kb_rows.append([InlineKeyboardButton("❌ لغو", callback_data=f"aischedcancel_{r['id']}", style="danger")])
     kb_rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")])
     return InlineKeyboardMarkup(kb_rows)
+
+
+# ─── مدیریت دستیار (پنل مدیر ارشد) ──────────────────────────────
+def kb_ai_manage_menu(ai_online: str = "1"):
+    tog = "✅" if ai_online == "1" else "❌"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗂️ سوابق چت‌های دستیار", callback_data="ai_admlog_menu", style="primary")],
+        [InlineKeyboardButton("🛠️ اختیارات دستیار", callback_data="ai_perms_menu", style="primary")],
+        [InlineKeyboardButton(f"🔌 هوش مصنوعی {tog}", callback_data="ai_manage_toggle_online", style="primary")],
+        [InlineKeyboardButton("🔕 خاموشی برای ادمین خاص", callback_data="ai_admtg_menu", style="danger")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
+    ])
+
+
+def kb_ai_perms_menu(states: dict):
+    """states: دیکشنریِ کلیدِ دسته -> "1"/"0"، از ai_tools.get_category_states()."""
+    from ai_tools import AI_PERMISSION_CATEGORIES
+    rows = []
+    for key, label, _tools in AI_PERMISSION_CATEGORIES:
+        icon = "✅" if states.get(key, "1") == "1" else "❌"
+        rows.append([InlineKeyboardButton(f"{icon} {label}", callback_data=f"aiperm_toggle_{key}", style="primary")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="ai_manage_menu", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+
+def kb_ai_admin_toggle_list(admins):
+    """لیستِ مدیران برای انتخاب و خاموش/روشن‌کردنِ دسترسیِ هوش مصنوعی —
+    وضعیتِ فعلی (🟢/🔴) مستقیماً از همون فیلدِ permissions روی ردیفِ ادمین
+    خونده می‌شه (دیگه نیازی به کوئریِ جدا برای هرکدوم نیست)."""
+    rows = []
+    for i in range(0, len(admins), 2):
+        row = []
+        for a in admins[i:i + 2]:
+            try:
+                perms = json.loads(a["permissions"] or "{}")
+            except Exception:
+                perms = {}
+            on = perms.get("ai_access", True)
+            icon = "🟢" if on else "🔴"
+            row.append(InlineKeyboardButton(
+                f"{icon} {a['display_name'] or a['full_name']}",
+                callback_data=f"ai_admtg_pick_{a['telegram_id']}", style="primary"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="ai_manage_menu", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+
+def kb_ai_admin_toggle_pick(tid, is_on: bool):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🟢 روشن باشه", callback_data=f"ai_admtg_set_{tid}_on", style="success"),
+        InlineKeyboardButton("🔴 خاموش باشه", callback_data=f"ai_admtg_set_{tid}_off", style="danger")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="ai_admtg_menu", style="danger")],
+    ])
 
 
 def kb_status_select(current):

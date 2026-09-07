@@ -18,6 +18,7 @@ ai_tools.py — تعریف «ابزارهای» دستیار هوشمند + ما
   ۳) یه شاخه‌ی elif به دیسپچر dispatch() اضافه کن
 """
 import logging
+import json
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -159,6 +160,57 @@ TOOL_PERMISSIONS = {
     "list_scheduled":      ALL_ROLES,
     "cancel_scheduled":    ALL_ROLES,
 }
+
+# ────────────────────────────────────────────────────────────────
+# «اختیارات دستیار» — دسته‌بندیِ همه‌ی ابزارها به گروه‌های قابل‌فهم، تا
+# مدیر ارشد از پنل بتونه کلِ یک حوزه (مثلاً «ثبت مسابقه») رو برای دستیار
+# هوشمند خاموش/روشن کنه، بدون اینکه لازم باشه تک‌تکِ ۴۱ تابع رو بشناسه.
+# وضعیتِ هر دسته توی یک تنظیمِ JSON (AI_PERM_SETTING_KEY) ذخیره می‌شه —
+# پیش‌فرضِ هر دسته «فعال»ه تا نصب‌های قدیمی که این تنظیم رو ندارن دست‌نخورده
+# بمونن. این چک مستقل از TOOL_PERMISSIONS (سقفِ نقش) هست: یک ابزار فقط
+# وقتی واقعاً اجرا می‌شه که هم نقشِ کاربر مجاز باشه، هم دسته‌ش روشن باشه.
+# ────────────────────────────────────────────────────────────────
+AI_PERMISSION_CATEGORIES = [
+    ("workhours",    "⏰ ساعت کاری",                    ["start_workhours", "end_workhours"]),
+    ("players",      "👤 مدیریت بازیکنان",               ["register_player", "search_player", "kick_player", "revive_player"]),
+    ("warnings",     "⚠️ ثبت اخطار",                     ["warn_player", "warn_admin", "clear_admin_warnings"]),
+    ("matches",      "♟️ ثبت و مدیریت مسابقات",          ["record_match", "recent_matches", "edit_match_result", "delete_match"]),
+    ("tournaments",  "🏆 مدیریت تورنمنت",                ["create_tournament", "list_tournaments", "analyze_tournament"]),
+    ("reports",      "📊 گزارش‌گیری و آمار",             ["quick_stats", "system_status", "check_security"]),
+    ("comms",        "📡 مخابرات (پیام/اطلاعیه/خبر/وظیفه)", ["send_announcement", "send_news", "message_admin", "assign_task"]),
+    ("notes",        "📝 یادداشت‌های شخصی مدیر ارشد",    ["remember_note", "recall_notes", "forget_note"]),
+    ("admins",       "👥 مدیریت مدیران",                 ["list_admins", "review_admins_activity", "set_admin_role"]),
+    ("security",     "🔒 بلاک/آنبلاک کاربر",             ["block_user", "unblock_user"]),
+    ("system",       "⚙️ تنظیمات سیستمی",                ["get_admin_profile", "set_system_status", "toggle_ai_online", "toggle_admin_ai_access", "toggle_bot_setting"]),
+    ("reminders",    "⏱️ یادآور و زمان‌بندی",            ["set_reminder", "schedule_action", "list_scheduled", "cancel_scheduled"]),
+    ("panels",       "🧭 باز کردن پنل‌ها",                ["open_panel"]),
+]
+
+CATEGORY_LABELS = {key: label for key, label, _tools in AI_PERMISSION_CATEGORIES}
+
+TOOL_TO_CATEGORY = {}
+for _key, _label, _tools in AI_PERMISSION_CATEGORIES:
+    for _t in _tools:
+        TOOL_TO_CATEGORY[_t] = _key
+
+AI_PERM_SETTING_KEY = "ai_tool_categories"
+
+
+async def get_category_states() -> dict:
+    """dict: کلیدِ دسته -> "1"/"0". فقط یک get_setting (کش‌شده، ۴۵ ثانیه)،
+    نه یک کوئری به‌ازای هر دسته — برای اینکه چک‌کردنش سرِ هر دیسپچ کند نشه."""
+    raw = await db.get_setting(AI_PERM_SETTING_KEY, "")
+    try:
+        saved = json.loads(raw) if raw else {}
+    except Exception:
+        saved = {}
+    return {key: saved.get(key, "1") for key, _label, _tools in AI_PERMISSION_CATEGORIES}
+
+
+async def set_category_state(category: str, enabled: bool):
+    states = await get_category_states()
+    states[category] = "1" if enabled else "0"
+    await db.set_setting(AI_PERM_SETTING_KEY, json.dumps(states, ensure_ascii=False))
 
 # ────────────────────────────────────────────────────────────────
 # پنل‌هایی که دستیار می‌تونه با دکمه‌ی شیشه‌ای بازشون کنه.
@@ -701,6 +753,14 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
     if caller_role not in allowed_roles:
         return "⛔ شما اجازه‌ی اجرای این عملیات را ندارید (خارج از محدوده‌ی نقش شما)."
 
+    # ── چکِ «اختیارات دستیار» — حتی اگه نقش اجازه بده، مدیر ارشد می‌تونه
+    # کلِ این دسته رو از پنلِ «مدیریت دستیار» برای دستیار خاموش کرده باشه ──
+    category = TOOL_TO_CATEGORY.get(name)
+    if category:
+        states = await get_category_states()
+        if states.get(category, "1") != "1":
+            return f"⛔ اختیارِ «{CATEGORY_LABELS[category]}» برای دستیار هوشمند توسط مدیر ارشد غیرفعال شده است."
+
     args = args or {}
 
     try:
@@ -1143,6 +1203,11 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             allowed = TOOL_PERMISSIONS.get(target_tool)
             if allowed is None or caller_role not in allowed:
                 return f"⛔ نقش شما اجازه‌ی اجرای «{target_tool}» رو ندارد، پس نمی‌تونه براش زمان‌بندی بشه."
+            target_category = TOOL_TO_CATEGORY.get(target_tool)
+            if target_category:
+                cat_states = await get_category_states()
+                if cat_states.get(target_category, "1") != "1":
+                    return f"⛔ اختیارِ «{CATEGORY_LABELS[target_category]}» غیرفعاله، پس «{target_tool}» نمی‌تونه زمان‌بندی بشه."
             target, err = ai_scheduler.resolve_target(args)
             if err:
                 return f"❌ {err}"

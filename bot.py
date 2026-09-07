@@ -12,6 +12,10 @@ from ai_history import (
     ai_exit, ai_menu, ai_menu_close, ai_new_start, ai_hist_list, ai_hist_open,
     ai_admlog_menu, ai_admlog_pick, ai_admlog_range, ai_admlog_view,
 )
+from ai_manage import (
+    ai_manage_menu, ai_manage_toggle_online, ai_perms_menu, ai_perms_toggle,
+    ai_admtg_menu, ai_admtg_pick, ai_admtg_set,
+)
 from config import BOT_TOKEN, PISHVA_ID
 from config import (
     ST_ROLE_SELECT, ST_PISHVA_PASSWORD, ST_ADMIN_USERNAME, ST_ADMIN_FULLNAME,
@@ -383,6 +387,7 @@ def _register_back_targets():
         "class_list": class_list,
         "teams_list": teams_list,
         "match_history": match_history,
+        "ai_manage": ai_manage_menu,
     })
 
 
@@ -1062,6 +1067,13 @@ def build_application():
     app.add_handler(CallbackQueryHandler(ai_admlog_pick, pattern="^ai_admlog_pick_"))
     app.add_handler(CallbackQueryHandler(ai_admlog_range, pattern="^ai_admlog_range_"))
     app.add_handler(CallbackQueryHandler(ai_admlog_view, pattern="^ai_admlog_view_"))
+    app.add_handler(CallbackQueryHandler(ai_manage_menu, pattern="^ai_manage_menu$"))
+    app.add_handler(CallbackQueryHandler(ai_manage_toggle_online, pattern="^ai_manage_toggle_online$"))
+    app.add_handler(CallbackQueryHandler(ai_perms_menu, pattern="^ai_perms_menu$"))
+    app.add_handler(CallbackQueryHandler(ai_perms_toggle, pattern="^aiperm_toggle_"))
+    app.add_handler(CallbackQueryHandler(ai_admtg_menu, pattern="^ai_admtg_menu$"))
+    app.add_handler(CallbackQueryHandler(ai_admtg_pick, pattern="^ai_admtg_pick_"))
+    app.add_handler(CallbackQueryHandler(ai_admtg_set, pattern="^ai_admtg_set_"))
     # بعد از همه‌ی هندلرهای دیگر (کلمات کلیدی، مکالمه‌ها) بررسی می‌شود
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, ai_assistant_message),
