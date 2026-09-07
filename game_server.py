@@ -24,6 +24,7 @@ from telegram.constants import ParseMode
 from telegram.error import TelegramError
 
 import database as db
+import chess_ai_chat
 from chess_ai import AI_ID, choose_move, evaluate_fen
 from config import BOT_TOKEN, WEBAPP_PORT, PISHVA_ID
 
@@ -893,6 +894,13 @@ async def api_chat_send(request):
     else:
         sender_name = f"👁 {fallback_name}" if fallback_name else "👁 تماشاگر"
     msg_id = await db.add_chess_chat_message(token, user_id, sender_name, text)
+
+    # اگر حریفِ این بازی هوش مصنوعی باشد، بدونِ بلاک‌کردنِ همین ریکوئست یک
+    # جوابِ چتِ زنده (با آگاهی از وضعیتِ فعلیِ صفحه) در پس‌زمینه می‌سازیم؛
+    # نتیجه از طریقِ همون pollِ چتِ وب‌اپ به کاربر می‌رسد.
+    if AI_ID in (game["white_id"], game["black_id"]) and user_id != AI_ID:
+        asyncio.create_task(chess_ai_chat.maybe_reply_to_chat(token, game, text))
+
     return web.json_response({"ok": True, "id": msg_id})
 
 
