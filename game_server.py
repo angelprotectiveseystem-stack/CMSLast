@@ -1021,6 +1021,11 @@ async def start_game_server(bot=None):
         set_bot(bot)
     app = web.Application()
     app.add_routes(routes)
+    try:
+        from admin_panel import register_panel_routes
+        register_panel_routes(app)
+    except Exception:
+        logger.exception("Admin panel routes could not be registered")
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", WEBAPP_PORT)
