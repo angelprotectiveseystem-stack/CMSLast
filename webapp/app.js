@@ -1491,6 +1491,285 @@ $("modal-close").addEventListener("click", function(){
   if(tg) tg.close();
 });
 
+// ══════════════════════ تحلیلِ پس از بازی ══════════════════════
+// یک نمونه‌ی جداگانه‌ی chess.js فقط برای صفحه‌ی تحلیل، تا هیچ‌وقت با
+// آبجکتِ `chess` اصلیِ بازیِ زنده (که بیرون از این صفحه هم استفاده
+// می‌شود) تداخل نکند.
+var anChess = new Chess();
+var AnState = {
+  data: null,        // پاسخِ کاملِ /api/analyze
+  ply: -1,            // -1 یعنی موقعیتِ شروع (قبل از حرکتِ اول)
+  boardEls: {},
+  flip: false,
+  playing: false,
+  playTimer: null,
+  loaded: false
+};
+
+function anBuildBoard(){
+  var board = $("an-board");
+  board.innerHTML = "";
+  AnState.boardEls = {};
+  var flip = AnState.flip;
+  for(var r=0;r<8;r++){
+    for(var c=0;c<8;c++){
+      var rank = flip ? r : 7-r;
+      var file = flip ? 7-c : c;
+      var sq = FILES[file] + (rank+1);
+      var el = document.createElement("div");
+      el.className = "square " + (((r+c)%2===0) ? "light" : "dark");
+      el.dataset.square = sq;
+      board.appendChild(el);
+      AnState.boardEls[sq] = el;
+    }
+  }
+}
+
+function anSquareCenter(sq){
+  // مرکزِ خانه در فضای viewBox=0 0 100 100 (هر خانه ۱۲.۵ واحد)، با درنظر
+  // گرفتنِ چرخشِ تخته (flip).
+  var file = FILES.indexOf(sq[0]);
+  var rank = parseInt(sq[1], 10) - 1;
+  var col = AnState.flip ? 7 - file : file;
+  var row = AnState.flip ? rank : 7 - rank;
+  return { x: col*12.5 + 6.25, y: row*12.5 + 6.25 };
+}
+
+function anRenderArrow(svgEl, from, to, cls){
+  var a = anSquareCenter(from), b = anSquareCenter(to);
+  var dx = b.x-a.x, dy = b.y-a.y;
+  var len = Math.sqrt(dx*dx+dy*dy) || 1;
+  var ux = dx/len, uy = dy/len;
+  // کمی کوتاه‌کردنِ نوکِ فلش تا داخلِ خانه‌ی مقصد فرو نرود و سرِ فلش دیده شود
+  var endX = b.x - ux*4.2, endY = b.y - uy*4.2;
+  var startX = a.x + ux*2, startY = a.y + uy*2;
+  var markerId = "an-arrowhead-" + cls;
+  var ns = "http://www.w3.org/2000/svg";
+  var line = document.createElementNS(ns, "line");
+  line.setAttribute("x1", startX); line.setAttribute("y1", startY);
+  line.setAttribute("x2", endX); line.setAttribute("y2", endY);
+  line.setAttribute("stroke", cls === "an-arrow-best" ? "#f0b93f" : "#5b7cfa");
+  line.setAttribute("stroke-width", "2.6");
+  line.setAttribute("stroke-linecap", "round");
+  line.setAttribute("marker-end", "url(#" + markerId + ")");
+  line.setAttribute("class", cls);
+  svgEl.appendChild(line);
+}
+
+function anEnsureArrowMarkers(svgEl){
+  if(svgEl.querySelector("defs")) return;
+  var ns = "http://www.w3.org/2000/svg";
+  var defs = document.createElementNS(ns, "defs");
+  [["an-arrow-played","#5b7cfa"], ["an-arrow-best","#f0b93f"]].forEach(function(pair){
+    var marker = document.createElementNS(ns, "marker");
+    marker.setAttribute("id", "an-arrowhead-" + pair[0]);
+    marker.setAttribute("viewBox", "0 0 10 10");
+    marker.setAttribute("refX", "8"); marker.setAttribute("refY", "5");
+    marker.setAttribute("markerWidth", "4.2"); marker.setAttribute("markerHeight", "4.2");
+    marker.setAttribute("orient", "auto-start-reverse");
+    var path = document.createElementNS(ns, "path");
+    path.setAttribute("d", "M0,0 L10,5 L0,10 Z");
+    path.setAttribute("fill", pair[1]);
+    marker.appendChild(path);
+    defs.appendChild(marker);
+  });
+  svgEl.appendChild(defs);
+}
+
+function anRenderPosition(){
+  var ply = AnState.ply;
+  var plies = AnState.data.plies;
+  var fen = ply < 0 ? "start" : plies[ply].fen_after;
+  if(fen === "start"){ anChess.reset(); } else { anChess.load(fen); }
+
+  var boardState = anChess.board();
+  Object.keys(AnState.boardEls).forEach(function(sq){
+    var el = AnState.boardEls[sq];
+    el.classList.remove("last-from","last-to","check");
+    var existing = el.querySelector(".piece");
+    if(existing) existing.remove();
+  });
+  for(var r=0;r<8;r++){
+    for(var c=0;c<8;c++){
+      var p = boardState[r][c];
+      if(!p) continue;
+      var sq = FILES[c] + (8-r);
+      var host = AnState.boardEls[sq];
+      if(!host) continue;
+      var span = document.createElement("span");
+      span.className = "piece " + (p.color === "w" ? "white-p" : "black-p") + " landed";
+      span.textContent = PIECE_GLYPH[p.type];
+      host.appendChild(span);
+    }
+  }
+
+  var svg = $("an-arrows");
+  svg.innerHTML = "";
+  anEnsureArrowMarkers(svg);
+
+  var badgeIcon = $("an-move-badge-icon"), badgeLabel = $("an-move-badge-label"), desc = $("an-move-desc");
+
+  if(ply < 0){
+    badgeIcon.style.removeProperty("--an-badge-color");
+    badgeLabel.style.removeProperty("--an-badge-color");
+    badgeIcon.textContent = "♟️";
+    badgeLabel.textContent = "شروع بازی";
+    desc.textContent = "برای مرور بازی، از دکمه‌های پایین استفاده کنید یا روی یکی از حرکت‌ها در نوار زیر بزنید.";
+    anUpdateEval(0);
+  } else {
+    var pd = plies[ply];
+    if(AnState.boardEls[pd.from]) AnState.boardEls[pd.from].classList.add("last-from");
+    if(AnState.boardEls[pd.to]) AnState.boardEls[pd.to].classList.add("last-to");
+    if(pd.gives_check || pd.is_mate){
+      var kingColor = anChess.turn(); // طرفی که الان کیش خورده
+      var bs = anChess.board();
+      for(var rr=0;rr<8;rr++) for(var cc=0;cc<8;cc++){
+        var kp = bs[rr][cc];
+        if(kp && kp.type === "k" && kp.color === kingColor){
+          var ksq = FILES[cc] + (8-rr);
+          if(AnState.boardEls[ksq]) AnState.boardEls[ksq].classList.add("check");
+        }
+      }
+    }
+    anRenderArrow(svg, pd.from, pd.to, "an-arrow-played");
+    if(pd.best_from && pd.best_to){
+      anRenderArrow(svg, pd.best_from, pd.best_to, "an-arrow-best");
+    }
+    badgeIcon.textContent = pd.icon;
+    badgeIcon.style.setProperty("--an-badge-color", pd.color);
+    badgeLabel.textContent = (pd.side === "w" ? "سفید: " : "سیاه: ") + pd.san + " — " + pd.label;
+    badgeLabel.style.setProperty("--an-badge-color", pd.color);
+    var extraBest = (!pd.is_mate && pd.best_san && pd.classification !== "best" && pd.classification !== "book")
+      ? (" بهتر بود: " + pd.best_san + ".") : "";
+    desc.textContent = pd.text + extraBest;
+    anUpdateEval(pd.eval_cp, pd.win_pct);
+  }
+
+  // re-trigger کردنِ انیمیشن‌های CSS (badgepop/descfade/arrowin) برای هر
+  // تغییرِ ply، حتی وقتی همان کلاس از قبل هم روی عنصر بوده.
+  [badgeIcon, desc].forEach(function(el){
+    el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";
+  });
+
+  anUpdateMoveListActive();
+}
+
+function anUpdateEval(cp, winPct){
+  // اگر win_pct از سرور نیامده بود (موقعیتِ شروع)، خودمان با همان منحنیِ
+  // نرمِ سرور (تقریب) حساب می‌کنیم تا نوار ارزیابی همیشه پیوسته باشد.
+  var pct = (winPct !== undefined && winPct !== null) ? winPct : (50 + 50*(2/(1+Math.exp(-0.00368*cp))-1));
+  pct = Math.max(2, Math.min(98, pct));
+  $("an-eval-fill-white").style.height = pct + "%";
+  $("an-eval-fill-black").style.height = (100-pct) + "%";
+  var pawns = (cp/100);
+  var label = (pawns >= 0 ? "+" : "") + pawns.toFixed(1);
+  $("an-eval-num").textContent = label;
+}
+
+function anRenderMoveList(){
+  var wrap = $("an-movelist");
+  wrap.innerHTML = "";
+  AnState.data.plies.forEach(function(pd, idx){
+    var chip = document.createElement("button");
+    chip.className = "an-move-chip";
+    chip.dataset.ply = idx;
+    var num = Math.floor(idx/2)+1;
+    var prefix = pd.side === "w" ? (num + ". ") : (num + "... ");
+    chip.innerHTML = "<span class='chip-icon'>"+pd.icon+"</span><span>"+prefix+pd.san+"</span>";
+    chip.style.setProperty("--an-badge-color", pd.color);
+    chip.addEventListener("click", function(){ anGoTo(idx); });
+    wrap.appendChild(chip);
+  });
+}
+
+function anUpdateMoveListActive(){
+  var chips = $("an-movelist").querySelectorAll(".an-move-chip");
+  chips.forEach(function(chip){
+    var active = parseInt(chip.dataset.ply,10) === AnState.ply;
+    chip.classList.toggle("active", active);
+    if(active) chip.scrollIntoView({ behavior:"smooth", inline:"center", block:"nearest" });
+  });
+}
+
+function anGoTo(ply){
+  var max = AnState.data.plies.length - 1;
+  AnState.ply = Math.max(-1, Math.min(max, ply));
+  anRenderPosition();
+}
+function anStopPlay(){
+  AnState.playing = false;
+  $("an-play").classList.remove("playing");
+  $("an-play").textContent = "▶";
+  if(AnState.playTimer){ clearInterval(AnState.playTimer); AnState.playTimer = null; }
+}
+function anTogglePlay(){
+  if(AnState.playing){ anStopPlay(); return; }
+  var max = AnState.data.plies.length - 1;
+  if(AnState.ply >= max) AnState.ply = -1;
+  AnState.playing = true;
+  $("an-play").classList.add("playing");
+  $("an-play").textContent = "⏸";
+  AnState.playTimer = setInterval(function(){
+    if(AnState.ply >= max){ anStopPlay(); return; }
+    anGoTo(AnState.ply+1);
+  }, 1400);
+}
+
+$("an-first").addEventListener("click", function(){ anStopPlay(); anGoTo(-1); });
+$("an-prev").addEventListener("click", function(){ anStopPlay(); anGoTo(AnState.ply-1); });
+$("an-next").addEventListener("click", function(){ anStopPlay(); anGoTo(AnState.ply+1); });
+$("an-last").addEventListener("click", function(){ anStopPlay(); anGoTo(AnState.data.plies.length-1); });
+$("an-play").addEventListener("click", anTogglePlay);
+$("an-btn-close").addEventListener("click", function(){
+  anStopPlay();
+  showScreen("screen-game");
+});
+
+function anOpen(){
+  $("modal-overlay").classList.add("hidden");
+  showScreen("screen-analysis");
+  $("an-content").classList.add("hidden");
+  $("an-error").classList.add("hidden");
+  $("an-loading").classList.remove("hidden");
+
+  if(AnState.loaded && AnState.data){
+    anShowContent();
+    return;
+  }
+
+  apiGet("/api/analyze").then(function(res){
+    if(!res.ok || !res.analysis || !res.analysis.plies || !res.analysis.plies.length){
+      $("an-loading").classList.add("hidden");
+      $("an-error-text").textContent = (res && res.error) ? res.error : "این بازی حرکتی برای تحلیل نداشت.";
+      $("an-error").classList.remove("hidden");
+      return;
+    }
+    AnState.data = res.analysis;
+    AnState.loaded = true;
+    anShowContent();
+  }).catch(function(){
+    $("an-loading").classList.add("hidden");
+    $("an-error-text").textContent = "اتصال برقرار نشد. دوباره تلاش کنید.";
+    $("an-error").classList.remove("hidden");
+  });
+}
+
+function anShowContent(){
+  AnState.flip = (!state.isSpectator && state.myColor === "b");
+  $("an-loading").classList.add("hidden");
+  $("an-content").classList.remove("hidden");
+  $("an-name-white").textContent = AnState.data.white_name || "سفید";
+  $("an-name-black").textContent = AnState.data.black_name || "سیاه";
+  $("an-acc-value-white").textContent = AnState.data.white_accuracy + "%";
+  $("an-acc-value-black").textContent = AnState.data.black_accuracy + "%";
+  anBuildBoard();
+  anRenderMoveList();
+  AnState.ply = -1;
+  anRenderPosition();
+}
+
+$("modal-analyze").addEventListener("click", anOpen);
+
 // ─── Init ───────────────────────────────────────────────────
 function init(){
   if(!TOKEN){ showError("توکن بازی پیدا نشد. از طریق ربات وارد شوید."); return; }

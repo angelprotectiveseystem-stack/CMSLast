@@ -182,7 +182,81 @@
       <div id="modal-title" class="modal-title">پایان بازی</div>
       <div id="modal-sub" class="modal-sub"></div>
       <div id="modal-elo" class="modal-elo"></div>
-      <button class="action-btn primary" id="modal-close">بستن</button>
+      <div class="modal-actions-row">
+        <button class="action-btn" id="modal-close">بستن</button>
+        <button class="action-btn analyze-btn" id="modal-analyze">🔍 تحلیل مسابقه</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-analysis" class="screen">
+    <div class="an-topbar">
+      <button class="icon-btn" id="an-btn-close" aria-label="بستن تحلیل">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4l5.6 5.6L5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z"/></svg>
+      </button>
+      <div class="an-title">🔍 تحلیل مسابقه</div>
+      <div class="an-topbar-spacer"></div>
+    </div>
+
+    <div id="an-loading" class="an-loading">
+      <div class="spinner"></div>
+      <div class="an-loading-text">در حال تحلیل بازی، حرکت به حرکت...</div>
+    </div>
+
+    <div id="an-content" class="an-content hidden">
+
+      <div class="an-accuracy-row">
+        <div class="an-acc-card" id="an-acc-white">
+          <div class="an-acc-label" id="an-name-white">سفید</div>
+          <div class="an-acc-value" id="an-acc-value-white">--%</div>
+          <div class="an-acc-sub">دقت</div>
+        </div>
+        <div class="an-acc-vs">VS</div>
+        <div class="an-acc-card" id="an-acc-black">
+          <div class="an-acc-label" id="an-name-black">سیاه</div>
+          <div class="an-acc-value" id="an-acc-value-black">--%</div>
+          <div class="an-acc-sub">دقت</div>
+        </div>
+      </div>
+
+      <div class="an-board-row">
+        <div class="an-eval-bar-wrap">
+          <div class="an-eval-bar">
+            <div class="an-eval-fill-black" id="an-eval-fill-black"></div>
+            <div class="an-eval-fill-white" id="an-eval-fill-white"></div>
+            <div class="an-eval-mid"></div>
+          </div>
+          <div class="an-eval-num" id="an-eval-num">0.0</div>
+        </div>
+        <div class="an-board-wrap">
+          <div id="an-board" class="board an-board"></div>
+          <svg id="an-arrows" class="an-arrows" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+
+      <div class="an-move-panel" id="an-move-panel">
+        <div class="an-move-badge" id="an-move-badge">
+          <span class="an-move-badge-icon" id="an-move-badge-icon">♟️</span>
+          <span class="an-move-badge-text" id="an-move-badge-label">شروع بازی</span>
+        </div>
+        <div class="an-move-desc" id="an-move-desc">برای مرور بازی، از دکمه‌های پایین استفاده کنید یا روی یکی از حرکت‌ها در نوار زیر بزنید.</div>
+      </div>
+
+      <div class="an-controls">
+        <button class="an-ctrl-btn" id="an-first" aria-label="اول بازی">⏮</button>
+        <button class="an-ctrl-btn" id="an-prev" aria-label="حرکت قبلی">◁</button>
+        <button class="an-ctrl-btn an-ctrl-play" id="an-play" aria-label="پخش خودکار">▶</button>
+        <button class="an-ctrl-btn" id="an-next" aria-label="حرکت بعدی">▷</button>
+        <button class="an-ctrl-btn" id="an-last" aria-label="آخر بازی">⏭</button>
+      </div>
+
+      <div class="an-movelist" id="an-movelist"></div>
+
+    </div>
+
+    <div id="an-error" class="an-error hidden">
+      <div class="error-icon">!</div>
+      <div id="an-error-text" class="error-text">تحلیل بازی انجام نشد.</div>
     </div>
   </div>
 
