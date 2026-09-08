@@ -70,19 +70,32 @@
     btn.classList.add("active");
     state.view = btn.getAttribute("data-view");
     document.getElementById("view-title").textContent = VIEW_TITLES[state.view];
-    document.getElementById("view-body").innerHTML = '<div class="loading-state">در حال بارگذاری…</div>';
-    document.querySelector(".sidebar").classList.remove("open");
+    document.getElementById("view-body").innerHTML = '<div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>';
+    closeSidebar();
     render();
   });
 
   // ── Mobile toggle ─────────────────────────────────────
+  function closeSidebar() {
+    document.querySelector(".sidebar").classList.remove("open");
+    var bd = document.getElementById("sidebar-backdrop");
+    if (bd) bd.classList.remove("show");
+  }
+  function openSidebar() {
+    document.querySelector(".sidebar").classList.add("open");
+    var bd = document.getElementById("sidebar-backdrop");
+    if (bd) bd.classList.add("show");
+  }
   var toggleBtn = document.createElement("button");
   toggleBtn.className = "mobile-toggle";
   toggleBtn.innerHTML = "≡";
   toggleBtn.addEventListener("click", function () {
-    document.querySelector(".sidebar").classList.toggle("open");
+    var sb = document.querySelector(".sidebar");
+    if (sb.classList.contains("open")) closeSidebar(); else openSidebar();
   });
   document.body.appendChild(toggleBtn);
+  var backdropEl = document.getElementById("sidebar-backdrop");
+  if (backdropEl) backdropEl.addEventListener("click", closeSidebar);
 
   // ── Clock ─────────────────────────────────────────────
   function tickClock() {
@@ -123,6 +136,10 @@
     body = document.getElementById("view-body");
     var fn = VIEWS[state.view];
     if (fn) fn();
+    body.classList.remove("fade-in");
+    // ری‌استارت انیمیشن حتی اگر کلاس از قبل حذف نشده باشد
+    void body.offsetWidth;
+    body.classList.add("fade-in");
   }
 
   var VIEWS = {
