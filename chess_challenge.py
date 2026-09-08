@@ -177,6 +177,7 @@ async def _chess_menu_content(uid: int, chat_type: str = "private", bot=None):
     rows = []
     rows.append([InlineKeyboardButton("🤖 بازی با هوش مصنوعی", callback_data="chessai_menu")])
     rows.append([InlineKeyboardButton("📋 بازی‌های فعال", callback_data="chess_active_games")])
+    rows.append([InlineKeyboardButton("📜 لیست بازی‌ها", callback_data="chess_history")])
     for opp_id, name in opponents:
         label = ("👑 " if opp_id == PISHVA_ID else "🎖️ ") + name
         rows.append([InlineKeyboardButton(label, callback_data=f"chess_req_{opp_id}")])

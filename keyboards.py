@@ -617,6 +617,65 @@ def kb_chess_games_filter():
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
     ])
 
+# ─── لیستِ تاریخچه‌ی بازی‌های شطرنجِ زنده — برای همه‌ی نقش‌ها ──────
+# (قابل‌دسترس از داخلِ منوی شطرنج، نه فقط پنلِ پیشوا؛ نگاه کنید به
+# chess_games_history.py). این‌جا فقط کیبوردهای مبتنی‌بر callback ساخته
+# می‌شوند؛ دکمه‌های خودِ بازی‌ها (که وب‌اپ/دیپ‌لینک هستند و نیازِ async به
+# یوزرنیمِ ربات دارند) در همان فایل ساخته و به این ردیف‌ها اضافه می‌شوند.
+def kb_chess_history_filter():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 امروز", callback_data="chesshist_list_today_all_0", style="primary"),
+        InlineKeyboardButton("📆 این هفته", callback_data="chesshist_list_week_all_0", style="primary")],
+        [InlineKeyboardButton("🗓️ این ماه", callback_data="chesshist_list_month_all_0", style="primary"),
+        InlineKeyboardButton("📚 همه بازی‌ها", callback_data="chesshist_list_all_all_0", style="primary")],
+        [InlineKeyboardButton("👤 فیلتر بر اساس مدیر", callback_data="chesshist_admsel_all", style="primary")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="chess_menu", style="danger")],
+    ])
+
+def kb_chess_history_period_menu(admin_filter):
+    """بازه‌ی زمانی را عوض می‌کند، ولی فیلترِ مدیرِ فعلی (admin_filter) را نگه می‌دارد."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 امروز", callback_data=f"chesshist_list_today_{admin_filter}_0", style="primary"),
+        InlineKeyboardButton("📆 این هفته", callback_data=f"chesshist_list_week_{admin_filter}_0", style="primary")],
+        [InlineKeyboardButton("🗓️ این ماه", callback_data=f"chesshist_list_month_{admin_filter}_0", style="primary"),
+        InlineKeyboardButton("📚 کل تاریخ", callback_data=f"chesshist_list_all_{admin_filter}_0", style="primary")],
+        [InlineKeyboardButton("👤 تغییرِ مدیر", callback_data="chesshist_admsel_all", style="primary")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="chess_history", style="danger")],
+    ])
+
+def kb_chess_history_admin_select(period, choices):
+    """choices: لیستِ (telegram_id, name) — پیشوا + همه‌ی مدیران.
+    فیلترِ بازه‌ی زمانیِ فعلی (period) نگه داشته می‌شود."""
+    rows = []
+    for i in range(0, len(choices), 2):
+        row = [
+            InlineKeyboardButton(
+                (name or str(tid))[:24], callback_data=f"chesshist_list_{period}_{tid}_0", style="primary"
+            )
+            for tid, name in choices[i:i + 2]
+        ]
+        rows.append(row)
+    rows.append([InlineKeyboardButton("🌐 بدون فیلترِ مدیر", callback_data=f"chesshist_list_{period}_all_0", style="primary")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="chess_history", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+def kb_chess_history_nav_row(period, admin_filter, page, total_pages):
+    """فقط ردیفِ ناوبریِ صفحه (قبلی/بعدی) — اگر لازم نباشد، لیستِ خالی برمی‌گرداند."""
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"chesshist_list_{period}_{admin_filter}_{page-1}", style="primary"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"chesshist_list_{period}_{admin_filter}_{page+1}", style="primary"))
+    return [nav] if nav else []
+
+def kb_chess_history_change_rows(period, admin_filter):
+    """ردیف‌های «تغییرِ بازه/مدیر» + «بازگشت» — زیرِ لیستِ بازی‌ها یا وقتی نتیجه‌ای پیدا نشده."""
+    return [
+        [InlineKeyboardButton("📅 تغییرِ بازه", callback_data=f"chesshist_periodmenu_{admin_filter}", style="primary"),
+        InlineKeyboardButton("👤 تغییرِ مدیر", callback_data=f"chesshist_admsel_{period}", style="primary")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="chess_menu", style="danger")],
+    ]
+
 # ─── مدیران ───────────────────────────────────────────────────
 def kb_admin_list(admins):
     rows = []

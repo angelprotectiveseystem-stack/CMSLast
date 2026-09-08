@@ -2314,6 +2314,51 @@ async def get_chess_games_log(period="all", limit=100):
             return await cur.fetchall()
 
 
+async def get_chess_games_log_paginated(period="all", admin_id=None, page=0, page_size=8):
+    """نسخه‌ی صفحه‌بندی‌شده‌ی get_chess_games_log — برای بخشِ «لیستِ بازی‌ها»یِ
+    قابل‌دسترس برای همه‌ی نقش‌ها (نه فقط پیشوا)، با یک فیلترِ اضافیِ
+    اختیاری: فقط بازی‌هایی که یک مدیر/پیشوایِ مشخص در آن‌ها (چه سفید چه
+    سیاه) شرکت داشته. period دقیقاً مثلِ get_chess_games_log عمل می‌کند
+    (today/week/month/all) و روی finished_at فیلتر می‌شود. فقط بازی‌های
+    status != 'active' برمی‌گردند. مرتب‌سازی: جدیدترین اول.
+
+    خروجی: تاپلِ (rows_of_this_page, total_count) — total_count برای
+    ساختِ صفحه‌بندی (تعدادِ کل صفحات) لازم است، چون ممکن است هزاران بازی
+    ثبت شده باشد و همه را یک‌جا نمی‌شود نشان داد.
+    """
+    from datetime import timedelta
+    now = datetime.now()
+    conditions = ["status != 'active'"]
+    params = []
+    if period == "today":
+        conditions.append("finished_at LIKE ?")
+        params.append(now.strftime("%Y-%m-%d") + "%")
+    elif period == "week":
+        conditions.append("finished_at >= ?")
+        params.append((now - timedelta(days=7)).isoformat())
+    elif period == "month":
+        conditions.append("finished_at >= ?")
+        params.append((now - timedelta(days=30)).isoformat())
+    if admin_id is not None:
+        conditions.append("(white_id=? OR black_id=?)")
+        params.extend([admin_id, admin_id])
+    where = "WHERE " + " AND ".join(conditions)
+    page = max(0, page)
+    page_size = max(1, page_size)
+    offset = page * page_size
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(f"SELECT COUNT(*) AS c FROM chess_games {where}", params) as cur:
+            row = await cur.fetchone()
+            total = row["c"] if row else 0
+        async with db.execute(
+            f"SELECT * FROM chess_games {where} ORDER BY finished_at DESC LIMIT ? OFFSET ?",
+            params + [page_size, offset],
+        ) as cur:
+            rows = await cur.fetchall()
+        return rows, total
+
+
 async def set_chess_draw_offer(token, by_id):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE chess_games SET draw_offer_by=? WHERE token=?", (by_id, token))
