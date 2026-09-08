@@ -158,6 +158,7 @@ from reminders import (
 )
 from keyword_commands import handle_keyword_command, kw_announce_start, kw_news_start, panel_ownership_guard, open_panel_here, stranger_info_callback
 from chess_challenge import chess_menu, chess_pick_time, chess_pick_color, chess_send_request, chess_accept, chess_decline, chess_elo_board, chess_ai_menu, chess_ai_pick_time, chess_ai_pick_color, chess_ai_start, chess_active_games
+from chess_games_history import chess_history_menu, chess_history_period_menu, chess_history_admin_select, chess_history_list
 from security import (
     security_panel, security_queue_list, security_queue_item,
     request_to_queue, queue_approve, queue_release, queue_block_ask,
@@ -1051,6 +1052,11 @@ def build_application():
     app.add_handler(CallbackQueryHandler(chess_ai_admlog_menu, pattern="^chess_ai_admlog_menu$"))
     app.add_handler(CallbackQueryHandler(chess_ai_admlog_pick, pattern="^chess_ai_admlog_pick_"))
     app.add_handler(CallbackQueryHandler(chess_ai_admlog_range, pattern="^chess_ai_admlog_range_"))
+    # ─── لیستِ تاریخچه‌ی بازی‌ها (برای همه‌ی نقش‌ها، از داخلِ منوی شطرنج) ───
+    app.add_handler(CallbackQueryHandler(chess_history_menu, pattern="^chess_history$"))
+    app.add_handler(CallbackQueryHandler(chess_history_period_menu, pattern="^chesshist_periodmenu_"))
+    app.add_handler(CallbackQueryHandler(chess_history_admin_select, pattern="^chesshist_admsel_"))
+    app.add_handler(CallbackQueryHandler(chess_history_list, pattern="^chesshist_list_"))
 
     # Teams
     app.add_handler(CallbackQueryHandler(teams_menu, pattern="^teams_menu$"))

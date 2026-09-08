@@ -328,6 +328,30 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         return ConversationHandler.END
 
+    # ─── دیپ‌لینک بازپخشِ یک بازیِ تمام‌شده (وقتی دکمه‌ی «مشاهده‌ی بازی» از
+    # داخلِ «لیستِ بازی‌ها» در گروه/سوپرگروه زده شده؛ همان دلیلِ chess_enter_/
+    # chess_watch_ بالا — تلگرام دکمه‌ی وب‌اپ را داخلِ گروه قبول نمی‌کند).
+    # فرمت: chess_replay_<chat_flag>_<token> — chat_flag همان پرچمِ نمایشِ
+    # محتوای چتِ داخلِ بازی است (۱=فقط پیشوا، ۰=بقیه)، از قبل توسطِ
+    # chess_games_history.py محاسبه شده و اینجا فقط منتقل می‌شود.
+    if payload and payload.startswith("chess_replay_") and (is_pishva or is_admin):
+        rest = payload[len("chess_replay_"):]
+        chat_flag, _, token = rest.partition("_")
+        if is_admin:
+            await db.update_admin_activity(uid)
+
+        game = await db.get_chess_game(token)
+        if not game:
+            await update.message.reply_text("❗ این بازی پیدا نشد یا حذف شده است.")
+            return ConversationHandler.END
+
+        from chess_games_history import kb_replay
+        await update.message.reply_text(
+            f"{box('📜 مرورِ بازی')}\n\n⚪ {game['white_name']}  در مقابل  ⚫ {game['black_name']}",
+            reply_markup=kb_replay(token, chat_flag == "1"), parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
     if is_pishva:
         return await show_pishva_welcome(update, ctx)
     if is_admin:
