@@ -991,6 +991,23 @@ function renderCaptured(){
   // شود (چیزی که سفید از سیاه گرفته)، نه captured.w. قبلاً برعکس بود.
   $("captured-top").textContent = (topIsWhite ? captured.b : captured.w).map(function(t){ return PIECE_GLYPH[t]; }).join("");
   $("captured-bottom").textContent = (topIsWhite ? captured.w : captured.b).map(function(t){ return PIECE_GLYPH[t]; }).join("");
+
+  // ─── امتیازِ برتریِ مادی (کنارِ مهره‌های گرفته‌شده) ──────────────
+  // captured.b = مهره‌های سیاه که از بین رفته‌اند = چیزی که *سفید* گرفته؛
+  // captured.w = مهره‌های سفید که از بین رفته‌اند = چیزی که *سیاه* گرفته.
+  // پس امتیازِ سفید = مجموعِ ارزشِ captured.b و برعکس. فقط طرفی که برتری
+  // داره امتیازش («+N») رو نشون می‌ده، دقیقاً مثل chess.com.
+  function sumValue(list){
+    var total = 0;
+    for(var i=0;i<list.length;i++) total += (order[list[i]] || 0);
+    return total;
+  }
+  var whiteScore = sumValue(captured.b) - sumValue(captured.w);
+  var blackScore = -whiteScore;
+  var topScore = topIsWhite ? whiteScore : blackScore;
+  var bottomScore = topIsWhite ? blackScore : whiteScore;
+  $("captured-top-score").textContent = topScore > 0 ? ("+" + topScore) : "";
+  $("captured-bottom-score").textContent = bottomScore > 0 ? ("+" + bottomScore) : "";
 }
 
 function renderHistory(){
