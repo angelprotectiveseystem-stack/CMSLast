@@ -121,7 +121,8 @@ def kb_class_actions(class_id):
         [InlineKeyboardButton("👥 بازیکنان کلاس", callback_data=f"class_players_{class_id}", style="primary"),
         InlineKeyboardButton("✏️ ویرایش نام", callback_data=f"class_edit_{class_id}", style="primary")],
         [InlineKeyboardButton("📈 عملکرد کلاس", callback_data=f"class_perf_{class_id}", style="primary"),
-        InlineKeyboardButton("🔙 بازگشت", callback_data="class_list", style="danger")],
+        InlineKeyboardButton("🗑 حذف کلاس", callback_data=f"class_harddelete_ask_{class_id}", style="danger")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="class_list", style="danger")],
     ])
 
 # ─── بازیکنان ─────────────────────────────────────────────────
@@ -205,6 +206,7 @@ def kb_player_actions(player_id, role="pishva", status="active"):
     action_buttons.append(InlineKeyboardButton("🔮 پیش‌بینی", callback_data=f"predict_select_{player_id}", style="primary"))
     if role == "pishva":
         action_buttons.append(InlineKeyboardButton("⚡ ثبت ویژه", callback_data=f"player_special_{player_id}", style="success"))
+        action_buttons.append(InlineKeyboardButton("🗑 حذف کامل", callback_data=f"player_harddelete_ask_{player_id}", style="danger"))
 
     rows = [action_buttons[i:i + 2] for i in range(0, len(action_buttons), 2)]
     rows.append(kb_back_row("player_list"))

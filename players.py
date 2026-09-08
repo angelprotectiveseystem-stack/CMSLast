@@ -82,6 +82,45 @@ async def class_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await safe_edit_message_text(query, f"✏️ نام جدید برای کلاس *{c['name']}*:", parse_mode="Markdown")
     return ST_CLASS_NAME
 
+async def class_harddelete_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cid = int(query.data.split("_")[-1])
+    c = await db.get_class(cid)
+    if not c:
+        await query.answer("کلاس یافت نشد.", show_alert=True)
+        return
+    count = await db.get_class_player_count(cid)
+    if count > 0:
+        await safe_edit_message_text(query,
+            f"❌ کلاس *{c['name']}* را نمی‌توان حذف کرد؛ `{count}` بازیکن هنوز در این کلاس هستند.\n"
+            f"ابتدا بازیکنان را جابه‌جا یا حذف کنید.",
+            reply_markup=kb.kb_class_actions(cid), parse_mode="Markdown")
+        return
+    await safe_edit_message_text(query,
+        f"🗑 کلاس *{c['name']}* حذف می‌شود. این کار غیرقابل بازگشت است.\n\nمطمئنید؟",
+        reply_markup=kb.kb_confirm(f"class_harddelete_go_{cid}", f"class_select_{cid}"),
+        parse_mode="Markdown")
+
+async def class_harddelete_go(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cid = int(query.data.split("_")[-1])
+    c = await db.get_class(cid)
+    if not c:
+        await safe_edit_message_text(query, "کلاس قبلاً حذف شده.", reply_markup=kb.kb_back("class_list"))
+        return
+    name = c["name"]
+    ok = await db.delete_class(cid)
+    if not ok:
+        await safe_edit_message_text(query,
+            f"❌ کلاس *{name}* را نمی‌توان حذف کرد؛ بازیکنی به آن اضافه شده.",
+            reply_markup=kb.kb_class_actions(cid), parse_mode="Markdown")
+        return
+    await db.log_action(query.from_user.id, "delete_class", f"حذف کلاس: {name}")
+    await safe_edit_message_text(query, f"🗑 کلاس *{name}* حذف شد.",
+                                   reply_markup=kb.kb_back("class_list"), parse_mode="Markdown")
+
 async def class_perf(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -375,6 +414,44 @@ async def player_revive(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await db.update_player(pid, status="active", warnings=0)
     await db.log_action(query.from_user.id, "revive_player", f"احیا: {p['full_name']}", pid)
     await safe_edit_message_text(query, f"🔄 *{p['full_name']}* احیا شد و به لیست فعال بازگشت.",
+                                   reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
+
+async def player_harddelete_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """قدم اول حذف کامل: فقط مدیر ارشد، و فقط با تأیید — چون برخلاف
+    اخراج/تعلیق، این عمل غیرقابل‌بازگشته و سابقه‌ی مسابقات بازیکن هم پاک می‌شه."""
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد می‌تواند حذف کامل انجام دهد.", show_alert=True)
+        return
+    await query.answer()
+    pid = int(query.data.split("_")[-1])
+    p = await db.get_player(pid)
+    if not p:
+        await query.answer("بازیکن یافت نشد.", show_alert=True)
+        return
+    await safe_edit_message_text(query,
+        f"🗑 *{p['full_name']}* برای همیشه از دیتابیس حذف می‌شود.\n"
+        f"⚠️ این کار غیرقابل بازگشت است و سابقه‌ی مسابقات این بازیکن هم پاک می‌شود.\n\n"
+        f"مطمئنید؟",
+        reply_markup=kb.kb_confirm(f"player_harddelete_go_{pid}", f"player_view_{pid}"),
+        parse_mode="Markdown")
+
+async def player_harddelete_go(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد می‌تواند حذف کامل انجام دهد.", show_alert=True)
+        return
+    await query.answer()
+    pid = int(query.data.split("_")[-1])
+    p = await db.get_player(pid)
+    if not p:
+        await safe_edit_message_text(query, "بازیکن قبلاً حذف شده.", reply_markup=kb.kb_back("player_list"))
+        return
+    name = p["full_name"]
+    await db.delete_player_hard(pid)
+    await db.log_action(query.from_user.id, "delete_player_hard", f"حذف کامل: {name}", pid)
+    await record_destructive_action(ctx.bot, query.from_user.id, "delete_player_hard")
+    await safe_edit_message_text(query, f"🗑 *{name}* برای همیشه حذف شد.",
                                    reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
 
 async def player_note_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

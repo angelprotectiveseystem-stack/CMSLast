@@ -852,6 +852,28 @@ async def rename_class(class_id: int, new_name: str):
         await db.commit()
 
 
+async def get_class_player_count(class_id: int) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) AS c FROM players WHERE class_id=?", (class_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row["c"] if row else 0
+
+
+async def delete_class(class_id: int) -> bool:
+    """کلاس رو فقط وقتی حذف می‌کنه که دیگه هیچ بازیکنی بهش وصل نباشه —
+    تا هیچ بازیکنی با یک class_id یتیم/نامعتبر توی دیتابیس نمونه.
+    خروجی: True اگه واقعاً حذف شد، False اگه به‌خاطر وجود بازیکن رد شد."""
+    count = await get_class_player_count(class_id)
+    if count > 0:
+        return False
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM classes WHERE id=?", (class_id,))
+        await db.commit()
+    return True
+
+
 # ─── Players ─────────────────────────────────────────────────
 async def get_all_players():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -912,6 +934,26 @@ async def update_player(player_id: int, **kwargs):
         await db.commit()
     # class_id/status/warnings از طریق این تابع هم قابل‌تغییرن (مثلاً
     # ویرایش کلاس یا وضعیت بازیکن)، پس لیستِ «ادامه‌دهنده‌ها» رو هم پاک کن.
+    _invalidate_continuing_players_cache()
+
+
+async def delete_player_hard(player_id: int):
+    """حذف کامل و غیرقابل‌بازگشتِ یک بازیکن — برخلاف اخراج/تعلیق
+    (که فقط status رو عوض می‌کنن و بازیکن همچنان توی لیست کامل دیده
+    می‌شه)، این تابع رکورد رو کاملاً از جدول players پاک می‌کنه؛ به‌همراه
+    هر رکوردِ وابسته‌ای که با FOREIGN KEY به همین بازیکن اشاره داره
+    (مسابقات ثبت‌شده، عضویت در تیم، سابقه‌ی اخطارها) تا چیزی یتیم نمونه."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.batch():
+            await db.execute(
+                "DELETE FROM warnings_log WHERE target_type='player' AND target_id=?", (player_id,))
+            await db.execute("DELETE FROM team_members WHERE player_id=?", (player_id,))
+            await db.execute(
+                "DELETE FROM matches WHERE white_player_id=? OR black_player_id=?",
+                (player_id, player_id)
+            )
+            await db.execute("DELETE FROM players WHERE id=?", (player_id,))
+        await db.commit()
     _invalidate_continuing_players_cache()
 
 

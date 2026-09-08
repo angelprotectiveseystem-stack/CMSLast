@@ -61,9 +61,11 @@ from tournament import (
 )
 from players import (
     class_add_start, class_add_name, class_list, class_select, class_players,
-    class_edit, class_perf, player_add_start, player_class_selected, player_add_name,
+    class_edit, class_perf, class_harddelete_ask, class_harddelete_go,
+    player_add_start, player_class_selected, player_add_name,
     player_join_team, player_no_team, player_list, player_list_page, player_view,
     player_warn_start, player_warn_reason, player_kick, player_suspend, player_revive,
+    player_harddelete_ask, player_harddelete_go,
     player_note_start, player_note_save, player_elite_set, player_special_set,
     player_editname_start, player_editname_save, player_editclass_start, player_setclass,
     player_search_start, player_search_run, player_continuing, player_eliminated,
@@ -871,6 +873,8 @@ def build_application():
     app.add_handler(CallbackQueryHandler(class_select, pattern="^class_select_"))
     app.add_handler(CallbackQueryHandler(class_players, pattern="^class_players_"))
     app.add_handler(CallbackQueryHandler(class_perf, pattern="^class_perf_"))
+    app.add_handler(CallbackQueryHandler(class_harddelete_ask, pattern="^class_harddelete_ask_"))
+    app.add_handler(CallbackQueryHandler(class_harddelete_go, pattern="^class_harddelete_go_"))
 
     # Players
     app.add_handler(CallbackQueryHandler(player_list, pattern="^player_list$"))
@@ -879,6 +883,8 @@ def build_application():
     app.add_handler(CallbackQueryHandler(player_kick, pattern="^player_kick_"))
     app.add_handler(CallbackQueryHandler(player_suspend, pattern="^player_suspend_"))
     app.add_handler(CallbackQueryHandler(player_revive, pattern="^player_revive_"))
+    app.add_handler(CallbackQueryHandler(player_harddelete_ask, pattern="^player_harddelete_ask_"))
+    app.add_handler(CallbackQueryHandler(player_harddelete_go, pattern="^player_harddelete_go_"))
     app.add_handler(CallbackQueryHandler(player_elite_set, pattern="^player_elite_"))
     app.add_handler(CallbackQueryHandler(player_special_set,pattern="^player_special_"))
     app.add_handler(CallbackQueryHandler(player_setclass, pattern="^setclass_"))
