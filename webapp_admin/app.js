@@ -3,7 +3,7 @@
 
   var TOKEN_KEY = "chess_panel_token";
   var POLL_MS = 4000; // زنده بدون فشار به سرور: هر ۴ ثانیه فقط GET های سبک
-  var state = { view: "home", timer: null, activityPage: 0 };
+  var state = { view: "home", timer: null, activityPage: 0, lastOverview: null };
 
   // ── HTTP ──────────────────────────────────────────────
   function api(path, opts) {
@@ -72,7 +72,7 @@
     document.getElementById("view-title").textContent = VIEW_TITLES[state.view];
     document.getElementById("view-body").innerHTML = '<div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>';
     closeSidebar();
-    render();
+    render(true);
   });
 
   // ── Mobile toggle ─────────────────────────────────────
@@ -132,14 +132,17 @@
   // ── Views ─────────────────────────────────────────────
   var body;
 
-  function render() {
+  function render(animate) {
     body = document.getElementById("view-body");
     var fn = VIEWS[state.view];
     if (fn) fn();
-    body.classList.remove("fade-in");
-    // ری‌استارت انیمیشن حتی اگر کلاس از قبل حذف نشده باشد
-    void body.offsetWidth;
-    body.classList.add("fade-in");
+    if (animate !== false) {
+      body.classList.remove("fade-in");
+      void body.offsetWidth;
+      body.classList.add("fade-in");
+    } else {
+      body.classList.remove("fade-in");
+    }
   }
 
   var VIEWS = {
@@ -416,9 +419,22 @@
     var el = document.getElementById("conn-status");
     var dot = document.querySelector(".live-dot");
     api("/api/panel/overview").then(function (d) {
-      if (d.ok) { el.textContent = "زنده و به‌روز"; dot.classList.remove("off"); }
-      if (state.view === "home" || state.view === "live" || state.view === "online" || state.view === "admins") {
-        render();
+      if (d.ok) {
+        el.textContent = "زنده و به‌روز";
+        dot.classList.remove("off");
+
+        // فقط وقتی داده‌ی وضعیت واقعاً عوض شده دوباره‌ی صفحه را بساز.
+        // این جلوی فلش/سکته‌ی ظاهری ناشی از جایگزینی DOM در هر poll را می‌گیرد.
+        var snapshot = JSON.stringify({
+          stats: d.stats,
+          online_admins: d.online_admins
+        });
+        if (snapshot !== state.lastOverview) {
+          state.lastOverview = snapshot;
+          if (state.view === "home" || state.view === "live" || state.view === "online" || state.view === "admins") {
+            render(false);
+          }
+        }
       }
     }).catch(function () {
       el.textContent = "قطع ارتباط"; dot.classList.add("off");
