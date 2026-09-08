@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>پنل مدیریت — مسابقات شطرنج</title>
+<link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+
+<!-- ── صفحه ورود ───────────────────────────────────────────── -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-mark">
+      <svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true">
+        <path d="M24 6c-2.2 0-4 1.8-4 4 0 1.1.45 2.1 1.18 2.82L19 16v4h10v-4l-2.18-3.18C27.55 12.1 28 11.1 28 10c0-2.2-1.8-4-4-4z" fill="currentColor"/>
+        <path d="M16 22h16l2 8H14l2-8z" fill="currentColor" opacity=".75"/>
+        <rect x="12" y="34" width="24" height="5" rx="1" fill="currentColor"/>
+        <rect x="9" y="41" width="30" height="4" rx="1" fill="currentColor" opacity=".55"/>
+      </svg>
+    </div>
+    <h1>پنل مدیریت مسابقات شطرنج</h1>
+    <p class="login-sub">برای ورود، رمز عبور پنل را وارد کنید.</p>
+    <input type="password" id="login-password" placeholder="رمز عبور" autocomplete="current-password">
+    <button id="login-btn">ورود به پنل</button>
+    <div id="login-error" class="login-error"></div>
+  </div>
+</div>
+
+<!-- ── برنامه اصلی ─────────────────────────────────────────── -->
+<div id="app" class="hidden">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">♞</span>
+      <span class="brand-text">پنل مسابقات</span>
+    </div>
+
+    <nav id="nav">
+      <button class="nav-item active" data-view="home"><span class="nav-coord">e1</span><span class="nav-label">خانه</span></button>
+      <button class="nav-item" data-view="matches"><span class="nav-coord">a2</span><span class="nav-label">مسابقات شطرنج</span></button>
+      <button class="nav-item" data-view="live"><span class="nav-coord">d4</span><span class="nav-label">شطرنج زنده</span></button>
+      <button class="nav-item" data-view="players"><span class="nav-coord">b1</span><span class="nav-label">مسابقه‌دهنده‌ها</span></button>
+      <button class="nav-item" data-view="elo"><span class="nav-coord">h8</span><span class="nav-label">سطح پیشرفت / ELO</span></button>
+      <button class="nav-item" data-view="admins"><span class="nav-coord">c1</span><span class="nav-label">مدیر‌ها</span></button>
+      <button class="nav-item" data-view="online"><span class="nav-coord">g1</span><span class="nav-label">آنلاین‌ها</span></button>
+      <button class="nav-item" data-view="messages"><span class="nav-coord">f1</span><span class="nav-label">پیام‌های ارسالی</span></button>
+      <button class="nav-item" data-view="activity"><span class="nav-coord">a8</span><span class="nav-label">فعالیت‌ها</span></button>
+      <button class="nav-item" data-view="charts"><span class="nav-coord">d1</span><span class="nav-label">نمودارها</span></button>
+      <button class="nav-item" data-view="assistant"><span class="nav-coord">h1</span><span class="nav-label">دستیار</span></button>
+      <button class="nav-item" data-view="settings"><span class="nav-coord">a1</span><span class="nav-label">تنظیمات</span></button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <span class="live-dot"></span>
+      <span id="conn-status">در حال اتصال…</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h2 id="view-title">خانه</h2>
+      <div id="topbar-clock" class="topbar-clock">--:--:--</div>
+    </header>
+
+    <div id="view-body" class="view-body">
+      <div class="loading-state">در حال بارگذاری…</div>
+    </div>
+  </main>
+
+</div>
+
+<script src="app.js?v=3"></script>
+</body>
+</html>

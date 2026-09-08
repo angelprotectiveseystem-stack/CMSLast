@@ -1,0 +1,332 @@
+/* ────────────────────────────────────────────────────────────
+   پنل مدیریت مسابقات شطرنج — تم تخته و ساعت شطرنج
+   ──────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-Regular.woff2") format("woff2");
+  font-weight: 400; font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-Medium.woff2") format("woff2");
+  font-weight: 500; font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-SemiBold.woff2") format("woff2");
+  font-weight: 600; font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-Bold.woff2") format("woff2");
+  font-weight: 700; font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-ExtraBold.woff2") format("woff2");
+  font-weight: 800; font-display: swap;
+}
+
+:root {
+  --ink:        #0f1712;   /* پس‌زمینه اصلی، سبز-مشکیِ خانه‌ی تیره‌ی تخته */
+  --panel:      #17211b;   /* پنل‌ها روی ink */
+  --panel-2:    #1e2a22;   /* پنل روشن‌تر / hover */
+  --walnut:     #2c2018;   /* قهوه‌ی گردویی — خط‌ها و مرزها */
+  --line:       #3a3126;   /* خطوط ظریف */
+  --ivory:      #ece3d2;   /* متن اصلی، رنگ خانه‌ی روشن تخته */
+  --ivory-dim:  #b9b0a0;   /* متن ثانویه */
+  --amber:      #c99a46;   /* برنجِ ساعت شطرنج — تاکید اصلی */
+  --amber-dim:  #8a6b34;
+  --sage:       #7a9b72;   /* سبز نمدِ روی میز — برد/آنلاین/مثبت */
+  --brick:      #b2534a;   /* آجریِ کم‌رنگ — باخت/هشدار/در انتظار */
+  --radius: 6px;
+  --font: "Vazirmatn", Tahoma, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--ink);
+  color: var(--ivory);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+body {
+  /* بافت خیلی کم‌رنگِ خانه‌های شطرنج در زمینه‌ی کل برنامه */
+  background-image:
+    linear-gradient(45deg, rgba(236,227,210,0.025) 25%, transparent 25%, transparent 75%, rgba(236,227,210,0.025) 75%),
+    linear-gradient(45deg, rgba(236,227,210,0.025) 25%, transparent 25%, transparent 75%, rgba(236,227,210,0.025) 75%);
+  background-size: 64px 64px;
+  background-position: 0 0, 32px 32px;
+}
+
+button, input { font-family: var(--font); }
+
+.hidden { display: none !important; }
+
+a { color: var(--amber); }
+
+::selection { background: var(--amber); color: var(--ink); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--walnut); border-radius: 8px; }
+
+/* ── صفحه ورود ─────────────────────────────────────────── */
+#login-screen {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.login-card {
+  width: 100%; max-width: 360px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 36px 30px;
+  text-align: center;
+}
+.login-mark {
+  width: 64px; height: 64px; margin: 0 auto 18px;
+  border-radius: 50%;
+  background: var(--panel-2);
+  border: 1px solid var(--amber-dim);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--amber);
+}
+.login-card h1 {
+  font-size: 19px; font-weight: 700; margin: 0 0 8px;
+}
+.login-sub {
+  color: var(--ivory-dim); font-size: 13.5px; margin: 0 0 22px;
+}
+#login-password {
+  width: 100%; padding: 12px 14px;
+  background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--ivory); font-size: 14px; margin-bottom: 12px;
+  outline: none; transition: border-color .15s;
+}
+#login-password:focus { border-color: var(--amber); }
+#login-btn {
+  width: 100%; padding: 12px 14px;
+  background: var(--amber); color: #201607;
+  border: none; border-radius: var(--radius);
+  font-size: 14.5px; font-weight: 700; cursor: pointer;
+  transition: filter .15s;
+}
+#login-btn:hover { filter: brightness(1.08); }
+#login-btn:focus-visible, .nav-item:focus-visible, .tab-btn:focus-visible {
+  outline: 2px solid var(--amber); outline-offset: 2px;
+}
+.login-error { color: var(--brick); font-size: 13px; margin-top: 12px; min-height: 1em; }
+
+/* ── چیدمان اصلی ───────────────────────────────────────── */
+#app { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 232px; flex-shrink: 0;
+  background: var(--panel);
+  border-inline-start: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.brand-mark { font-size: 22px; color: var(--amber); }
+.brand-text { font-size: 14.5px; font-weight: 700; letter-spacing: .2px; }
+
+#nav {
+  flex: 1; overflow-y: auto;
+  padding: 10px 10px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; text-align: right;
+  background: transparent; border: none; border-radius: var(--radius);
+  color: var(--ivory-dim);
+  padding: 10px 12px;
+  font-size: 13.8px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.nav-item:hover { background: var(--panel-2); color: var(--ivory); }
+.nav-item.active { background: var(--panel-2); color: var(--ivory); }
+.nav-item.active .nav-coord { color: var(--ink); background: var(--amber); }
+.nav-coord {
+  font-family: monospace; font-size: 10.5px; font-weight: 700;
+  color: var(--amber-dim);
+  background: var(--ink);
+  border-radius: 3px; padding: 2px 5px;
+  min-width: 24px; text-align: center;
+  flex-shrink: 0;
+}
+.nav-label { flex: 1; }
+
+.sidebar-foot {
+  padding: 14px 20px; border-top: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--ivory-dim);
+}
+.live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--sage); flex-shrink: 0;
+  box-shadow: 0 0 0 3px rgba(122,155,114,0.18);
+}
+.live-dot.off { background: var(--brick); box-shadow: 0 0 0 3px rgba(178,83,74,0.18); }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--ink); z-index: 5;
+}
+.topbar h2 { font-size: 18px; font-weight: 700; margin: 0; }
+.topbar-clock {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px; color: var(--amber);
+  letter-spacing: .5px;
+}
+
+.view-body { padding: 24px 28px 60px; }
+
+.loading-state, .empty-state {
+  color: var(--ivory-dim); font-size: 13.5px;
+  padding: 28px 10px; text-align: center;
+}
+
+/* ── کارت‌های آماری خانه ───────────────────────────────── */
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px; margin-bottom: 24px;
+}
+.stat-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 16px 18px;
+  border-inline-start: 3px solid var(--amber-dim);
+}
+.stat-card.accent-sage { border-inline-start-color: var(--sage); }
+.stat-card.accent-rust { border-inline-start-color: var(--brick); }
+.stat-label { font-size: 12.5px; color: var(--ivory-dim); margin-bottom: 8px; }
+.stat-value {
+  font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums;
+  letter-spacing: .5px;
+}
+
+/* ── بخش‌ها ────────────────────────────────────────────── */
+.section {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px 20px; margin-bottom: 18px;
+}
+.section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.section-head h3 { font-size: 15px; font-weight: 700; margin: 0; }
+.count { font-size: 12px; color: var(--amber); font-variant-numeric: tabular-nums; }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+
+/* ── تب‌ها (فیلتر مسابقات) ─────────────────────────────── */
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.tab-btn {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ivory-dim);
+  border-radius: 999px; padding: 6px 16px; font-size: 12.8px; cursor: pointer;
+  transition: all .12s;
+}
+.tab-btn:hover { color: var(--ivory); }
+.tab-btn.active { background: var(--amber); border-color: var(--amber); color: #201607; font-weight: 700; }
+
+/* ── جدول‌ها ────────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; font-size: 13.3px; }
+thead th {
+  text-align: right; color: var(--ivory-dim); font-weight: 600; font-size: 12px;
+  padding: 8px 10px; border-bottom: 1px solid var(--amber-dim);
+}
+tbody td { padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tbody tr:hover td { background: var(--panel-2); }
+tbody tr:last-child td { border-bottom: none; }
+
+.player-name-cell { line-height: 1.5; }
+.class-tag {
+  display: inline-block; font-size: 11px; color: var(--ivory-dim);
+  background: var(--ink); border: 1px solid var(--line);
+  border-radius: 3px; padding: 1px 6px; margin-top: 3px;
+}
+.rating-cell { font-weight: 700; color: var(--amber); font-variant-numeric: tabular-nums; }
+
+.progress-mini {
+  display: inline-block; width: 60px; height: 5px; border-radius: 3px;
+  background: var(--ink); margin-inline-start: 8px; overflow: hidden; vertical-align: middle;
+}
+.progress-mini-fill { display: block; height: 100%; background: var(--sage); }
+
+.pin-tag { margin-inline-end: 4px; }
+
+/* ── نشان‌ها (Badges) ──────────────────────────────────── */
+.badge {
+  display: inline-block; font-size: 11.5px; font-weight: 600;
+  border-radius: 999px; padding: 3px 10px;
+  border: 1px solid transparent;
+}
+.badge.win, .badge.online { background: rgba(122,155,114,0.15); color: var(--sage); border-color: rgba(122,155,114,0.35); }
+.badge.loss { background: rgba(178,83,74,0.15); color: var(--brick); border-color: rgba(178,83,74,0.35); }
+.badge.draw { background: rgba(201,154,70,0.15); color: var(--amber); border-color: rgba(201,154,70,0.35); }
+.badge.pending { background: rgba(236,227,210,0.08); color: var(--ivory-dim); border-color: var(--line); }
+
+/* ── پیام‌ها / فعالیت‌ها ────────────────────────────────── */
+.msg-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.msg-item:last-child { border-bottom: none; }
+.msg-text { font-size: 13.6px; line-height: 1.7; }
+.msg-meta { font-size: 11.5px; color: var(--ivory-dim); margin-top: 5px; }
+
+/* ── نمودارها ──────────────────────────────────────────── */
+.chart-wrap { padding-top: 4px; }
+.bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.bar-label {
+  width: 140px; flex-shrink: 0; font-size: 12.5px; color: var(--ivory-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bar-track { flex: 1; height: 10px; background: var(--ink); border-radius: 5px; overflow: hidden; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, var(--amber-dim), var(--amber)); border-radius: 5px; }
+.bar-value { width: 34px; text-align: left; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ivory); }
+
+.sparkline { width: 100%; height: 130px; display: block; }
+
+/* ── دکمه‌ی همبرگری موبایل (توسط app.js اضافه می‌شود) ──── */
+.mobile-toggle {
+  display: none;
+  position: fixed; top: 14px; inset-inline-end: 16px; z-index: 20;
+  width: 38px; height: 38px; border-radius: var(--radius);
+  background: var(--panel); border: 1px solid var(--line); color: var(--ivory);
+  font-size: 18px; cursor: pointer;
+}
+
+/* ── واکنش‌گرا / موبایل ─────────────────────────────────── */
+@media (max-width: 860px) {
+  .sidebar {
+    position: fixed; inset-inline-end: 0; top: 0; height: 100vh;
+    transform: translateX(100%);
+    transition: transform .2s ease; z-index: 15;
+    box-shadow: -8px 0 24px rgba(0,0,0,.35);
+  }
+  html[dir="rtl"] .sidebar.open { transform: translateX(0); }
+  .mobile-toggle { display: block; }
+  .topbar { padding-inline-end: 62px; }
+  .view-body { padding: 18px 16px 50px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .bar-label { width: 90px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
