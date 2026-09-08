@@ -25,6 +25,7 @@ from telegram.error import TelegramError
 
 import database as db
 import chess_ai_chat
+import chess_analysis
 from chess_ai import AI_ID, choose_move, evaluate_fen
 from config import BOT_TOKEN, WEBAPP_PORT, PISHVA_ID
 
@@ -816,6 +817,46 @@ async def api_game_over(request):
     # فقط تاییدیه سمت کلاینت برای نمایش سریع‌تر مودال؛ وضعیت واقعی
     # از روی حرکت آخر در /api/move محاسبه و ذخیره شده است.
     return web.json_response({"ok": True})
+
+
+# ─── تحلیلِ پس از بازی («🔍 تحلیل مسابقه») ──────────────────────────
+# محاسبه‌ی تحلیلِ کاملِ یک بازی (جست‌وجوی negamax برای هر نیم‌حرکت) کاری
+# سنگین است؛ چون تاریخچه‌ی حرکت‌های یک بازیِ تمام‌شده دیگر هیچ‌وقت عوض
+# نمی‌شود، نتیجه یک‌بار محاسبه و در حافظه کش می‌شود (هم‌راستا با الگوی
+# _avatar_cache/_spectator_presence در همین فایل) تا اگر کاربر دوباره
+# وارد صفحه‌ی تحلیل شد یا صفحه را رفرش کرد، دوباره چند ثانیه صبر نکند.
+_analysis_cache = {}  # token -> {"move_count": int, "data": dict}
+
+
+@routes.get("/api/analyze")
+async def api_analyze(request):
+    token = request.query.get("token")
+    game = await db.get_chess_game(token) if token else None
+    if not game:
+        return web.json_response({"ok": False, "error": "بازی پیدا نشد یا منقضی شده است."})
+    if await _game_locked_for_viewing(game):
+        return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
+    pgn = game["pgn"] or ""
+    moves = pgn.split(",") if pgn else []
+    if not moves:
+        return web.json_response({"ok": False, "error": "این بازی هنوز حرکتی برای تحلیل ندارد."})
+
+    cached = _analysis_cache.get(token)
+    if cached and cached["move_count"] == len(moves):
+        return web.json_response({"ok": True, "analysis": cached["data"]})
+
+    try:
+        result = await asyncio.to_thread(chess_analysis.analyze_game, moves)
+    except Exception:
+        logger.exception("Chess analysis failed for token=%s", token)
+        return web.json_response({"ok": False, "error": "تحلیلِ بازی با خطا مواجه شد. لطفاً دوباره تلاش کنید."})
+
+    result["white_name"] = game["white_name"]
+    result["black_name"] = game["black_name"]
+    result["status"] = game["status"]
+    result["winner_id"] = game["winner_id"]
+    _analysis_cache[token] = {"move_count": len(moves), "data": result}
+    return web.json_response({"ok": True, "analysis": result})
 
 
 _last_chat_at = {}  # token -> {user_id: monotonic_time}, ساده و در حافظه (کافی برای این حجم)
