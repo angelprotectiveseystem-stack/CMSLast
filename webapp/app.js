@@ -12,6 +12,11 @@ try{
 var params = new URLSearchParams(window.location.search);
 var TOKEN = params.get("token") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param);
 var INIT_DATA = tg ? tg.initData : "";
+// وقتی از «لیستِ بازی‌ها» (مرورِ بازی‌های تمام‌شده) وارد می‌شویم، برای
+// همه به‌جز پیشوا پارامترِ chat=0 ست می‌شود تا محتوای چتِ داخلِ همان بازی
+// (که بینِ دو بازیکنِ اصلی رد و بدل شده) به بقیه نشان داده نشود. مقدارِ
+// پیش‌فرض (نبودِ پارامتر) true است تا رفتارِ بازیِ زنده‌ی معمولی دست‌نخورده بماند.
+var SHOW_CHAT = params.get("chat") !== "0";
 var API = ""; // same-origin
 
 var PIECE_GLYPH = { p:"♟", n:"♞", b:"♝", r:"♜", q:"♛", k:"♚" };
@@ -1387,7 +1392,7 @@ function renderChatMessage(m, pending){
 }
 
 function pollChat(){
-  if(!TOKEN) return;
+  if(!TOKEN || !SHOW_CHAT) return;
   fetch(API + "/api/chat?token=" + encodeURIComponent(TOKEN) + "&after=" + state.lastChatId)
     .then(function(r){ return r.json(); })
     .then(function(res){
@@ -1429,6 +1434,7 @@ function updateChatBadge(){
 }
 
 function sendChatMessage(){
+  if(!SHOW_CHAT) return; // محافظِ اضافی: دکمه‌ی چت مخفی است، ولی اگر جایی صدا زده شد بی‌اثر بماند
   var input = $("chat-input");
   var text = input.value.trim();
   if(!text) return;
@@ -1826,8 +1832,16 @@ function init(){
     state.pollTimer = setInterval(pollState, 4000);
     connectLiveSocket();
     state.clockTimer = setInterval(tickClocks, 1000);
-    state.chatTimer = setInterval(pollChat, 2000);
-    pollChat();
+    // چت: وقتی از «لیستِ بازی‌ها» با chat=0 وارد شده‌ایم (مرورِ بازیِ
+    // تمام‌شده‌ی دیگران)، نه دکمه‌ی چت نشان داده می‌شود و نه پول/تایمرِ
+    // چت راه می‌افتد — نه فقط برای پیشوا که SHOW_CHAT=true می‌ماند.
+    if(SHOW_CHAT){
+      state.chatTimer = setInterval(pollChat, 2000);
+      pollChat();
+    } else {
+      var chatBtn = $("btn-chat");
+      if(chatBtn) chatBtn.classList.add("hidden");
+    }
     if(s.status !== "active"){ showGameOver(s.status, s.winner_id, s.white_elo_change, s.black_elo_change); }
   }).catch(function(){
     showError("اتصال به سرور برقرار نشد.");
