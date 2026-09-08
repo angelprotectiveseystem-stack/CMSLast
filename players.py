@@ -54,7 +54,7 @@ async def class_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     active = sum(1 for p in players if p["status"] == "active")
     await safe_edit_message_text(query, 
         f"{box('🏫 کلاس ' + c['name'])}\n\n👥 تعداد بازیکنان: `{len(players)}`\n✅ فعال: `{active}`",
-        reply_markup=kb.kb_class_actions(cid), parse_mode="Markdown")
+        reply_markup=kb.kb_class_actions(cid, is_pishva=(query.from_user.id == PISHVA_ID)), parse_mode="Markdown")
 
 async def class_players(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -84,6 +84,9 @@ async def class_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def class_harddelete_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ حذف کلاس فقط برای مدیر ارشد مجاز است.", show_alert=True)
+        return
     await query.answer()
     cid = int(query.data.split("_")[-1])
     c = await db.get_class(cid)
@@ -95,7 +98,7 @@ async def class_harddelete_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await safe_edit_message_text(query,
             f"❌ کلاس *{c['name']}* را نمی‌توان حذف کرد؛ `{count}` بازیکن هنوز در این کلاس هستند.\n"
             f"ابتدا بازیکنان را جابه‌جا یا حذف کنید.",
-            reply_markup=kb.kb_class_actions(cid), parse_mode="Markdown")
+            reply_markup=kb.kb_class_actions(cid, is_pishva=True), parse_mode="Markdown")
         return
     await safe_edit_message_text(query,
         f"🗑 کلاس *{c['name']}* حذف می‌شود. این کار غیرقابل بازگشت است.\n\nمطمئنید؟",
@@ -104,6 +107,9 @@ async def class_harddelete_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def class_harddelete_go(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ حذف کلاس فقط برای مدیر ارشد مجاز است.", show_alert=True)
+        return
     await query.answer()
     cid = int(query.data.split("_")[-1])
     c = await db.get_class(cid)
@@ -115,7 +121,7 @@ async def class_harddelete_go(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not ok:
         await safe_edit_message_text(query,
             f"❌ کلاس *{name}* را نمی‌توان حذف کرد؛ بازیکنی به آن اضافه شده.",
-            reply_markup=kb.kb_class_actions(cid), parse_mode="Markdown")
+            reply_markup=kb.kb_class_actions(cid, is_pishva=True), parse_mode="Markdown")
         return
     await db.log_action(query.from_user.id, "delete_class", f"حذف کلاس: {name}")
     await safe_edit_message_text(query, f"🗑 کلاس *{name}* حذف شد.",

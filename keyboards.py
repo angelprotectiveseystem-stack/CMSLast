@@ -116,12 +116,14 @@ def kb_class_list(classes):
     rows.append(kb_back_row("class_manage"))
     return InlineKeyboardMarkup(rows)
 
-def kb_class_actions(class_id):
+def kb_class_actions(class_id, is_pishva=False):
+    row3 = [InlineKeyboardButton("📈 عملکرد کلاس", callback_data=f"class_perf_{class_id}", style="primary")]
+    if is_pishva:
+        row3.append(InlineKeyboardButton("🗑 حذف کلاس", callback_data=f"class_harddelete_ask_{class_id}", style="danger"))
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👥 بازیکنان کلاس", callback_data=f"class_players_{class_id}", style="primary"),
         InlineKeyboardButton("✏️ ویرایش نام", callback_data=f"class_edit_{class_id}", style="primary")],
-        [InlineKeyboardButton("📈 عملکرد کلاس", callback_data=f"class_perf_{class_id}", style="primary"),
-        InlineKeyboardButton("🗑 حذف کلاس", callback_data=f"class_harddelete_ask_{class_id}", style="danger")],
+        row3,
         [InlineKeyboardButton("🔙 بازگشت", callback_data="class_list", style="danger")],
     ])
 
