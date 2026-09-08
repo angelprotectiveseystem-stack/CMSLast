@@ -38,6 +38,19 @@ _SETTING_CACHE_TTL = 45  # ثانیه
 _setting_cache = {}   # key -> (value, expires_at_monotonic)
 _admin_cache = {}     # telegram_id -> (row, expires_at_monotonic)
 
+# ─── کش لیستِ ادمین‌ها + بازیکنانِ ادامه‌دهنده ──────────────────────
+# FIX (کندیِ منوی شطرنج / ثبت مسابقه / پنل مدیر ارشد): get_all_admins و
+# get_active_admins هیچ‌وقت کش نمی‌شدن — با اینکه get_admin (تکی) از قبل
+# کش داشت. اما این دو تابع دقیقاً همون چیزی هستن که منوی شطرنج زنده (برای
+# لیستِ حریف‌ها) و اکثرِ دکمه‌های پنلِ مدیر ارشد (لیستِ ادمین‌ها) روی هر
+# کلیک صداشون می‌زنن؛ یعنی هر کلیک = یک اسکنِ کاملِ جدولِ admins روی شبکه
+# به Turso، دقیقاً همون معادله‌ای که برای get_setting/get_admin حل شده بود
+# ولی اینجا حل نشده بود. get_continuing_players (لیستِ بازیکنانِ مجاز برای
+# ثبتِ مسابقه‌ی جدید) هم همین مشکل رو داشت. راه‌حل: همون الگوی TTL کوتاه،
+# invalidate‌شونده روی هر نوشتنِ واقعی.
+_admin_list_cache = {}       # "all" | "active" -> (rows, expires_at_monotonic)
+_continuing_players_cache = {}  # "list" -> (rows, expires_at_monotonic)
+
 # ─── کش «بلاک بودن کاربر» ───────────────────────────────────────────
 # block_gate روی *هر تک آپدیت* (هر پیام، هر دکمه، از هر نفر) قبل از هر
 # چیز دیگه‌ای اجرا می‌شه و get_blocked_user رو صدا می‌زنه. یعنی این یکی
@@ -94,6 +107,9 @@ def _invalidate_admin_cache(telegram_id=None):
         _admin_cache.clear()
     else:
         _admin_cache.pop(telegram_id, None)
+    # هر تغییرِ ادمینی (عضو جدید/اخراج/برگشت/پرمیشن/نقش/اخطار) روی محتوای
+    # لیست‌ها هم اثر می‌ذاره، پس هر دو لیست هم همین‌جا پاک می‌شن.
+    _admin_list_cache.clear()
 
 
 def _invalidate_blocked_cache(telegram_id=None):
@@ -101,6 +117,10 @@ def _invalidate_blocked_cache(telegram_id=None):
         _blocked_cache.clear()
     else:
         _blocked_cache.pop(telegram_id, None)
+
+
+def _invalidate_continuing_players_cache():
+    _continuing_players_cache.clear()
 
 
 async def init_db():
@@ -476,17 +496,27 @@ async def get_admin(telegram_id: int):
 
 
 async def get_all_admins():
+    cached = _cache_get(_admin_list_cache, "all")
+    if cached is not _CACHE_MISS:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM admins ORDER BY joined_at DESC") as cur:
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            _cache_set(_admin_list_cache, "all", rows)
+            return rows
 
 
 async def get_active_admins():
+    cached = _cache_get(_admin_list_cache, "active")
+    if cached is not _CACHE_MISS:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM admins WHERE is_active=1") as cur:
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            _cache_set(_admin_list_cache, "active", rows)
+            return rows
 
 
 async def create_admin(telegram_id, username, full_name, role):
@@ -859,6 +889,7 @@ async def create_player(full_name: str, class_id: int):
             (full_name, class_id, now)
         )
         await db.commit()
+        _invalidate_continuing_players_cache()
         return cur.lastrowid
 
 
@@ -879,6 +910,9 @@ async def update_player(player_id: int, **kwargs):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(f"UPDATE players SET {sets} WHERE id=?", vals)
         await db.commit()
+    # class_id/status/warnings از طریق این تابع هم قابل‌تغییرن (مثلاً
+    # ویرایش کلاس یا وضعیت بازیکن)، پس لیستِ «ادامه‌دهنده‌ها» رو هم پاک کن.
+    _invalidate_continuing_players_cache()
 
 
 async def add_player_warning(player_id: int, reason: str, issued_by: int):
@@ -891,6 +925,7 @@ async def add_player_warning(player_id: int, reason: str, issued_by: int):
                 ("player", player_id, reason, issued_by, now)
             )
         await db.commit()
+    _invalidate_continuing_players_cache()
 
 
 async def get_players_by_class(class_id: int):
@@ -916,12 +951,17 @@ async def search_players(query: str):
 
 async def get_continuing_players():
     """Players with active status, no dangerous warnings, not suspended"""
+    cached = _cache_get(_continuing_players_cache, "list")
+    if cached is not _CACHE_MISS:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT p.*, c.name as class_name FROM players p LEFT JOIN classes c ON p.class_id=c.id WHERE p.status='active' AND p.warnings < 3 ORDER BY p.full_name"
         ) as cur:
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            _cache_set(_continuing_players_cache, "list", rows)
+            return rows
 
 
 # ─── Tournaments ─────────────────────────────────────────────
@@ -1979,6 +2019,7 @@ async def restore_upsert_player(full_name: str, class_id=None, status=None, warn
                 (class_id, status, warnings, is_elite, is_special, wins, losses, draws, existing["id"])
             )
             await db.commit()
+            _invalidate_continuing_players_cache()
             return existing["id"], False
         else:
             cur = await db.execute(
@@ -1988,6 +2029,7 @@ async def restore_upsert_player(full_name: str, class_id=None, status=None, warn
                  wins, losses, draws, now)
             )
             await db.commit()
+            _invalidate_continuing_players_cache()
             return cur.lastrowid, True
 
 
