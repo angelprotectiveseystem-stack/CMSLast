@@ -164,7 +164,9 @@ html,body{
 .avatar-img.loaded{ opacity:1; }
 .player-info{ flex:1; min-width:0; }
 .player-name{ font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.captured-row{ display:flex; gap:1px; font-size:16px; min-height:19px; color: var(--text-2); letter-spacing:-2px; }
+.captured-row{ display:flex; align-items:center; gap:4px; font-size:16px; min-height:19px; color: var(--text-2); }
+.captured-row > span:first-child{ display:inline-flex; letter-spacing:-2px; }
+.captured-score{ font-size:12px; font-weight:700; letter-spacing:0; color: var(--text-2); opacity:.85; }
 .clock{
   font-family: 'SF Mono', ui-monospace, monospace; font-size:18px; font-weight:700;
   background: var(--bg-1); border-radius:8px; padding:7px 13px;
