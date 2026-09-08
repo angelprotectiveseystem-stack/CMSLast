@@ -948,6 +948,15 @@ async def delete_player_hard(player_id: int):
             await db.execute(
                 "DELETE FROM warnings_log WHERE target_type='player' AND target_id=?", (player_id,))
             await db.execute("DELETE FROM team_members WHERE player_id=?", (player_id,))
+            # team_match_boards.player1_id/player2_id هیچ FOREIGN KEY رسمی به
+            # players ندارن (توی schema تعریف نشده)، ولی همون بازیکن رو ارجاع
+            # می‌دن؛ بدون این دو خط، بعد از حذف بازیکن یک رفرنسِ یتیم توی
+            # جدولِ برد-به-برد تیمی می‌موند که موقع نمایش، اسم بازیکنِ حذف‌شده
+            # رو نشون نمی‌ده (چون get_player دیگه چیزی پیدا نمی‌کنه).
+            await db.execute(
+                "DELETE FROM team_match_boards WHERE player1_id=? OR player2_id=?",
+                (player_id, player_id)
+            )
             await db.execute(
                 "DELETE FROM matches WHERE white_player_id=? OR black_player_id=?",
                 (player_id, player_id)
@@ -1058,6 +1067,14 @@ async def set_default_tournament(tid: int):
 
 
 async def get_tournament_stats(tid: int):
+    """BUG FIX: قبلاً یک کوئریِ دومِ کاملاً بی‌مصرف اینجا بود — نتیجه‌ش
+    (تعداد بازیکنانِ شرکت‌کننده) نه خونده می‌شد نه توی dict خروجی می‌رفت
+    (`async with ... as cur2: pass`)؛ یعنی هم یک رفت‌وبرگشتِ اضافه‌ی
+    شبکه‌ای به Turso برای هیچ، هم یک آمار که ظاهراً قرار بوده محاسبه بشه
+    ولی هیچ‌وقت واقعاً به جایی نمی‌رسید. الان players واقعاً محاسبه و
+    برگردونده می‌شه؛ COUNT(DISTINCT x)+COUNT(DISTINCT y) هم اگه یک نفر
+    هم سفید هم سیاه بازی کرده باشه (توی مسابقات مختلف) دوبار می‌شمردش،
+    برای همین با UNION درست شده."""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT COUNT(*) as total, SUM(CASE WHEN result IS NOT NULL THEN 1 ELSE 0 END) as done FROM matches WHERE tournament_id=?",
@@ -1067,11 +1084,16 @@ async def get_tournament_stats(tid: int):
             total = row[0] or 0
             done = row[1] or 0
         async with db.execute(
-            "SELECT COUNT(DISTINCT white_player_id)+COUNT(DISTINCT black_player_id) FROM matches WHERE tournament_id=?",
-            (tid,)
+            """SELECT COUNT(*) FROM (
+                   SELECT white_player_id AS pid FROM matches WHERE tournament_id=?
+                   UNION
+                   SELECT black_player_id AS pid FROM matches WHERE tournament_id=?
+               )""",
+            (tid, tid)
         ) as cur2:
-            pass
-        return {"total": total, "done": done}
+            row2 = await cur2.fetchone()
+            players = row2[0] or 0
+        return {"total": total, "done": done, "players": players}
 
 
 async def get_tournament_standings(tid: int):
@@ -1240,18 +1262,24 @@ async def record_match_result(mid: int, result: str, reason: str, updated_by: in
 
 
 async def get_matches_by_filter(period: str = "all"):
+    """BUG FIX (امنیت): قبلاً تاریخ مستقیم با f-string توی متنِ SQL جاگذاری
+    می‌شد (`WHERE m.match_date='{d}'`) — چون d همیشه از datetime خودِ سرور
+    ساخته می‌شه، فعلاً قابل‌سوءاستفاده نبود، ولی سبکش برخلافِ همه‌جای بقیه‌ی
+    این فایله (که پارامتری‌ان) و اگه یک روز این تابع پارامتر گرفت، دقیقاً
+    همین الگو راهِ SQL injection می‌شه. الان مثل بقیه‌ی توابع، پارامتری شده."""
     from datetime import timedelta
     now = datetime.now()
     where = ""
+    params = []
     if period == "today":
-        d = now.strftime("%Y-%m-%d")
-        where = f"WHERE m.match_date='{d}'"
+        where = "WHERE m.match_date=?"
+        params.append(now.strftime("%Y-%m-%d"))
     elif period == "week":
-        d = (now - timedelta(days=7)).isoformat()
-        where = f"WHERE m.created_at>='{d}'"
+        where = "WHERE m.created_at>=?"
+        params.append((now - timedelta(days=7)).isoformat())
     elif period == "month":
-        d = (now - timedelta(days=30)).isoformat()
-        where = f"WHERE m.created_at>='{d}'"
+        where = "WHERE m.created_at>=?"
+        params.append((now - timedelta(days=30)).isoformat())
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -1259,7 +1287,8 @@ async def get_matches_by_filter(period: str = "all"):
                FROM matches m
                LEFT JOIN players wp ON m.white_player_id=wp.id
                LEFT JOIN players bp ON m.black_player_id=bp.id
-               {where} ORDER BY m.created_at DESC LIMIT 50"""
+               {where} ORDER BY m.created_at DESC LIMIT 50""",
+            params
         ) as cur:
             return await cur.fetchall()
 
@@ -2166,25 +2195,31 @@ async def ai_get_sessions_for_user(user_id: int, limit: int = 20):
 
 async def ai_get_sessions_filtered(user_id: int = None, period: str = "all", limit: int = 50):
     """برای پنل مدیر ارشد: سوابق چت یک ادمین خاص در یک بازه‌ی زمانی."""
+    # BUG FIX (امنیت): قبلاً user_id/تاریخ‌ها/limit مستقیم با f-string توی
+    # متنِ SQL جاگذاری می‌شدن؛ int()-کست‌کردنِ user_id و limit فعلاً جلوی
+    # inject واقعی رو می‌گرفت، ولی الگوش خطرناکه. الان همه‌چیز پارامتریه.
     from datetime import timedelta
     now = datetime.now()
     conditions = []
+    params = []
     if user_id is not None:
-        conditions.append(f"user_id = {int(user_id)}")
+        conditions.append("user_id = ?")
+        params.append(int(user_id))
     if period == "today":
-        d = now.strftime("%Y-%m-%d")
-        conditions.append(f"started_at LIKE '{d}%'")
+        conditions.append("started_at LIKE ?")
+        params.append(now.strftime("%Y-%m-%d") + "%")
     elif period == "week":
-        d = (now - timedelta(days=7)).isoformat()
-        conditions.append(f"started_at >= '{d}'")
+        conditions.append("started_at >= ?")
+        params.append((now - timedelta(days=7)).isoformat())
     elif period == "month":
-        d = (now - timedelta(days=30)).isoformat()
-        conditions.append(f"started_at >= '{d}'")
+        conditions.append("started_at >= ?")
+        params.append((now - timedelta(days=30)).isoformat())
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    params.append(int(limit))
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            f"SELECT * FROM ai_chat_sessions {where} ORDER BY started_at DESC LIMIT {int(limit)}"
+            f"SELECT * FROM ai_chat_sessions {where} ORDER BY started_at DESC LIMIT ?", params
         ) as cur:
             return await cur.fetchall()
 
@@ -2377,23 +2412,26 @@ async def get_chess_games_log(period="all", limit=100):
     فقط بازی‌های status != 'active' برمی‌گردند (یعنی واقعاً یک نتیجه/دلیل
     پایان دارند)؛ بازی‌های در حال انجام اینجا جایی ندارند.
     مرتب‌سازی: جدیدترین (بر اساس finished_at) اول."""
+    # BUG FIX (امنیت): مثل بالا — تاریخ‌ها الان پارامتری‌ان، نه f-string.
     from datetime import timedelta
     now = datetime.now()
     conditions = ["status != 'active'"]
+    params = []
     if period == "today":
-        d = now.strftime("%Y-%m-%d")
-        conditions.append(f"finished_at LIKE '{d}%'")
+        conditions.append("finished_at LIKE ?")
+        params.append(now.strftime("%Y-%m-%d") + "%")
     elif period == "week":
-        d = (now - timedelta(days=7)).isoformat()
-        conditions.append(f"finished_at >= '{d}'")
+        conditions.append("finished_at >= ?")
+        params.append((now - timedelta(days=7)).isoformat())
     elif period == "month":
-        d = (now - timedelta(days=30)).isoformat()
-        conditions.append(f"finished_at >= '{d}'")
+        conditions.append("finished_at >= ?")
+        params.append((now - timedelta(days=30)).isoformat())
     where = "WHERE " + " AND ".join(conditions)
+    params.append(limit)
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            f"SELECT * FROM chess_games {where} ORDER BY finished_at DESC LIMIT ?", (limit,)
+            f"SELECT * FROM chess_games {where} ORDER BY finished_at DESC LIMIT ?", params
         ) as cur:
             return await cur.fetchall()
 
