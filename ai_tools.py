@@ -88,7 +88,19 @@ SCHEDULABLE_TOOL_NAMES = frozenset({
 
 # این دو تا هم چون یه اقدام واقعی (زمان‌بندی/لغو یه رویداد آینده) رو در سیستم
 # ثبت می‌کنن، جزو ACTION_TOOL_NAMES حساب می‌شن تا مدیر ارشد ازش باخبر بشه.
-ACTION_TOOL_NAMES = ACTION_TOOL_NAMES | frozenset({"schedule_action", "cancel_scheduled"})
+# batch_execute هم همین‌جوریه — چون معمولاً ده‌ها/صدها تغییر واقعی رو یکجا انجام
+# می‌ده، یه گزارشِ خلاصه‌ی *یکجا* برای مدیر ارشد کافیه (نه یکی برای هر آیتم داخلش).
+ACTION_TOOL_NAMES = ACTION_TOOL_NAMES | frozenset({"schedule_action", "cancel_scheduled", "batch_execute"})
+
+# ────────────────────────────────────────────────────────────────
+# سقفِ تعداد عملیات در هر بار صدازدنِ batch_execute. این محدودیتِ «کار
+# سنگین» نیست — فقط برای اینه که یک پاسخ Gemini بی‌نهایت بزرگ نشه و در
+# یک اجرای همزمان (بدون منتظرگذاشتنِ کاربر برای دقیقه‌ها) تموم بشه. اگه
+# لازم بود بیشتر از این تعداد عملیات انجام بشه، مدل می‌تونه همین تابع رو
+# چندبار پشت‌سرهم (توی همون گفتگو) صدا بزنه — سقفِ واقعی تعداد کل عملیات‌ها
+# رو MAX_TOOL_HOPS در ai_assistant.py تعیین می‌کنه، نه این عدد.
+# ────────────────────────────────────────────────────────────────
+BATCH_MAX_OPERATIONS = 200
 
 # ────────────────────────────────────────────────────────────────
 # ماتریس دسترسی — کلید = اسم تابع، مقدار = لیست نقش‌های مجاز
@@ -159,6 +171,11 @@ TOOL_PERMISSIONS = {
     "schedule_action":     ALL_ROLES,
     "list_scheduled":      ALL_ROLES,
     "cancel_scheduled":    ALL_ROLES,
+
+    # ── اجرای دسته‌ای (کار سنگین/حجم بالا) — دسترسیِ هر عملیاتِ داخلش
+    # دوباره جدا (با همین جدول) چک می‌شه، پس اجازه‌دادنِ batch_execute به
+    # همه‌ی نقش‌ها یعنی «اجازه‌ی تکرار»، نه «اجازه‌ی انجام کارهای جدید» ──
+    "batch_execute":       ALL_ROLES,
 }
 
 # ────────────────────────────────────────────────────────────────
@@ -183,6 +200,7 @@ AI_PERMISSION_CATEGORIES = [
     ("security",     "🔒 بلاک/آنبلاک کاربر",             ["block_user", "unblock_user"]),
     ("system",       "⚙️ تنظیمات سیستمی",                ["get_admin_profile", "set_system_status", "toggle_ai_online", "toggle_admin_ai_access", "toggle_bot_setting"]),
     ("reminders",    "⏱️ یادآور و زمان‌بندی",            ["set_reminder", "schedule_action", "list_scheduled", "cancel_scheduled"]),
+    ("batch",        "📦 اجرای دسته‌ای (کار سنگین)",      ["batch_execute"]),
     ("panels",       "🧭 باز کردن پنل‌ها",                ["open_panel"]),
 ]
 
@@ -706,6 +724,45 @@ TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "batch_execute",
+        "description": (
+            "اجرای دسته‌ای — برای وقتی که باید یه کار رو زیاد (چندتا، ده‌ها، صدها بار) تکرار "
+            "کنی: مثلاً ثبت ۱۰۰ بازیکن، ساخت ۴۰ تورنمنت، ثبت نتیجه‌ی ده‌ها مسابقه، اخطار به چند "
+            "بازیکن، یا ارسال پیام به چند مدیر. مهم: این مثال‌ها محدودکننده نیستن — هر تابع "
+            "اجرایی معمولی دیگه‌ای هم که در اختیار داری، از همین راه قابل تکرار زیاده. به‌جای "
+            "اینکه همون تابع رو بارها جدا و پشت‌سرهم صدا بزنی (که کند می‌شه و به‌خاطر سقفِ تعداد "
+            "دورهای گفتگو ممکنه زودتر از موعد متوقف بشی)، همه‌ی این عملیات‌ها رو یکجا توی یک "
+            "لیست operations بفرست تا همه‌شون در یک اجرا و بدون محدودیتِ عملیِ تعداد انجام بشن. "
+            "هر آیتم از operations دقیقاً همون چیزیه که اگه می‌خواستی اون تابع رو مستقیم صدا "
+            "بزنی می‌فرستادی: اسم دقیق تابع (tool_name) و پارامترهاش (tool_args، عیناً مثل "
+            "فراخوانی مستقیم). اگه کاربر جزئیات دقیق هر آیتم رو نگفته (مثلاً فقط گفته «۱۰۰ تا "
+            "بازیکن الکی بساز» یا «۱۰۰ تا تورنمنت بساز»)، خودت با یه الگوی شماره‌دار معقول "
+            "(مثلاً «بازیکن آزمایشی ۱» تا «بازیکن آزمایشی ۱۰۰») پرش کن، نه اینکه از انجام کار "
+            f"امتناع کنی. حداکثر {BATCH_MAX_OPERATIONS} عملیات در هر بار صدازدنِ این تابع مجازه؛ "
+            "اگه بیشتر لازم بود، همین تابع رو دوباره (با ادامه‌ی لیست) صدا بزن. توجه: فقط "
+            "تابع‌هایی که خودشون به‌تنهایی و بدون کانتکستِ اضافه معنی دارن قابل استفاده‌ان — نه "
+            "خودِ batch_execute یا schedule_action یا open_panel."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operations": {
+                    "type": "array",
+                    "description": f"لیست عملیات‌ها برای اجرای پشت‌سرهم (حداکثر {BATCH_MAX_OPERATIONS} تا).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "tool_name": {"type": "string", "description": "اسم دقیق تابعی که باید اجرا بشه"},
+                            "tool_args": {"type": "object", "description": "پارامترهای همون تابع، دقیقاً مثل فراخوانی مستقیمش (اگه نیاز نداره، خالی بذار)"},
+                        },
+                        "required": ["tool_name"],
+                    },
+                },
+            },
+            "required": ["operations"],
+        },
+    },
+    {
         "name": "list_scheduled",
         "description": "نمایش لیست یادآورها و اقدام‌های زمان‌بندی‌شده‌ای که هنوز اجرا نشدن (برای مدیر ارشد همه رو نشون می‌ده، برای بقیه فقط مال خودشون).",
         "parameters": {"type": "object", "properties": {}},
@@ -1218,6 +1275,66 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             )
             when = ai_scheduler.format_moment(target)
             return f"✅ اقدام #{job_id} («{description}») برای «{when}» زمان‌بندی شد؛ دقیقاً سر همون لحظه اجرا می‌شه."
+
+        # ── اجرای دسته‌ای (کار سنگین) ──
+        elif name == "batch_execute":
+            operations = args.get("operations")
+            if not isinstance(operations, list) or not operations:
+                return "❌ باید یه لیست غیرخالی از عملیات‌ها (operations) بفرستی."
+            if len(operations) > BATCH_MAX_OPERATIONS:
+                return (
+                    f"❌ حداکثر {BATCH_MAX_OPERATIONS} عملیات در هر batch_execute مجازه "
+                    f"(الان {len(operations)} تا فرستادی). اگه بیشتر لازمه، همین تابع رو "
+                    "دوباره با ادامه‌ی لیست صدا بزن."
+                )
+
+            ok_count = 0
+            fail_count = 0
+            fail_samples = []
+            for i, op in enumerate(operations):
+                if not isinstance(op, dict):
+                    fail_count += 1
+                    continue
+                t_name = (op.get("tool_name") or "").strip()
+                t_args = op.get("tool_args") or {}
+                if not isinstance(t_args, dict):
+                    t_args = {}
+
+                if t_name not in SCHEDULABLE_TOOL_NAMES:
+                    fail_count += 1
+                    if len(fail_samples) < 5:
+                        fail_samples.append(f"#{i + 1} «{t_name}»: تابع مجاز برای اجرای دسته‌ای نیست")
+                    continue
+
+                try:
+                    res = await _dispatch_impl(t_name, t_args, caller_id, caller_role, ctx)
+                except Exception as e:
+                    res = f"❌ {e}"
+
+                if res.startswith(("❌", "⛔")):
+                    fail_count += 1
+                    if len(fail_samples) < 5:
+                        fail_samples.append(f"#{i + 1} «{t_name}»: {res}")
+                else:
+                    ok_count += 1
+
+                # هر ۱۵ آیتم یه‌بار وضعیت «در حال تایپ» رو تازه کن — batch های
+                # بزرگ ممکنه چند ثانیه طول بکشن و این نشون می‌ده ربات گیر نکرده
+                if (i + 1) % 15 == 0:
+                    try:
+                        await ctx.bot.send_chat_action(chat_id=caller_id, action="typing")
+                    except Exception:
+                        pass
+
+            summary = f"✅ {ok_count} از {len(operations)} عملیات با موفقیت انجام شد."
+            if fail_count:
+                summary += f"\n❌ {fail_count} مورد ناموفق بود."
+            if fail_samples:
+                summary += "\n\nنمونه‌ی خطاها:\n" + "\n".join(fail_samples)
+                remaining = fail_count - len(fail_samples)
+                if remaining > 0:
+                    summary += f"\n… و {remaining} مورد ناموفق دیگه."
+            return summary
 
         # ── لیست یادآورها/اقدام‌های در انتظار ──
         elif name == "list_scheduled":
