@@ -175,6 +175,7 @@ async def match_date_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return await _finalize_match(update, ctx, via_query=False)
 
 async def _finalize_match(update, ctx, via_query: bool):
+    query = update.callback_query if via_query else None
     white_id = ctx.user_data.get("match_white")
     black_id = ctx.user_data.get("match_black")
     date = ctx.user_data.get("match_date", today_gregorian())
