@@ -132,9 +132,59 @@ def _order_moves(board: pychess.Board):
     return moves
 
 
+# ─── جست‌وجوی «آرام‌سازی» (Quiescence Search) ─────────────────────
+# FIX «دقتِ تحلیل»: قبلاً جست‌وجو دقیقاً روی depth=0 متوقف می‌شد و همان‌جا
+# ارزیابیِ ایستا را برمی‌گرداند — یعنی اگر آخرین حرکتِ دیده‌شده یک مهره را
+# در معرضِ گرفته‌شدنِ رایگان می‌گذاشت (ولی خودِ گرفتنش یک نیم‌حرکت بعد از
+# افقِ جست‌وجو بود)، موتور کاملاً از آن غافل می‌شد — همان «افکتِ افق»ِ
+# معروف. این دقیقاً چیزی‌ست که تحلیلِ پس از بازی را غیردقیق/نچسب می‌کرد:
+# خیلی از حرکت‌هایی که واقعاً بلاندر بودند «خوب» برچسب می‌خوردند (چون
+# ضررشان یک نیم‌حرکت دیرتر از عمقِ جست‌وجو دیده می‌شد) و برعکس. راه‌حلِ
+# استاندارد: به‌جایِ توقفِ ناگهانی در depth=0، فقط حرکت‌های ضربه‌ای (و اگر
+# کیش باشیم، همه‌ی حرکت‌ها برای فرارِ درست از کیش) را تا رسیدن به یک
+# موقعیتِ «آرام» ادامه بده. عمق اضافه‌شده محدود است تا کیش‌های پیاپی
+# (کیشِ ابدی) باعثِ بازگشتِ بی‌پایان نشود.
+def _quiescence(board: pychess.Board, alpha: int, beta: int, sign: int, qdepth: int = 4) -> int:
+    if board.is_checkmate():
+        return -999999
+    if board.is_stalemate() or board.is_insufficient_material():
+        return 0
+
+    in_check = board.is_check()
+    if in_check:
+        if qdepth <= -3:
+            return sign * _evaluate(board)
+        moves = list(board.legal_moves)
+        if not moves:
+            return sign * _evaluate(board)
+    else:
+        stand_pat = sign * _evaluate(board)
+        if stand_pat >= beta:
+            return beta
+        if stand_pat > alpha:
+            alpha = stand_pat
+        if qdepth <= 0:
+            return alpha
+        moves = [m for m in board.legal_moves if board.is_capture(m)]
+        if not moves:
+            return alpha
+
+    for move in moves:
+        board.push(move)
+        score = -_quiescence(board, -beta, -alpha, -sign, qdepth - 1)
+        board.pop()
+        if score >= beta:
+            return beta
+        if score > alpha:
+            alpha = score
+    return alpha
+
+
 def _negamax(board: pychess.Board, depth: int, alpha: int, beta: int, sign: int) -> int:
-    if depth == 0 or board.is_game_over():
+    if board.is_game_over():
         return sign * _evaluate(board)
+    if depth == 0:
+        return _quiescence(board, alpha, beta, sign)
     best = -10 ** 9
     for move in _order_moves(board):
         board.push(move)
