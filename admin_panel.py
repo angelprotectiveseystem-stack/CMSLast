@@ -96,25 +96,36 @@ def _asset_version():
         return "0"
 
 
+def _render_index():
+    """index.html رو می‌خونه و {{V}} رو با نسخه‌ی واقعی assetها جایگزین می‌کنه
+    تا مرورگر/CDN بعد از هر تغییر توی style.css یا app.js، فایل جدید رو
+    بگیره نه نسخه‌ی کش‌شده‌ی قدیمی رو (همون چیزی که باعث می‌شد اصلاحات ظاهری
+    و رفع سکته‌ی پولینگ، حتی بعد از دیپلوی، توی مرورگر کاربر دیده نشه)."""
+    index_path = os.path.join(PANEL_DIR, "index.html")
+    with open(index_path, "r", encoding="utf-8") as f:
+        html = f.read()
+    html = html.replace("{{V}}", _asset_version())
+    resp = web.Response(text=html, content_type="text/html", charset="utf-8")
+    resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
+
+
 @routes.get("/panel/{tail:.*}")
 async def panel_static(request):
     tail = request.match_info["tail"] or "index.html"
     path = os.path.normpath(os.path.join(PANEL_DIR, tail))
     if not path.startswith(PANEL_DIR):
         raise web.HTTPForbidden()
-    if os.path.isdir(path) or not os.path.isfile(path):
-        path = os.path.join(PANEL_DIR, "index.html")
+    if os.path.isdir(path) or not os.path.isfile(path) or path.endswith("index.html"):
+        return _render_index()
     resp = web.FileResponse(path)
-    if path.endswith("index.html"):
-        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
-    else:
-        resp.headers["Cache-Control"] = "public, max-age=3600"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
     return resp
 
 
 @routes.get("/panel")
 async def panel_root(request):
-    return web.FileResponse(os.path.join(PANEL_DIR, "index.html"))
+    return _render_index()
 
 
 # ─── کمکی: آنلاین بودن ─────────────────────────────────────────
