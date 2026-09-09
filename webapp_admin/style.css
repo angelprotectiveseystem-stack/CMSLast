@@ -59,6 +59,10 @@ html, body {
      نشون می‌داد. */
   overflow-x: hidden;
   width: 100%;
+  /* فضای اسکرول‌بار همیشه رزرو بشه؛ وگرنه وقتی منوی موبایل باز/بسته
+     می‌شه و overflow روی body عوض می‌شه، اسکرول‌بار ظاهر/محو می‌شد و
+     عرض کل صفحه می‌پرید — همون «به‌هم‌ریختنِ صفحه‌ی اصلی» که حس می‌شد. */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -153,6 +157,7 @@ a { color: var(--amber); }
 
 #nav {
   flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 10px 10px;
   display: flex; flex-direction: column; gap: 2px;
 }
@@ -360,7 +365,10 @@ tbody tr:last-child td { border-bottom: none; }
   background: rgba(23,33,27,0.97);
   border-top: 1px solid var(--line);
   padding: 6px 2px calc(6px + env(safe-area-inset-bottom, 0px));
-  backdrop-filter: blur(6px);
+  /* بدون backdrop-filter: چون این نوار همیشه روی صفحه‌ست، هر بار که
+     پشتش (مثلاً کشوی منو حین باز شدن) حرکت می‌کرد، مرورگر مجبور بود
+     هر فریم بلور رو دوباره حساب کنه — همون کندی/لگیِ حس‌شده حین باز
+     شدنِ منوی «بیشتر». پس‌زمینه‌ی تقریباً کدر خودش کافیه. */
 }
 .bn-item {
   background: none; border: none; color: var(--ivory-dim);
@@ -386,8 +394,8 @@ tbody tr:last-child td { border-bottom: none; }
   display: none;
   position: fixed; inset: 0; z-index: 14;
   background: rgba(4,7,5,.55);
-  backdrop-filter: blur(1px);
   opacity: 0; transition: opacity .22s ease;
+  will-change: opacity;
 }
 
 /* وقتی منوی موبایل بازه، پس‌زمینه اسکرول نخوره تا حس نپریدن صفحه حفظ بشه */

@@ -188,7 +188,7 @@
       setTimeout(function () { obs.disconnect(); }, 8000);
 
       var fn = VIEWS[state.view];
-      if (fn) fn();
+      if (fn) fn(true);
       // در حالت خاموش عمداً کلاس fade-in رو دست نمی‌زنیم تا محتوا
       // چشمک نزنه و کل بخش محو/ظاهر نشه.
       return;
@@ -203,13 +203,33 @@
   }
 
   var VIEWS = {
-    home: function () {
+    home: function (silent) {
       api("/api/panel/overview").then(function (d) {
         if (!d.ok) return;
         var s = d.stats;
         var onlineList = d.online_admins.map(function (a) {
           return '<div class="msg-item"><strong>' + esc(a.name) + '</strong> <span class="msg-meta">' + roleLabel(a.role) + '</span></div>';
         }).join("") || '<div class="empty-state">هیچ مدیری آنلاین نیست</div>';
+
+        // آپدیت خاموش (هر ۴ ثانیه): اگر کارت‌ها از قبل روی صفحه‌ن،
+        // فقط عددهاشون رو جای‌گذاری می‌کنیم، نه این‌که کل کارت‌ها رو
+        // از نو بسازیم — وگرنه انیمیشنِ ورودِ کارت‌ها هر بار دوباره
+        // پخش می‌شد و همون چشمک‌زدنِ صفحه‌ی خانه بود.
+        var existingGrid = body.querySelector(".grid");
+        if (silent && existingGrid) {
+          var values = existingGrid.querySelectorAll(".stat-value");
+          var fresh = [s.players_total, s.admins_total, s.admins_online, s.matches_total, s.matches_pending, s.tournaments_active, s.live_games];
+          values.forEach(function (el, i) {
+            if (fresh[i] != null && el.textContent !== String(fresh[i])) el.textContent = fresh[i];
+          });
+          var sectionEl = body.querySelector(".section");
+          if (sectionEl) {
+            var headEl = sectionEl.querySelector(".section-head");
+            var newHtml = (headEl ? headEl.outerHTML : '<div class="section-head"><h3>مدیران آنلاین اکنون</h3></div>') + onlineList;
+            if (sectionEl.innerHTML !== newHtml) sectionEl.innerHTML = newHtml;
+          }
+          return;
+        }
 
         body.innerHTML =
           '<div class="grid">' +
