@@ -3,45 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>پنل مدیریت — مسابقات شطرنج</title>
-<link rel="stylesheet" href="/panel/style.css?v={{V}}">
+<title>پنل مدیر مدرسه — مسابقات شطرنج</title>
+<link rel="stylesheet" href="/principal-assets/style.css?v={{V}}">
 </head>
 <body>
 
-<!-- ── صفحه ورود ───────────────────────────────────────────── -->
-<div id="login-screen">
-  <div class="login-card">
-    <div class="login-mark">
-      <svg viewBox="0 0 100 100" width="64" height="64" class="brand-svg" aria-hidden="true">
+<!-- ── صفحه خوش‌آمدگویی اولیه ─────────────────────────────── -->
+<div id="welcome-screen" class="welcome-screen">
+  <div class="welcome-inner">
+    <span class="welcome-mark">
+      <svg viewBox="0 0 100 100" width="72" height="72" aria-hidden="true">
         <defs>
-          <linearGradient id="goldGradLogin" x1="0%" y1="0%" x2="100%" y2="100%">
+          <linearGradient id="goldGradWelcome" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stop-color="#f0cf8c"/>
             <stop offset="100%" stop-color="#b9823f"/>
           </linearGradient>
         </defs>
         <rect x="0" y="0" width="100" height="100" rx="22" fill="#8a0f0f"/>
-        <path d="M25,46 C25,28 33,16 50,10 C67,16 75,28 75,46" fill="none" stroke="url(#goldGradLogin)" stroke-width="4.2" stroke-linecap="round"/>
-        <g fill="none" stroke="url(#goldGradLogin)" stroke-width="2.6" stroke-linecap="round">
-          <path d="M8,45 L20,45 L27,52"/>
-          <path d="M6,56 L18,56 L25,63"/>
-          <path d="M9,67 L21,67 L28,74"/>
-        </g>
-        <g fill="#8a0f0f" stroke="url(#goldGradLogin)" stroke-width="2.4">
-          <circle cx="8" cy="45" r="3"/>
-          <circle cx="6" cy="56" r="3"/>
-          <circle cx="9" cy="67" r="3"/>
-        </g>
-        <g fill="none" stroke="url(#goldGradLogin)" stroke-width="2.6" stroke-linecap="round">
-          <path d="M92,45 L80,45 L73,52"/>
-          <path d="M94,56 L82,56 L75,63"/>
-          <path d="M91,67 L79,67 L72,74"/>
-        </g>
-        <g fill="#8a0f0f" stroke="url(#goldGradLogin)" stroke-width="2.4">
-          <circle cx="92" cy="45" r="3"/>
-          <circle cx="94" cy="56" r="3"/>
-          <circle cx="91" cy="67" r="3"/>
-        </g>
-        <g fill="url(#goldGradLogin)">
+        <path d="M25,46 C25,28 33,16 50,10 C67,16 75,28 75,46" fill="none" stroke="url(#goldGradWelcome)" stroke-width="4.2" stroke-linecap="round"/>
+        <g fill="url(#goldGradWelcome)">
           <rect x="47.3" y="20" width="5.4" height="11" rx="1.2"/>
           <rect x="43" y="24.3" width="14" height="4" rx="1.2"/>
           <ellipse cx="50" cy="38" rx="9.5" ry="8"/>
@@ -51,24 +31,20 @@
           <rect x="31" y="80" width="38" height="6" rx="2"/>
         </g>
       </svg>
-    </div>
-    <h1>پنل مدیریت مسابقات شطرنج</h1>
-    <p class="login-sub">برای ورود، رمز عبور پنل را وارد کنید.</p>
-    <input type="password" id="login-password" placeholder="رمز عبور" autocomplete="current-password">
-    <button id="login-btn">ورود به پنل</button>
-    <div id="login-error" class="login-error"></div>
+    </span>
+    <div class="welcome-word" id="welcome-word"></div>
+    <div class="welcome-line"></div>
+    <div class="welcome-sub">پنل مدیریت مدرسه — مسابقات شطرنج</div>
   </div>
 </div>
 
-<!-- ── برنامه اصلی ─────────────────────────────────────────── -->
-<div id="app" class="hidden">
+<div id="app">
 
-  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
-
+  <!-- ── ساید‌بار (فقط دسکتاپ) ─────────────────────────────── -->
   <aside class="sidebar">
     <div class="brand">
       <span class="brand-mark">
-        <svg viewBox="0 0 100 100" width="30" height="30" class="brand-svg" aria-hidden="true">
+        <svg viewBox="0 0 100 100" width="30" height="30" aria-hidden="true">
           <defs>
             <linearGradient id="goldGradNav" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stop-color="#f0cf8c"/>
@@ -88,37 +64,25 @@
           </g>
         </svg>
       </span>
-      <span class="brand-text">پنل مسابقات</span>
+      <span class="brand-text">پنل مدیر مدرسه</span>
     </div>
 
-    <nav id="nav">
-      <span class="nav-group-label">کلی</span>
-      <button class="nav-item active" data-view="home"><span class="nav-ic"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1v-9"/></svg></span><span class="nav-label">خانه</span></button>
-
-      <span class="nav-group-label">مسابقات</span>
-      <button class="nav-item" data-view="matches"><span class="nav-ic"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.2"/><path d="M3.5 9.5h17"/><path d="M8 3v4M16 3v4"/></svg></span><span class="nav-label">مسابقات شطرنج</span></button>
-      <button class="nav-item" data-view="live"><span class="nav-ic nav-ic-fill"><svg viewBox="0 0 24 24"><circle cx="12" cy="6.4" r="2.6"/><path d="M9 10.4c0 1.6.9 2.9 2 3.4-2 .8-3.3 2.6-3.3 5v1.5h8.6v-1.5c0-2.4-1.3-4.2-3.3-5 1.1-.5 2-1.8 2-3.4z"/><rect x="6.4" y="19.3" width="11.2" height="2.3" rx="1.1"/></svg></span><span class="nav-label">شطرنج زنده</span></button>
-      <button class="nav-item" data-view="players"><span class="nav-ic"><svg viewBox="0 0 24 24"><circle cx="8.6" cy="8" r="3"/><circle cx="16.2" cy="9" r="2.4"/><path d="M2.8 19.6c.4-3.2 2.7-5 5.8-5s5.4 1.8 5.8 5"/><path d="M14.9 14.9c2.3.2 4.1 1.8 4.5 4.7"/></svg></span><span class="nav-label">مسابقه‌دهنده‌ها</span></button>
-      <button class="nav-item" data-view="elo"><span class="nav-ic"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg></span><span class="nav-label">سطح پیشرفت / ELO</span></button>
-
-      <span class="nav-group-label">مدیریت</span>
-      <button class="nav-item" data-view="admins"><span class="nav-ic"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span><span class="nav-label">مدیر‌ها</span></button>
-      <button class="nav-item" data-view="online"><span class="nav-ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="18" r="1.3" fill="currentColor" stroke="none"/><path d="M8.5 14.8a5 5 0 0 1 7 0"/><path d="M5.3 11.6a9.4 9.4 0 0 1 13.4 0"/></svg></span><span class="nav-label">آنلاین‌ها</span></button>
-      <button class="nav-item" data-view="messages"><span class="nav-ic"><svg viewBox="0 0 24 24"><path d="M4 5.5a1.5 1.5 0 0 1 1.5-1.5h13A1.5 1.5 0 0 1 20 5.5v9A1.5 1.5 0 0 1 18.5 16H9l-4.5 3.5V16H5.5A1.5 1.5 0 0 1 4 14.5z"/></svg></span><span class="nav-label">پیام‌های ارسالی</span></button>
-      <button class="nav-item" data-view="activity"><span class="nav-ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12.5" r="8"/><path d="M12 8v5l3.2 2"/></svg></span><span class="nav-label">فعالیت‌ها</span></button>
-
-      <span class="nav-group-label">سیستم</span>
-      <button class="nav-item" data-view="charts"><span class="nav-ic nav-ic-fill"><svg viewBox="0 0 24 24"><rect x="4" y="12" width="3.4" height="8"/><rect x="10.3" y="7" width="3.4" height="13"/><rect x="16.6" y="3.5" width="3.4" height="16.5"/></svg></span><span class="nav-label">نمودارها</span></button>
-      <button class="nav-item" data-view="assistant"><span class="nav-ic nav-ic-fill"><svg viewBox="0 0 24 24"><path d="M12 2.5l1.8 5.3 5.3 1.8-5.3 1.8L12 17.5l-1.8-5.1-5.3-1.8 5.3-1.8z"/><path d="M19 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg></span><span class="nav-label">دستیار</span></button>
-      <button class="nav-item" data-view="settings"><span class="nav-ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.3c.05-.4.08-.85.08-1.3s-.03-.9-.08-1.3l2.1-1.6-2-3.4-2.5.95a7.6 7.6 0 0 0-2.25-1.3L14.3 3H9.7l-.45 2.35a7.6 7.6 0 0 0-2.25 1.3l-2.5-.95-2 3.4 2.1 1.6c-.05.4-.08.85-.08 1.3s.03.9.08 1.3l-2.1 1.6 2 3.4 2.5-.95c.68.56 1.44 1 2.25 1.3L9.7 21h4.6l.45-2.35a7.6 7.6 0 0 0 2.25-1.3l2.5.95 2-3.4z"/></svg></span><span class="nav-label">تنظیمات</span></button>
+    <nav id="side-nav">
+      <button class="nav-item active" data-view="home"><span class="nav-ic">🏠</span><span>خانه</span></button>
+      <button class="nav-item" data-view="classes"><span class="nav-ic">🏫</span><span>کلاس‌ها</span></button>
+      <button class="nav-item" data-view="players"><span class="nav-ic">♟️</span><span>بازیکن‌ها</span></button>
+      <button class="nav-item" data-view="matches"><span class="nav-ic">📅</span><span>مسابقات</span></button>
+      <button class="nav-item" data-view="top"><span class="nav-ic">🏆</span><span>نفرات برتر</span></button>
+      <button class="nav-item" data-view="trends"><span class="nav-ic">📈</span><span>روندها</span></button>
     </nav>
 
     <div class="sidebar-foot">
       <span class="live-dot"></span>
-      <span id="conn-status">در حال اتصال…</span>
+      <span>نمای فقط‌خواندنی — بدون امکان ویرایش</span>
     </div>
   </aside>
 
+  <!-- ── محتوای اصلی ───────────────────────────────────────── -->
   <main class="main">
     <header class="topbar">
       <h2 id="view-title">خانه</h2>
@@ -132,30 +96,17 @@
 
   <!-- ── ناوبری پایین صفحه (فقط موبایل) ───────────────────── -->
   <nav id="bottom-nav" class="bottom-nav">
-    <button class="bn-item active" data-view="home">
-      <span class="bn-ic"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1v-9"/></svg></span>
-      <span class="bn-label">خانه</span>
-    </button>
-    <button class="bn-item" data-view="matches">
-      <span class="bn-ic"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.2"/><path d="M3.5 9.5h17"/><path d="M8 3v4M16 3v4"/><path d="M8.3 13.3h2M8.3 16.3h2M13.7 13.3h2M13.7 16.3h2"/></svg></span>
-      <span class="bn-label">مسابقات</span>
-    </button>
-    <button class="bn-item" data-view="live">
-      <span class="bn-ic bn-ic-fill"><svg viewBox="0 0 24 24"><circle cx="12" cy="6.4" r="2.6"/><path d="M9 10.4c0 1.6.9 2.9 2 3.4-2 .8-3.3 2.6-3.3 5v1.5h8.6v-1.5c0-2.4-1.3-4.2-3.3-5 1.1-.5 2-1.8 2-3.4z"/><rect x="6.4" y="19.3" width="11.2" height="2.3" rx="1.1"/></svg></span>
-      <span class="bn-label">زنده</span>
-    </button>
-    <button class="bn-item" data-view="players">
-      <span class="bn-ic"><svg viewBox="0 0 24 24"><circle cx="8.6" cy="8" r="3"/><circle cx="16.2" cy="9" r="2.4"/><path d="M2.8 19.6c.4-3.2 2.7-5 5.8-5s5.4 1.8 5.8 5"/><path d="M14.9 14.9c2.3.2 4.1 1.8 4.5 4.7"/></svg></span>
-      <span class="bn-label">بازیکن‌ها</span>
-    </button>
-    <button class="bn-item" id="bn-more">
-      <span class="bn-ic"><svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></svg></span>
-      <span class="bn-label">بیشتر</span>
-    </button>
+    <button class="bn-item active" data-view="home"><span class="bn-ic">🏠</span><span class="bn-label">خانه</span></button>
+    <button class="bn-item" data-view="classes"><span class="bn-ic">🏫</span><span class="bn-label">کلاس‌ها</span></button>
+    <button class="bn-item" data-view="players"><span class="bn-ic">♟️</span><span class="bn-label">بازیکن‌ها</span></button>
+    <button class="bn-item" data-view="matches"><span class="bn-ic">📅</span><span class="bn-label">مسابقات</span></button>
+    <button class="bn-item" data-view="top"><span class="bn-ic">🏆</span><span class="bn-label">برترین‌ها</span></button>
+    <button class="bn-item" data-view="trends"><span class="bn-ic">📈</span><span class="bn-label">روندها</span></button>
   </nav>
 
 </div>
 
-<script src="/panel/app.js?v={{V}}"></script>
+<script>window.PRINCIPAL_KEY = "{{KEY}}";</script>
+<script src="/principal-assets/app.js?v={{V}}"></script>
 </body>
 </html>
