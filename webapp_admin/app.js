@@ -172,10 +172,16 @@
       // می‌پرید بالا و همون «سکته»ای بود که حس می‌شد.
       var scrollY = window.scrollY;
       var innerScroll = body.scrollTop;
+      userScrolledDuringFetch = false;
       var obs = new MutationObserver(function () {
         obs.disconnect();
-        window.scrollTo(0, scrollY);
-        body.scrollTop = innerScroll;
+        // اگر کاربر همین حالا (بین لحظه‌ی شروعِ این آپدیت و رسیدنِ جواب)
+        // خودش دستی اسکرول کرده، اسکرولِ قدیمی رو روش سوار نمی‌کنیم —
+        // وگرنه دقیقاً همون پرشِ ناگهانی/سکته‌ای می‌شه که حس می‌شد.
+        if (!userScrolledDuringFetch) {
+          window.scrollTo(0, scrollY);
+          body.scrollTop = innerScroll;
+        }
       });
       obs.observe(body, { childList: true, subtree: true });
       // اگر ویو به هر دلیلی چیزی عوض نکرد (خطا و ...)، آبزرور رها نشه
@@ -466,6 +472,14 @@
   }
 
   // ── Poll / live update ─────────────────────────────────
+  // اگر کاربر بین شروع آپدیت خاموش و رسیدن جوابِ سرور خودش صفحه رو
+  // اسکرول کنه، نباید موقعیتِ قدیمی رو روی اسکرولِ دستیِ او بندازیم —
+  // همون چیزی که باعث «سکته»ی حس‌شده روی هر آپدیت می‌شد.
+  var userScrolledDuringFetch = false;
+  function markUserScroll() { userScrolledDuringFetch = true; }
+  window.addEventListener("wheel", markUserScroll, { passive: true });
+  window.addEventListener("touchmove", markUserScroll, { passive: true });
+
   function poll() {
     var el = document.getElementById("conn-status");
     var dot = document.querySelector(".live-dot");
