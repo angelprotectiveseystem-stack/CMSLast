@@ -152,7 +152,7 @@ a { color: var(--amber); }
 .brand-text { font-size: 14.5px; font-weight: 700; letter-spacing: .2px; }
 
 #nav {
-  flex: 1; overflow-y: auto;
+  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: 10px 10px;
   display: flex; flex-direction: column; gap: 2px;
 }
@@ -175,16 +175,21 @@ a { color: var(--amber); }
 .nav-item:hover { background: var(--panel-2); color: var(--ivory); transform: translateX(-2px); }
 html[dir="rtl"] .nav-item:hover { transform: translateX(2px); }
 .nav-item.active { background: var(--panel-2); color: var(--ivory); border-inline-start-color: var(--amber); }
-.nav-item.active .nav-coord { color: var(--ink); background: var(--amber); }
-.nav-coord {
-  font-family: monospace; font-size: 10.5px; font-weight: 700;
+.nav-item.active .nav-ic { background: var(--amber); color: var(--ink); }
+.nav-ic {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; flex-shrink: 0;
   color: var(--amber-dim);
   background: var(--ink);
-  border-radius: 3px; padding: 2px 5px;
-  min-width: 24px; text-align: center;
-  flex-shrink: 0;
+  border-radius: 6px;
   transition: background .15s ease, color .15s ease;
 }
+.nav-ic svg {
+  width: 15px; height: 15px;
+  fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+.nav-ic-fill svg { fill: currentColor; stroke: none; }
 .nav-label { flex: 1; }
 
 .sidebar-foot {
@@ -363,7 +368,14 @@ tbody tr:last-child td { border-bottom: none; }
   padding: 6px 4px; border-radius: 8px; flex: 1; min-width: 0;
   font-family: var(--font); cursor: pointer;
 }
-.bn-ic { font-size: 19px; line-height: 1; }
+.bn-ic { font-size: 19px; line-height: 1; display: flex; }
+.bn-ic svg {
+  width: 21px; height: 21px;
+  fill: none; stroke: currentColor;
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+  transition: stroke .15s ease;
+}
+.bn-ic-fill svg { fill: currentColor; stroke: none; }
 .bn-label { font-size: 10px; white-space: nowrap; }
 .bn-item.active { color: var(--amber); }
 .bn-item.active .bn-ic { transform: scale(1.08); }
@@ -383,7 +395,8 @@ body.no-scroll { overflow: hidden; }
 
 @media (max-width: 860px) {
   .sidebar {
-    position: fixed; top: 0; right: -100%; left: auto; height: 100vh;
+    position: fixed; top: 0; right: -100%; left: auto;
+    height: 100vh; height: 100dvh;
     width: 82%; max-width: 300px;
     background: var(--panel);
     transition: right .28s cubic-bezier(.2,.8,.2,1); z-index: 15;
