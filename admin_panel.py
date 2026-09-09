@@ -69,6 +69,33 @@ def _require_auth(request):
                                     content_type="application/json")
 
 
+async def _panel_enabled() -> bool:
+    return (await db.get_setting("admin_webpanel_enabled", "1")) == "1"
+
+
+async def _require_enabled(request):
+    """اگر مدیر ارشد این پنل رو از داخل ربات خاموش کرده باشه، نه صفحه باز
+    میشه، نه ورود، نه هیچ API‌ای — حتی با توکنِ معتبر."""
+    if not await _panel_enabled():
+        raise web.HTTPServiceUnavailable(
+            text=json.dumps({"ok": False, "error": "panel_disabled"}),
+            content_type="application/json",
+        )
+
+
+def _disabled_page():
+    html = (
+        "<!doctype html><html lang='fa' dir='rtl'><head><meta charset='utf-8'>"
+        "<title>پنل غیرفعال است</title>"
+        "<style>body{font-family:Tahoma,sans-serif;background:#111;color:#eee;"
+        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"
+        "text-align:center;padding:20px}</style></head><body>"
+        "<div>🔒 این پنل توسط مدیر ارشد غیرفعال شده است.<br>"
+        "لطفاً بعداً دوباره تلاش کنید.</div></body></html>"
+    )
+    return web.Response(text=html, content_type="text/html", charset="utf-8", status=503)
+
+
 def _json(data):
     return web.json_response(data, dumps=lambda o: json.dumps(o, ensure_ascii=False, default=str))
 
@@ -80,6 +107,8 @@ async def panel_login(request):
         body = await request.json()
     except Exception:
         body = {}
+    if not await _panel_enabled():
+        return _json({"ok": False, "error": "پنل توسط مدیر ارشد غیرفعال شده است."})
     password = (body.get("password") or "").strip()
     if not password or not hmac.compare_digest(password, PANEL_PASSWORD):
         return _json({"ok": False, "error": "رمز عبور اشتباه است."})
@@ -112,6 +141,8 @@ def _render_index():
 
 @routes.get("/panel/{tail:.*}")
 async def panel_static(request):
+    if not await _panel_enabled():
+        return _disabled_page()
     tail = request.match_info["tail"] or "index.html"
     path = os.path.normpath(os.path.join(PANEL_DIR, tail))
     if not path.startswith(PANEL_DIR):
@@ -125,6 +156,8 @@ async def panel_static(request):
 
 @routes.get("/panel")
 async def panel_root(request):
+    if not await _panel_enabled():
+        return _disabled_page()
     return _render_index()
 
 
@@ -143,6 +176,7 @@ def _is_online(last_active_iso, minutes=5) -> bool:
 @routes.get("/api/panel/overview")
 async def panel_overview(request):
     _require_auth(request)
+    await _require_enabled(request)
     players = await db.get_all_players()
     admins = await db.get_all_admins()
     matches = await db.get_matches_by_filter("all")
@@ -189,6 +223,7 @@ async def _fetch_live_games_raw():
 @routes.get("/api/panel/matches")
 async def panel_matches(request):
     _require_auth(request)
+    await _require_enabled(request)
     period = request.query.get("period", "all")
     matches = await db.get_matches_by_filter(period)
     out = []
@@ -209,6 +244,7 @@ async def panel_matches(request):
 @routes.get("/api/panel/live-chess")
 async def panel_live_chess(request):
     _require_auth(request)
+    await _require_enabled(request)
     games = await _fetch_live_games_raw()
     out = []
     for g in games:
@@ -229,6 +265,7 @@ async def panel_live_chess(request):
 @routes.get("/api/panel/admins")
 async def panel_admins(request):
     _require_auth(request)
+    await _require_enabled(request)
     admins = await db.get_all_admins()
     out = []
     for a in admins or []:
@@ -250,6 +287,7 @@ async def panel_admins(request):
 @routes.get("/api/panel/online")
 async def panel_online(request):
     _require_auth(request)
+    await _require_enabled(request)
     admins = await db.get_all_admins()
     online = [a for a in (admins or []) if _is_online(a["last_active"])]
     out = [{
@@ -265,6 +303,7 @@ async def panel_online(request):
 @routes.get("/api/panel/messages")
 async def panel_messages(request):
     _require_auth(request)
+    await _require_enabled(request)
     import asyncio
     ann, news, fb = await asyncio.gather(
         db.get_all_announcements(), db.get_all_news(), db.get_all_feedback()
@@ -283,6 +322,7 @@ async def panel_messages(request):
 @routes.get("/api/panel/activity")
 async def panel_activity(request):
     _require_auth(request)
+    await _require_enabled(request)
     page = int(request.query.get("page", "0"))
     logs, total = await db.get_action_logs(period="all", page=page, page_size=30)
     admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in (await db.get_all_admins() or [])}
@@ -302,6 +342,7 @@ async def panel_activity(request):
 @routes.get("/api/panel/players")
 async def panel_players(request):
     _require_auth(request)
+    await _require_enabled(request)
     players = await db.get_all_players()
     out = []
     for p in players or []:
@@ -324,6 +365,7 @@ async def panel_players(request):
 @routes.get("/api/panel/elo")
 async def panel_elo(request):
     _require_auth(request)
+    await _require_enabled(request)
     from elo import get_elo_leaderboard
     try:
         rows = await get_elo_leaderboard(100)
@@ -349,6 +391,7 @@ async def panel_elo(request):
 @routes.get("/api/panel/charts")
 async def panel_charts(request):
     _require_auth(request)
+    await _require_enabled(request)
     import turso_db as _a
 
     # میله‌ای: تعداد مسابقات هر تورنومنت
@@ -390,6 +433,7 @@ async def panel_charts(request):
 @routes.get("/api/panel/settings")
 async def panel_settings(request):
     _require_auth(request)
+    await _require_enabled(request)
     import turso_db as _a
     async with _a.connect(db.DB_PATH) as conn:
         conn.row_factory = _a.Row
@@ -402,6 +446,7 @@ async def panel_settings(request):
 @routes.get("/api/panel/assistant")
 async def panel_assistant(request):
     _require_auth(request)
+    await _require_enabled(request)
     import turso_db as _a
     async with _a.connect(db.DB_PATH) as conn:
         conn.row_factory = _a.Row

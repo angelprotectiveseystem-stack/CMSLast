@@ -89,7 +89,7 @@ async def pishva_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
         "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
-        "bug_report_to_pishva_enabled"]
+        "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled"]
     # FIX: قبلاً این ۱۳ تا db.get_setting یکی‌یکی و پشتِ‌سرِهم صدا زده می‌شدن —
     # یعنی با کشِ سرد (که با هر ری‌استارت یا بعد از ۴۵ ثانیه بی‌تحرکی پیش
     # می‌اومد)، باز کردنِ همین یک صفحه تا ۱۳ رفت‌وبرگشتِ شبکه‌ایِ کامل به
@@ -124,6 +124,8 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "setting_ai_online": "ai_online",
         "setting_live_chess": "live_chess_enabled",
         "setting_bug_report": "bug_report_to_pishva_enabled",
+        "setting_principal_panel": "principal_panel_enabled",
+        "setting_admin_webpanel": "admin_webpanel_enabled",
     }
     key = key_map.get(query.data)
     if key:
@@ -135,7 +137,7 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
         "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
-        "bug_report_to_pishva_enabled"]
+        "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled"]
     settings = {k: await db.get_setting(k, "1") for k in keys}
     await safe_edit_message_text(query, 
         f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",

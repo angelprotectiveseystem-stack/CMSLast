@@ -466,6 +466,8 @@ def kb_pishva_settings_simple(settings):
         [InlineKeyboardButton(f"🤖 هوش مصنوعی {tog('ai_online')}", callback_data="setting_ai_online", style="primary")],
         [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('live_chess_enabled')}", callback_data="setting_live_chess", style="primary")],
         [InlineKeyboardButton(f"🚨 گزارش باگ به مدیر ارشد {tog('bug_report_to_pishva_enabled')}", callback_data="setting_bug_report", style="primary")],
+        [InlineKeyboardButton(f"🏫 پنل وب مدیر مدرسه {tog('principal_panel_enabled')}", callback_data="setting_principal_panel", style="primary"),
+        InlineKeyboardButton(f"🌐 پنل وب ادمین‌ها {tog('admin_webpanel_enabled')}", callback_data="setting_admin_webpanel", style="primary")],
         [InlineKeyboardButton("🚨 هشدار حذف مشکوک ⚙️", callback_data="sadel_panel", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
     ])

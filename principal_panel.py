@@ -38,12 +38,39 @@ def _authed(request) -> bool:
     return hmac.compare_digest(k, PRINCIPAL_KEY)
 
 
+async def _panel_enabled() -> bool:
+    return (await db.get_setting("principal_panel_enabled", "1")) == "1"
+
+
 def _require_auth(request):
     if not _authed(request):
         raise web.HTTPUnauthorized(
             text=json.dumps({"ok": False, "error": "unauthorized"}),
             content_type="application/json",
         )
+
+
+async def _require_enabled(request):
+    """اگر مدیر ارشد این پنل رو از داخل ربات خاموش کرده باشه، حتی با کلیدِ
+    درست هم نه صفحه باز میشه نه هیچ API‌ای جواب میده."""
+    if not await _panel_enabled():
+        raise web.HTTPServiceUnavailable(
+            text=json.dumps({"ok": False, "error": "panel_disabled"}),
+            content_type="application/json",
+        )
+
+
+def _disabled_page():
+    html = (
+        "<!doctype html><html lang='fa' dir='rtl'><head><meta charset='utf-8'>"
+        "<title>پنل غیرفعال است</title>"
+        "<style>body{font-family:Tahoma,sans-serif;background:#111;color:#eee;"
+        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"
+        "text-align:center;padding:20px}</style></head><body>"
+        "<div>🔒 این پنل توسط مدیر ارشد غیرفعال شده است.<br>"
+        "لطفاً بعداً دوباره تلاش کنید.</div></body></html>"
+    )
+    return web.Response(text=html, content_type="text/html", charset="utf-8", status=503)
 
 
 def _json(data):
@@ -78,6 +105,8 @@ def _render_index(request):
 
 @routes.get("/principal/{tail:.*}")
 async def principal_static(request):
+    if not await _panel_enabled():
+        return _disabled_page()
     tail = request.match_info["tail"] or "index.html"
     path = os.path.normpath(os.path.join(PANEL_DIR, tail))
     if not path.startswith(PANEL_DIR):
@@ -91,11 +120,15 @@ async def principal_static(request):
 
 @routes.get("/principal")
 async def principal_root(request):
+    if not await _panel_enabled():
+        return _disabled_page()
     return _render_index(request)
 
 
 @routes.get("/principal-assets/{tail:.*}")
 async def principal_assets(request):
+    if not await _panel_enabled():
+        raise web.HTTPServiceUnavailable()
     tail = request.match_info["tail"]
     path = os.path.normpath(os.path.join(PANEL_DIR, tail))
     if not path.startswith(PANEL_DIR) or not os.path.isfile(path):
@@ -126,6 +159,7 @@ def _result_fa(m):
 @routes.get("/api/principal/overview")
 async def principal_overview(request):
     _require_auth(request)
+    await _require_enabled(request)
     classes = await db.get_all_classes() or []
     players = await db.get_all_players() or []
     tournaments = await db.get_all_tournaments() or []
@@ -154,6 +188,7 @@ async def principal_overview(request):
 @routes.get("/api/principal/classes")
 async def principal_classes(request):
     _require_auth(request)
+    await _require_enabled(request)
     classes = await db.get_all_classes() or []
     out = []
     for c in classes:
@@ -172,6 +207,7 @@ async def principal_classes(request):
 @routes.get("/api/principal/players")
 async def principal_players(request):
     _require_auth(request)
+    await _require_enabled(request)
     players = await db.get_all_players() or []
     out = []
     for p in players:
@@ -193,6 +229,7 @@ async def principal_players(request):
 @routes.get("/api/principal/matches")
 async def principal_matches(request):
     _require_auth(request)
+    await _require_enabled(request)
     period = request.query.get("period", "all")
     matches = await db.get_matches_by_filter(period) or []
     out = []
@@ -212,6 +249,7 @@ async def principal_matches(request):
 @routes.get("/api/principal/top")
 async def principal_top(request):
     _require_auth(request)
+    await _require_enabled(request)
     period = request.query.get("period", "week")
     matches = await db.get_matches_by_filter(period) or []
     players = await db.get_all_players() or []
@@ -252,6 +290,7 @@ async def principal_top(request):
 @routes.get("/api/principal/trends")
 async def principal_trends(request):
     _require_auth(request)
+    await _require_enabled(request)
     import turso_db as _a
 
     now = datetime.now()

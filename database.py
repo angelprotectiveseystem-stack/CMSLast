@@ -449,6 +449,9 @@ async def init_db():
             "suspicious_alert_enabled": "1",
             "suspicious_deletion_threshold": "5",
             "suspicious_deletion_window_minutes": "10",
+            # ─── روشن/خاموشِ جداگانه‌ی دو پنل وب (لینک‌دار) ───
+            "principal_panel_enabled": "1",
+            "admin_webpanel_enabled": "1",
         }
         for k, v in defaults.items():
             await db.execute(
