@@ -124,6 +124,10 @@ async function renderPlayers() {
     return;
   }
   viewBodyEl.innerHTML = `
+    <div class="search-box">
+      <input type="text" id="players-search" placeholder="جستجوی نام بازیکن یا کلاس…" autocomplete="off">
+      <span class="search-ic">🔍</span>
+    </div>
     <div class="tabs" id="players-filter">
       <button class="tab-btn active" data-f="all">همه</button>
       <button class="tab-btn" data-f="active">فعال</button>
@@ -131,8 +135,18 @@ async function renderPlayers() {
     <div class="card-list" id="players-list"></div>
   `;
   const listEl = document.getElementById("players-list");
-  function draw(filter) {
-    const rows = filter === "active" ? list.filter(p => p.status === "active") : list;
+  const searchEl = document.getElementById("players-search");
+  let activeFilter = "all";
+
+  function draw() {
+    let rows = activeFilter === "active" ? list.filter(p => p.status === "active") : list;
+    const q = searchEl.value.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(p =>
+        (p.full_name || "").toLowerCase().includes(q) ||
+        (p.class_name || "").toLowerCase().includes(q)
+      );
+    }
     listEl.innerHTML = rows.length ? rows.map(p => `
       <div class="row-card">
         <div>
@@ -151,15 +165,21 @@ async function renderPlayers() {
     b.addEventListener("click", () => {
       document.querySelectorAll("#players-filter .tab-btn").forEach(x => x.classList.remove("active"));
       b.classList.add("active");
-      draw(b.dataset.f);
+      activeFilter = b.dataset.f;
+      draw();
     });
   });
-  draw("all");
+  searchEl.addEventListener("input", draw);
+  draw();
 }
 
 // ─── مسابقات ──────────────────────────────────────────────────
-async function renderMatches(period = "all") {
+async function renderMatches(period = "all", searchTerm = "") {
   viewBodyEl.innerHTML = `
+    <div class="search-box">
+      <input type="text" id="matches-search" placeholder="جستجوی نام بازیکن…" autocomplete="off">
+      <span class="search-ic">🔍</span>
+    </div>
     <div class="tabs" id="matches-filter">
       <button class="tab-btn" data-f="all">همه</button>
       <button class="tab-btn" data-f="today">امروز</button>
@@ -170,21 +190,35 @@ async function renderMatches(period = "all") {
   `;
   const btns = document.querySelectorAll("#matches-filter .tab-btn");
   btns.forEach(b => b.classList.toggle("active", b.dataset.f === period));
-  btns.forEach(b => b.addEventListener("click", () => renderMatches(b.dataset.f)));
+  const searchEl = document.getElementById("matches-search");
+  searchEl.value = searchTerm;
+  btns.forEach(b => b.addEventListener("click", () => renderMatches(b.dataset.f, searchEl.value)));
 
   const data = await api("/api/principal/matches", { period });
-  const list = data.matches || [];
+  const allMatches = data.matches || [];
   const listEl = document.getElementById("matches-list");
   const resultBadge = { white: "win", black: "loss", draw: "draw" };
-  listEl.innerHTML = list.length ? list.map(m => `
-    <div class="row-card">
-      <div>
-        <div class="main-txt">${esc(m.white)} <span style="color:var(--ivory-dim)">در برابر</span> ${esc(m.black)}</div>
-        <div class="sub-txt">${fmtDate(m.match_date || m.created_at)}</div>
+
+  function draw() {
+    const q = searchEl.value.trim().toLowerCase();
+    const list = q
+      ? allMatches.filter(m =>
+          (m.white || "").toLowerCase().includes(q) ||
+          (m.black || "").toLowerCase().includes(q)
+        )
+      : allMatches;
+    listEl.innerHTML = list.length ? list.map(m => `
+      <div class="row-card">
+        <div>
+          <div class="main-txt">${esc(m.white)} <span style="color:var(--ivory-dim)">در برابر</span> ${esc(m.black)}</div>
+          <div class="sub-txt">${fmtDate(m.match_date || m.created_at)}</div>
+        </div>
+        <span class="badge ${resultBadge[m.result] || "muted"}">${esc(m.result_fa)}</span>
       </div>
-      <span class="badge ${resultBadge[m.result] || "muted"}">${esc(m.result_fa)}</span>
-    </div>
-  `).join("") : `<div class="empty-state">مسابقه‌ای در این بازه یافت نشد.</div>`;
+    `).join("") : `<div class="empty-state">مسابقه‌ای یافت نشد.</div>`;
+  }
+  searchEl.addEventListener("input", draw);
+  draw();
 }
 
 // ─── نفرات برتر ───────────────────────────────────────────────

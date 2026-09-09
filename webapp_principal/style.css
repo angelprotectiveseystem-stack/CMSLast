@@ -178,6 +178,20 @@ button { font-family: var(--font); cursor: pointer; }
 .badge.draw { background: rgba(201,154,70,0.18); color: var(--amber); }
 .badge.muted{ background: var(--panel-2); color: var(--ivory-dim); }
 
+/* ── جعبه‌ی جستجو ────────────────────────────────────────── */
+.search-box { position: relative; margin-bottom: 12px; }
+.search-box input {
+  width: 100%; box-sizing: border-box; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 10px 40px 10px 14px; font-size: 14px; color: var(--ivory);
+  font-family: inherit; outline: none;
+}
+.search-box input::placeholder { color: var(--ivory-dim); }
+.search-box input:focus { border-color: var(--amber); }
+.search-box .search-ic {
+  position: absolute; right: 13px; top: 50%; transform: translateY(-50%);
+  font-size: 15px; color: var(--ivory-dim); pointer-events: none;
+}
+
 /* ── تب‌های فیلتر (دوره) ─────────────────────────────────── */
 .tabs { display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 2px; }
 .tab-btn {
