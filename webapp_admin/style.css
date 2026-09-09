@@ -383,15 +383,14 @@ body.no-scroll { overflow: hidden; }
 
 @media (max-width: 860px) {
   .sidebar {
-    position: fixed; inset-inline-end: 0; top: 0; height: 100vh;
+    position: fixed; top: 0; right: -100%; left: auto; height: 100vh;
     width: 82%; max-width: 300px;
     background: var(--panel);
-    transform: translateX(100%);
-    transition: transform .28s cubic-bezier(.2,.8,.2,1); z-index: 15;
+    transition: right .28s cubic-bezier(.2,.8,.2,1); z-index: 15;
     box-shadow: -8px 0 24px rgba(0,0,0,.45);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  html[dir="rtl"] .sidebar.open { transform: translateX(0); }
+  .sidebar.open { right: 0; }
   .sidebar-backdrop { display: block; }
   .sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
   .sidebar-backdrop:not(.show) { pointer-events: none; }
