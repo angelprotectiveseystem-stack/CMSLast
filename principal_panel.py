@@ -67,8 +67,8 @@ def _disabled_page():
         "<style>body{font-family:Tahoma,sans-serif;background:#111;color:#eee;"
         "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"
         "text-align:center;padding:20px}</style></head><body>"
-        "<div>🔒 این پنل توسط مدیر ارشد غیرفعال شده است.<br>"
-        "لطفاً بعداً دوباره تلاش کنید.</div></body></html>"
+        "<div>⚙️ این پنل به علت نقص فنی توسط سیستم غیرفعال شده است و به‌زودی فعال می‌گردد.<br>"
+        "ممنون از شکیبایی شما.</div></body></html>"
     )
     return web.Response(text=html, content_type="text/html", charset="utf-8", status=503)
 
