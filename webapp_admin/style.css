@@ -42,9 +42,10 @@
   --brick:      #b2534a;   /* آجریِ کم‌رنگ — باخت/هشدار/در انتظار */
   --radius: 6px;
   --font: "Vazirmatn", Tahoma, sans-serif;
+  --bottom-nav-h: 64px;
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 html, body {
   margin: 0; padding: 0; height: 100%;
@@ -346,14 +347,27 @@ tbody tr:last-child td { border-bottom: none; }
 
 .sparkline { width: 100%; height: 130px; display: block; }
 
-/* ── دکمه‌ی همبرگری موبایل (توسط app.js اضافه می‌شود) ──── */
-.mobile-toggle {
+/* ── ناوبری پایین صفحه (فقط موبایل) ────────────────────── */
+.bottom-nav {
   display: none;
-  position: fixed; top: 14px; inset-inline-end: 16px; z-index: 20;
-  width: 38px; height: 38px; border-radius: var(--radius);
-  background: var(--panel); border: 1px solid var(--line); color: var(--ivory);
-  font-size: 18px; cursor: pointer;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+  justify-content: space-around;
+  background: rgba(23,33,27,0.97);
+  border-top: 1px solid var(--line);
+  padding: 6px 2px calc(6px + env(safe-area-inset-bottom, 0px));
+  backdrop-filter: blur(6px);
 }
+.bn-item {
+  background: none; border: none; color: var(--ivory-dim);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 4px; border-radius: 8px; flex: 1; min-width: 0;
+  font-family: var(--font); cursor: pointer;
+}
+.bn-ic { font-size: 19px; line-height: 1; }
+.bn-label { font-size: 10px; white-space: nowrap; }
+.bn-item.active { color: var(--amber); }
+.bn-item.active .bn-ic { transform: scale(1.08); }
+.bn-item:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
 /* ── واکنش‌گرا / موبایل ─────────────────────────────────── */
 .sidebar-backdrop {
@@ -375,16 +389,53 @@ body.no-scroll { overflow: hidden; }
     transform: translateX(100%);
     transition: transform .28s cubic-bezier(.2,.8,.2,1); z-index: 15;
     box-shadow: -8px 0 24px rgba(0,0,0,.45);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   html[dir="rtl"] .sidebar.open { transform: translateX(0); }
   .sidebar-backdrop { display: block; }
   .sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
   .sidebar-backdrop:not(.show) { pointer-events: none; }
-  .mobile-toggle { display: block; }
-  .topbar { padding-inline-end: 62px; }
-  .view-body { padding: 18px 16px 50px; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+
+  .bottom-nav { display: flex; }
+  .main { padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px)); }
+
+  .topbar { padding: 14px 16px; }
+  .topbar h2 { font-size: 16.5px; }
+  .view-body { padding: 16px 14px 28px; }
+  .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 13px 14px; }
+  .stat-value { font-size: 23px; }
+  .section { padding: 14px 14px; }
   .bar-label { width: 90px; }
+
+  /* بزرگ‌تر کردن هدف‌های لمسی روی موبایل */
+  .tab-btn { padding: 8px 15px; font-size: 13px; }
+  .nav-item { padding: 12px; font-size: 14.5px; }
+
+  /* ── جدول‌ها روی موبایل به‌جای اسکرول افقی، به کارت تبدیل می‌شن ── */
+  .section table { min-width: 0; }
+  .section table thead { display: none; }
+  .section table, .section table tbody, .section table tr, .section table td { display: block; width: 100%; }
+  .section table tr {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 10px 12px; margin-bottom: 10px;
+  }
+  .section table tr:last-child { margin-bottom: 0; }
+  .section table td {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 7px 0; border-bottom: 1px dashed var(--line); text-align: left;
+  }
+  .section table td:last-child { border-bottom: none; }
+  .section table td::before {
+    content: attr(data-label);
+    color: var(--ivory-dim); font-size: 11.5px; flex-shrink: 0;
+  }
+  .section table td:not([data-label])::before { content: none; }
+  .player-name-cell, .rating-cell { text-align: left; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bn-item { transition: color .15s ease; }
 }
 
 @media (prefers-reduced-motion: reduce) {

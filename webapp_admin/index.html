@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>پنل مدیریت — مسابقات شطرنج</title>
 <link rel="stylesheet" href="/panel/style.css?v={{V}}">
 </head>
@@ -129,6 +129,15 @@
       <div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>
     </div>
   </main>
+
+  <!-- ── ناوبری پایین صفحه (فقط موبایل) ───────────────────── -->
+  <nav id="bottom-nav" class="bottom-nav">
+    <button class="bn-item active" data-view="home"><span class="bn-ic">🏠</span><span class="bn-label">خانه</span></button>
+    <button class="bn-item" data-view="matches"><span class="bn-ic">📅</span><span class="bn-label">مسابقات</span></button>
+    <button class="bn-item" data-view="live"><span class="bn-ic">♟️</span><span class="bn-label">زنده</span></button>
+    <button class="bn-item" data-view="players"><span class="bn-ic">👥</span><span class="bn-label">بازیکن‌ها</span></button>
+    <button class="bn-item" id="bn-more"><span class="bn-ic">☰</span><span class="bn-label">بیشتر</span></button>
+  </nav>
 
 </div>
 
