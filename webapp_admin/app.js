@@ -3,7 +3,7 @@
 
   var TOKEN_KEY = "chess_panel_token";
   var POLL_MS = 4000; // زنده بدون فشار به سرور: هر ۴ ثانیه فقط GET های سبک
-  var state = { view: "home", timer: null, activityPage: 0, lastOverview: null };
+  var state = { view: "home", timer: null, activityPage: 0 };
 
   // ── HTTP ──────────────────────────────────────────────
   function api(path, opts) {
@@ -25,6 +25,8 @@
     localStorage.removeItem(TOKEN_KEY);
     document.getElementById("app").classList.add("hidden");
     document.getElementById("login-screen").classList.remove("hidden");
+    var btn = document.querySelector(".mobile-toggle");
+    if (btn) btn.classList.add("hidden");
     if (state.timer) clearInterval(state.timer);
   }
 
@@ -72,22 +74,32 @@
     document.getElementById("view-title").textContent = VIEW_TITLES[state.view];
     document.getElementById("view-body").innerHTML = '<div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>';
     closeSidebar();
-    render(true);
+    render();
   });
 
   // ── Mobile toggle ─────────────────────────────────────
   function closeSidebar() {
-    document.querySelector(".sidebar").classList.remove("open");
+    var sb = document.querySelector(".sidebar");
+    if (sb) sb.classList.remove("open");
     var bd = document.getElementById("sidebar-backdrop");
     if (bd) bd.classList.remove("show");
+    document.body.classList.remove("no-scroll");
+    var btn = document.querySelector(".mobile-toggle");
+    if (btn) { btn.innerHTML = "≡"; btn.setAttribute("aria-expanded", "false"); }
   }
   function openSidebar() {
-    document.querySelector(".sidebar").classList.add("open");
+    var sb = document.querySelector(".sidebar");
+    if (sb) sb.classList.add("open");
     var bd = document.getElementById("sidebar-backdrop");
     if (bd) bd.classList.add("show");
+    document.body.classList.add("no-scroll");
+    var btn = document.querySelector(".mobile-toggle");
+    if (btn) { btn.innerHTML = "✕"; btn.setAttribute("aria-expanded", "true"); }
   }
   var toggleBtn = document.createElement("button");
-  toggleBtn.className = "mobile-toggle";
+  toggleBtn.className = "mobile-toggle hidden";
+  toggleBtn.type = "button";
+  toggleBtn.setAttribute("aria-label", "باز و بسته کردن منو");
   toggleBtn.innerHTML = "≡";
   toggleBtn.addEventListener("click", function () {
     var sb = document.querySelector(".sidebar");
@@ -96,6 +108,16 @@
   document.body.appendChild(toggleBtn);
   var backdropEl = document.getElementById("sidebar-backdrop");
   if (backdropEl) backdropEl.addEventListener("click", closeSidebar);
+
+  // بستن با کلید Escape
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeSidebar();
+  });
+  // اگر صفحه بزرگ‌تر از حالت موبایل شد (چرخش صفحه یا تغییر اندازه)،
+  // هر باقیمانده‌ای از حالت باز/بک‌دراپ رو پاک کن تا قفل چیدمان دسکتاپ رو نگیره
+  window.addEventListener("resize", function () {
+    if (window.innerWidth > 860) closeSidebar();
+  });
 
   // ── Clock ─────────────────────────────────────────────
   function tickClock() {
@@ -132,17 +154,38 @@
   // ── Views ─────────────────────────────────────────────
   var body;
 
-  function render(animate) {
+  function render(silent) {
     body = document.getElementById("view-body");
-    var fn = VIEWS[state.view];
-    if (fn) fn();
-    if (animate !== false) {
-      body.classList.remove("fade-in");
-      void body.offsetWidth;
-      body.classList.add("fade-in");
-    } else {
-      body.classList.remove("fade-in");
+
+    if (silent) {
+      // آپدیت خاموش (پولینگ زنده): چون هر ویو داده‌ش رو async می‌گیره،
+      // با MutationObserver صبر می‌کنیم تا DOM واقعاً عوض بشه، بعد
+      // موقعیت اسکرول رو برمی‌گردونیم — بدون این کار، صفحه هر ۴ ثانیه
+      // می‌پرید بالا و همون «سکته»ای بود که حس می‌شد.
+      var scrollY = window.scrollY;
+      var innerScroll = body.scrollTop;
+      var obs = new MutationObserver(function () {
+        obs.disconnect();
+        window.scrollTo(0, scrollY);
+        body.scrollTop = innerScroll;
+      });
+      obs.observe(body, { childList: true, subtree: true });
+      // اگر ویو به هر دلیلی چیزی عوض نکرد (خطا و ...)، آبزرور رها نشه
+      setTimeout(function () { obs.disconnect(); }, 8000);
+
+      var fn = VIEWS[state.view];
+      if (fn) fn();
+      // در حالت خاموش عمداً کلاس fade-in رو دست نمی‌زنیم تا محتوا
+      // چشمک نزنه و کل بخش محو/ظاهر نشه.
+      return;
     }
+
+    var fn2 = VIEWS[state.view];
+    if (fn2) fn2();
+    body.classList.remove("fade-in");
+    // ری‌استارت انیمیشن حتی اگر کلاس از قبل حذف نشده باشد
+    void body.offsetWidth;
+    body.classList.add("fade-in");
   }
 
   var VIEWS = {
@@ -419,22 +462,9 @@
     var el = document.getElementById("conn-status");
     var dot = document.querySelector(".live-dot");
     api("/api/panel/overview").then(function (d) {
-      if (d.ok) {
-        el.textContent = "زنده و به‌روز";
-        dot.classList.remove("off");
-
-        // فقط وقتی داده‌ی وضعیت واقعاً عوض شده دوباره‌ی صفحه را بساز.
-        // این جلوی فلش/سکته‌ی ظاهری ناشی از جایگزینی DOM در هر poll را می‌گیرد.
-        var snapshot = JSON.stringify({
-          stats: d.stats,
-          online_admins: d.online_admins
-        });
-        if (snapshot !== state.lastOverview) {
-          state.lastOverview = snapshot;
-          if (state.view === "home" || state.view === "live" || state.view === "online" || state.view === "admins") {
-            render(false);
-          }
-        }
+      if (d.ok) { el.textContent = "زنده و به‌روز"; dot.classList.remove("off"); }
+      if (state.view === "home" || state.view === "live" || state.view === "online" || state.view === "admins") {
+        render(true);
       }
     }).catch(function () {
       el.textContent = "قطع ارتباط"; dot.classList.add("off");
@@ -444,6 +474,8 @@
   function startApp() {
     document.getElementById("login-screen").classList.add("hidden");
     document.getElementById("app").classList.remove("hidden");
+    var btn = document.querySelector(".mobile-toggle");
+    if (btn) { btn.classList.remove("hidden"); btn.setAttribute("aria-expanded", "false"); }
     tickClock();
     setInterval(tickClock, 1000);
     render();

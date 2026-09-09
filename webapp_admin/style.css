@@ -53,6 +53,11 @@ html, body {
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.6;
+  /* هیچ عنصری (مثل کشوی موبایل که خارج از صفحه‌ست) حق نداره اسکرول
+     افقی کل صفحه رو باز کنه — همون چیزی که کل چیدمان رو کوچک/زوم‌اوت
+     نشون می‌داد. */
+  overflow-x: hidden;
+  width: 100%;
 }
 
 body {
@@ -131,7 +136,7 @@ a { color: var(--amber); }
 #app { display: flex; min-height: 100vh; }
 
 .sidebar {
-  width: 232px; min-width: 0; flex: 0 0 232px;
+  width: 232px; flex-shrink: 0;
   background: var(--panel);
   border-inline-start: 1px solid var(--line);
   display: flex; flex-direction: column;
@@ -263,6 +268,7 @@ html[dir="rtl"] .nav-item:hover { transform: translateX(2px); }
 .section {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 18px 20px; margin-bottom: 18px;
+  max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
 }
 .section-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -285,7 +291,7 @@ html[dir="rtl"] .nav-item:hover { transform: translateX(2px); }
 .tab-btn.active { background: var(--amber); border-color: var(--amber); color: #201607; font-weight: 700; }
 
 /* ── جدول‌ها ────────────────────────────────────────────── */
-table { width: 100%; border-collapse: collapse; font-size: 13.3px; }
+table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 13.3px; }
 thead th {
   text-align: right; color: var(--ivory-dim); font-weight: 600; font-size: 12px;
   padding: 8px 10px; border-bottom: 1px solid var(--amber-dim);
@@ -358,10 +364,13 @@ tbody tr:last-child td { border-bottom: none; }
   opacity: 0; transition: opacity .22s ease;
 }
 
+/* وقتی منوی موبایل بازه، پس‌زمینه اسکرول نخوره تا حس نپریدن صفحه حفظ بشه */
+body.no-scroll { overflow: hidden; }
+
 @media (max-width: 860px) {
   .sidebar {
-    position: fixed; inset-inline-end: 0; top: 0; height: 100dvh;
-    width: min(78vw, 280px); max-width: 280px;
+    position: fixed; inset-inline-end: 0; top: 0; height: 100vh;
+    width: 82%; max-width: 300px;
     background: var(--panel);
     transform: translateX(100%);
     transition: transform .28s cubic-bezier(.2,.8,.2,1); z-index: 15;
@@ -373,7 +382,7 @@ tbody tr:last-child td { border-bottom: none; }
   .sidebar-backdrop:not(.show) { pointer-events: none; }
   .mobile-toggle { display: block; }
   .topbar { padding-inline-end: 62px; }
-  .view-body { padding: 18px 16px 50px; min-width: 0; overflow-x: hidden; }
+  .view-body { padding: 18px 16px 50px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
   .bar-label { width: 90px; }
 }
