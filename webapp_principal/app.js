@@ -340,4 +340,21 @@ tickClock();
 
 // ─── شروع ─────────────────────────────────────────────────────
 bindNav();
-switchView("home");
+switchView("home"); // داده‌های خانه همزمان با پخش اسپلش لود می‌شن
+
+// ─── اسپلش خوش‌آمدگویی ─────────────────────────────────────────
+(function runSplash() {
+  const splashEl = document.getElementById("splash");
+  const appEl = document.getElementById("app");
+  if (!splashEl || !appEl) return;
+
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const SPLASH_MS = reduceMotion ? 0 : 2200;
+  const EXIT_MS = reduceMotion ? 0 : 650;
+
+  setTimeout(() => {
+    splashEl.classList.add("leaving");
+    appEl.classList.add("reveal");
+    setTimeout(() => splashEl.remove(), EXIT_MS);
+  }, SPLASH_MS);
+})();
