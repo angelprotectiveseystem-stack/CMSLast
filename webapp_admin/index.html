@@ -93,24 +93,24 @@
 
     <nav id="nav">
       <span class="nav-group-label">کلی</span>
-      <button class="nav-item active" data-view="home"><span class="nav-coord">e1</span><span class="nav-label">خانه</span></button>
+      <button class="nav-item active" data-view="home"><span class="nav-coord">e1</span><span class="nav-ic">🏠</span><span class="nav-label">خانه</span></button>
 
       <span class="nav-group-label">مسابقات</span>
-      <button class="nav-item" data-view="matches"><span class="nav-coord">a2</span><span class="nav-label">مسابقات شطرنج</span></button>
-      <button class="nav-item" data-view="live"><span class="nav-coord">d4</span><span class="nav-label">شطرنج زنده</span></button>
-      <button class="nav-item" data-view="players"><span class="nav-coord">b1</span><span class="nav-label">مسابقه‌دهنده‌ها</span></button>
-      <button class="nav-item" data-view="elo"><span class="nav-coord">h8</span><span class="nav-label">سطح پیشرفت / ELO</span></button>
+      <button class="nav-item" data-view="matches"><span class="nav-coord">a2</span><span class="nav-ic">♟️</span><span class="nav-label">مسابقات شطرنج</span></button>
+      <button class="nav-item" data-view="live"><span class="nav-coord">d4</span><span class="nav-ic">🔴</span><span class="nav-label">شطرنج زنده</span></button>
+      <button class="nav-item" data-view="players"><span class="nav-coord">b1</span><span class="nav-ic">🧑‍🤝‍🧑</span><span class="nav-label">مسابقه‌دهنده‌ها</span></button>
+      <button class="nav-item" data-view="elo"><span class="nav-coord">h8</span><span class="nav-ic">📊</span><span class="nav-label">سطح پیشرفت / ELO</span></button>
 
       <span class="nav-group-label">مدیریت</span>
-      <button class="nav-item" data-view="admins"><span class="nav-coord">c1</span><span class="nav-label">مدیر‌ها</span></button>
-      <button class="nav-item" data-view="online"><span class="nav-coord">g1</span><span class="nav-label">آنلاین‌ها</span></button>
-      <button class="nav-item" data-view="messages"><span class="nav-coord">f1</span><span class="nav-label">پیام‌های ارسالی</span></button>
-      <button class="nav-item" data-view="activity"><span class="nav-coord">a8</span><span class="nav-label">فعالیت‌ها</span></button>
+      <button class="nav-item" data-view="admins"><span class="nav-coord">c1</span><span class="nav-ic">🛡️</span><span class="nav-label">مدیر‌ها</span></button>
+      <button class="nav-item" data-view="online"><span class="nav-coord">g1</span><span class="nav-ic">🟢</span><span class="nav-label">آنلاین‌ها</span></button>
+      <button class="nav-item" data-view="messages"><span class="nav-coord">f1</span><span class="nav-ic">✉️</span><span class="nav-label">پیام‌های ارسالی</span></button>
+      <button class="nav-item" data-view="activity"><span class="nav-coord">a8</span><span class="nav-ic">🧾</span><span class="nav-label">فعالیت‌ها</span></button>
 
       <span class="nav-group-label">سیستم</span>
-      <button class="nav-item" data-view="charts"><span class="nav-coord">d1</span><span class="nav-label">نمودارها</span></button>
-      <button class="nav-item" data-view="assistant"><span class="nav-coord">h1</span><span class="nav-label">دستیار</span></button>
-      <button class="nav-item" data-view="settings"><span class="nav-coord">a1</span><span class="nav-label">تنظیمات</span></button>
+      <button class="nav-item" data-view="charts"><span class="nav-coord">d1</span><span class="nav-ic">📈</span><span class="nav-label">نمودارها</span></button>
+      <button class="nav-item" data-view="assistant"><span class="nav-coord">h1</span><span class="nav-ic">🤖</span><span class="nav-label">دستیار</span></button>
+      <button class="nav-item" data-view="settings"><span class="nav-coord">a1</span><span class="nav-ic">⚙️</span><span class="nav-label">تنظیمات</span></button>
     </nav>
 
     <div class="sidebar-foot">
@@ -129,6 +129,15 @@
       <div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>
     </div>
   </main>
+
+  <!-- ── ناوبری پایین صفحه (فقط موبایل) ───────────────────── -->
+  <nav id="bottom-nav" class="bottom-nav">
+    <button class="bn-item active" data-view="home"><span class="bn-ic">🏠</span><span class="bn-label">خانه</span></button>
+    <button class="bn-item" data-view="matches"><span class="bn-ic">♟️</span><span class="bn-label">مسابقات</span></button>
+    <button class="bn-item" data-view="players"><span class="bn-ic">🧑‍🤝‍🧑</span><span class="bn-label">بازیکن‌ها</span></button>
+    <button class="bn-item" data-view="charts"><span class="bn-ic">📈</span><span class="bn-label">نمودارها</span></button>
+    <button class="bn-item bn-more" data-action="more"><span class="bn-ic">☰</span><span class="bn-label">بیشتر</span></button>
+  </nav>
 
 </div>
 

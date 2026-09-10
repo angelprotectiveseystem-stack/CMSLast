@@ -25,8 +25,6 @@
     localStorage.removeItem(TOKEN_KEY);
     document.getElementById("app").classList.add("hidden");
     document.getElementById("login-screen").classList.remove("hidden");
-    var btn = document.querySelector(".mobile-toggle");
-    if (btn) btn.classList.add("hidden");
     if (state.timer) clearInterval(state.timer);
   }
 
@@ -65,27 +63,55 @@
     charts: "نمودارها", assistant: "دستیار", settings: "تنظیمات",
   };
 
-  document.getElementById("nav").addEventListener("click", function (e) {
-    var btn = e.target.closest(".nav-item");
-    if (!btn) return;
-    document.querySelectorAll(".nav-item").forEach(function (n) { n.classList.remove("active"); });
-    btn.classList.add("active");
-    state.view = btn.getAttribute("data-view");
-    document.getElementById("view-title").textContent = VIEW_TITLES[state.view];
+  // مرکز فعال‌سازی ویو: چه از ساید‌بار بیاد چه از نوار پایین موبایل،
+  // هر دو ناوبری و عنوان بالای صفحه با هم هماهنگ می‌مونن.
+  function goToView(view) {
+    if (!VIEW_TITLES[view]) return;
+    state.view = view;
+
+    document.querySelectorAll(".nav-item").forEach(function (n) {
+      n.classList.toggle("active", n.getAttribute("data-view") === view);
+    });
+    document.querySelectorAll(".bn-item[data-view]").forEach(function (n) {
+      n.classList.toggle("active", n.getAttribute("data-view") === view);
+    });
+
+    document.getElementById("view-title").textContent = VIEW_TITLES[view];
     document.getElementById("view-body").innerHTML = '<div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>';
     closeSidebar();
     render();
+  }
+
+  document.getElementById("nav").addEventListener("click", function (e) {
+    var btn = e.target.closest(".nav-item");
+    if (!btn) return;
+    goToView(btn.getAttribute("data-view"));
   });
 
-  // ── Mobile toggle ─────────────────────────────────────
+  var bottomNavEl = document.getElementById("bottom-nav");
+  if (bottomNavEl) {
+    bottomNavEl.addEventListener("click", function (e) {
+      var moreBtn = e.target.closest(".bn-more");
+      if (moreBtn) {
+        var sb = document.querySelector(".sidebar");
+        if (sb.classList.contains("open")) closeSidebar(); else openSidebar();
+        return;
+      }
+      var btn = e.target.closest(".bn-item[data-view]");
+      if (!btn) return;
+      goToView(btn.getAttribute("data-view"));
+    });
+  }
+
+  // ── Mobile toggle / سایدبار موبایل (باز می‌شود از دکمه «بیشتر») ──
   function closeSidebar() {
     var sb = document.querySelector(".sidebar");
     if (sb) sb.classList.remove("open");
     var bd = document.getElementById("sidebar-backdrop");
     if (bd) bd.classList.remove("show");
     document.body.classList.remove("no-scroll");
-    var btn = document.querySelector(".mobile-toggle");
-    if (btn) { btn.innerHTML = "≡"; btn.setAttribute("aria-expanded", "false"); }
+    var moreBtn = document.querySelector(".bn-more");
+    if (moreBtn) moreBtn.classList.remove("menu-open");
   }
   function openSidebar() {
     var sb = document.querySelector(".sidebar");
@@ -93,19 +119,9 @@
     var bd = document.getElementById("sidebar-backdrop");
     if (bd) bd.classList.add("show");
     document.body.classList.add("no-scroll");
-    var btn = document.querySelector(".mobile-toggle");
-    if (btn) { btn.innerHTML = "✕"; btn.setAttribute("aria-expanded", "true"); }
+    var moreBtn = document.querySelector(".bn-more");
+    if (moreBtn) moreBtn.classList.add("menu-open");
   }
-  var toggleBtn = document.createElement("button");
-  toggleBtn.className = "mobile-toggle hidden";
-  toggleBtn.type = "button";
-  toggleBtn.setAttribute("aria-label", "باز و بسته کردن منو");
-  toggleBtn.innerHTML = "≡";
-  toggleBtn.addEventListener("click", function () {
-    var sb = document.querySelector(".sidebar");
-    if (sb.classList.contains("open")) closeSidebar(); else openSidebar();
-  });
-  document.body.appendChild(toggleBtn);
   var backdropEl = document.getElementById("sidebar-backdrop");
   if (backdropEl) backdropEl.addEventListener("click", closeSidebar);
 
@@ -149,6 +165,21 @@
   function roleLabel(role) {
     var map = { pishva: "پیشوا", tournament_manager: "مدیر مسابقات", security_manager: "مدیر امنیت" };
     return map[role] || esc(role || "—");
+  }
+  function greeting() {
+    var h = new Date().getHours();
+    if (h < 5) return "شب بخیر 🌙";
+    if (h < 12) return "صبح بخیر ☀️";
+    if (h < 17) return "ظهر بخیر ☀️";
+    if (h < 20) return "عصر بخیر 🌇";
+    return "شب بخیر 🌙";
+  }
+  function welcomeBanner() {
+    return '<div class="welcome-banner">' +
+      '<span class="welcome-emoji">👋</span>' +
+      '<div class="welcome-text"><h3>' + greeting() + '</h3>' +
+      '<p>خلاصه‌ای از وضعیت این لحظه‌ی مسابقات، پیش روی شماست.</p></div>' +
+    '</div>';
   }
 
   // ── Views ─────────────────────────────────────────────
@@ -198,6 +229,7 @@
         }).join("") || '<div class="empty-state">هیچ مدیری آنلاین نیست</div>';
 
         body.innerHTML =
+          welcomeBanner() +
           '<div class="grid">' +
             statCard("مسابقه‌دهنده‌ها", s.players_total, "") +
             statCard("مدیران", s.admins_total, "") +
@@ -229,9 +261,15 @@
           if (!wrap) return;
           if (!d.ok || !d.matches.length) { wrap.innerHTML = '<div class="empty-state">مسابقه‌ای ثبت نشده</div>'; return; }
           var rows = d.matches.map(function (m) {
-            return '<tr><td>' + (m.is_pinned ? '<span class="pin-tag">📌</span>' : '') + esc(m.white) + '</td><td>' + esc(m.black) + '</td><td>' + resultBadge(m.result) + '</td><td>' + fmtDate(m.match_date || m.created_at) + '</td></tr>';
+            return '<tr>' +
+              '<td class="cell-primary">' + (m.is_pinned ? '<span class="pin-tag">📌</span>' : '') + esc(m.white) + ' ⚪ / ⚫ ' + esc(m.black) + '</td>' +
+              '<td data-label="سفید">' + esc(m.white) + '</td>' +
+              '<td data-label="سیاه">' + esc(m.black) + '</td>' +
+              '<td data-label="نتیجه">' + resultBadge(m.result) + '</td>' +
+              '<td data-label="تاریخ">' + fmtDate(m.match_date || m.created_at) + '</td></tr>';
           }).join("");
           wrap.innerHTML = '<table><thead><tr><th>سفید</th><th>سیاه</th><th>نتیجه</th><th>تاریخ</th></tr></thead><tbody>' + rows + '</tbody></table>';
+          wrap.parentElement.classList.add("table-as-cards");
         });
       }
       document.getElementById("match-tabs").addEventListener("click", function (e) {
@@ -248,12 +286,14 @@
         if (!d.ok) return;
         if (!d.games.length) { body.innerHTML = '<div class="section"><div class="empty-state">هیچ بازی زنده‌ای در جریان نیست</div></div>'; return; }
         var rows = d.games.map(function (g) {
-          return '<tr><td>' + esc(g.white_name) + '</td><td>' + esc(g.black_name) + '</td>' +
-            '<td>' + fmtClock(g.white_time) + '</td><td>' + fmtClock(g.black_time) + '</td>' +
-            '<td>' + fmtDate(g.last_move_at) + '</td></tr>';
+          return '<tr>' +
+            '<td class="cell-primary">🔴 ' + esc(g.white_name) + ' ⚪ / ⚫ ' + esc(g.black_name) + '</td>' +
+            '<td data-label="سفید">' + esc(g.white_name) + '</td><td data-label="سیاه">' + esc(g.black_name) + '</td>' +
+            '<td data-label="زمان سفید">' + fmtClock(g.white_time) + '</td><td data-label="زمان سیاه">' + fmtClock(g.black_time) + '</td>' +
+            '<td data-label="آخرین حرکت">' + fmtDate(g.last_move_at) + '</td></tr>';
         }).join("");
         body.innerHTML =
-          '<div class="section">' +
+          '<div class="section table-as-cards">' +
             '<div class="section-head"><h3>بازی‌های زنده</h3><span class="count">' + d.games.length + ' بازی</span></div>' +
             '<table><thead><tr><th>سفید</th><th>سیاه</th><th>زمان سفید</th><th>زمان سیاه</th><th>آخرین حرکت</th></tr></thead><tbody>' + rows + '</tbody></table>' +
           '</div>';
@@ -267,13 +307,14 @@
         var rows = d.players.map(function (p) {
           var total = (p.wins || 0) + (p.losses || 0) + (p.draws || 0);
           var pct = total ? Math.round((p.wins / total) * 100) : 0;
-          return '<tr><td class="player-name-cell">' + esc(p.full_name) + (p.is_elite ? ' ⭐' : '') + '<br><span class="class-tag">' + esc(p.class_name || "بدون کلاس") + '</span></td>' +
-            '<td>' + p.wins + '/' + p.losses + '/' + p.draws + '</td>' +
-            '<td>' + pct + '٪<span class="progress-mini"><span class="progress-mini-fill" style="width:' + pct + '%"></span></span></td>' +
-            '<td>' + (p.status === "active" ? '<span class="badge win">فعال</span>' : '<span class="badge pending">' + esc(p.status) + '</span>') + '</td></tr>';
+          return '<tr>' +
+            '<td class="cell-primary player-name-cell">' + esc(p.full_name) + (p.is_elite ? ' ⭐' : '') + '<br><span class="class-tag">' + esc(p.class_name || "بدون کلاس") + '</span></td>' +
+            '<td data-label="برد/باخت/مساوی">' + p.wins + '/' + p.losses + '/' + p.draws + '</td>' +
+            '<td data-label="درصد برد">' + pct + '٪<span class="progress-mini"><span class="progress-mini-fill" style="width:' + pct + '%"></span></span></td>' +
+            '<td data-label="وضعیت">' + (p.status === "active" ? '<span class="badge win">فعال</span>' : '<span class="badge pending">' + esc(p.status) + '</span>') + '</td></tr>';
         }).join("");
         body.innerHTML =
-          '<div class="section">' +
+          '<div class="section table-as-cards">' +
             '<div class="section-head"><h3>مسابقه‌دهنده‌ها</h3><span class="count">' + d.players.length + ' نفر</span></div>' +
             '<table><thead><tr><th>نام</th><th>برد/باخت/مساوی</th><th>درصد برد</th><th>وضعیت</th></tr></thead><tbody>' + rows + '</tbody></table>' +
           '</div>';
@@ -285,11 +326,15 @@
         if (!d.ok) return;
         if (!d.leaderboard.length) { body.innerHTML = '<div class="section"><div class="empty-state">داده‌ای ثبت نشده</div></div>'; return; }
         var rows = d.leaderboard.map(function (r, i) {
-          return '<tr><td>' + (i + 1) + '</td><td class="player-name-cell">' + esc(r.full_name) + '</td><td class="rating-cell">' + Math.round(r.rating) + '</td>' +
-            '<td>' + Math.round(r.peak_rating) + '</td><td>' + r.games_played + '</td><td>' + r.wins + '/' + r.losses + '/' + r.draws + '</td></tr>';
+          return '<tr>' +
+            '<td class="cell-primary">#' + (i + 1) + ' — ' + esc(r.full_name) + '</td>' +
+            '<td data-label="امتیاز" class="rating-cell">' + Math.round(r.rating) + '</td>' +
+            '<td data-label="اوج">' + Math.round(r.peak_rating) + '</td>' +
+            '<td data-label="بازی‌ها">' + r.games_played + '</td>' +
+            '<td data-label="ب/ب/م">' + r.wins + '/' + r.losses + '/' + r.draws + '</td></tr>';
         }).join("");
         body.innerHTML =
-          '<div class="section">' +
+          '<div class="section table-as-cards">' +
             '<div class="section-head"><h3>رده‌بندی ELO</h3><span class="count">' + d.leaderboard.length + ' بازیکن</span></div>' +
             '<table><thead><tr><th>#</th><th>نام</th><th>امتیاز</th><th>اوج</th><th>بازی‌ها</th><th>ب/ب/م</th></tr></thead><tbody>' + rows + '</tbody></table>' +
           '</div>';
@@ -300,14 +345,15 @@
       api("/api/panel/admins").then(function (d) {
         if (!d.ok) return;
         var rows = d.admins.map(function (a) {
-          return '<tr><td>' + esc(a.name) + (a.username ? '<br><span class="class-tag">@' + esc(a.username) + '</span>' : '') + '</td>' +
-            '<td>' + roleLabel(a.role) + '</td>' +
-            '<td>' + (a.online ? '<span class="badge online">آنلاین</span>' : '<span class="badge pending">آفلاین</span>') + '</td>' +
-            '<td>' + fmtDate(a.last_active) + '</td>' +
-            '<td>' + (a.is_active ? '<span class="badge win">فعال</span>' : '<span class="badge loss">غیرفعال</span>') + '</td></tr>';
+          return '<tr>' +
+            '<td class="cell-primary">' + esc(a.name) + (a.username ? ' <span class="class-tag">@' + esc(a.username) + '</span>' : '') + '</td>' +
+            '<td data-label="نقش">' + roleLabel(a.role) + '</td>' +
+            '<td data-label="وضعیت اتصال">' + (a.online ? '<span class="badge online">آنلاین</span>' : '<span class="badge pending">آفلاین</span>') + '</td>' +
+            '<td data-label="آخرین فعالیت">' + fmtDate(a.last_active) + '</td>' +
+            '<td data-label="حساب">' + (a.is_active ? '<span class="badge win">فعال</span>' : '<span class="badge loss">غیرفعال</span>') + '</td></tr>';
         }).join("");
         body.innerHTML =
-          '<div class="section">' +
+          '<div class="section table-as-cards">' +
             '<div class="section-head"><h3>مدیر‌ها</h3><span class="count">' + d.admins.length + ' نفر</span></div>' +
             '<table><thead><tr><th>نام</th><th>نقش</th><th>وضعیت</th><th>آخرین فعالیت</th><th>حساب</th></tr></thead><tbody>' + rows + '</tbody></table>' +
           '</div>';
@@ -319,10 +365,13 @@
         if (!d.ok) return;
         if (!d.online.length) { body.innerHTML = '<div class="section"><div class="empty-state">در حال حاضر کسی آنلاین نیست</div></div>'; return; }
         var rows = d.online.map(function (a) {
-          return '<tr><td>' + esc(a.name) + '</td><td>' + roleLabel(a.role) + '</td><td>' + fmtDate(a.last_active) + '</td></tr>';
+          return '<tr>' +
+            '<td class="cell-primary">🟢 ' + esc(a.name) + '</td>' +
+            '<td data-label="نقش">' + roleLabel(a.role) + '</td>' +
+            '<td data-label="آخرین فعالیت">' + fmtDate(a.last_active) + '</td></tr>';
         }).join("");
         body.innerHTML =
-          '<div class="section">' +
+          '<div class="section table-as-cards">' +
             '<div class="section-head"><h3>آنلاین‌های اکنون</h3><span class="count">' + d.online.length + ' نفر</span></div>' +
             '<table><thead><tr><th>نام</th><th>نقش</th><th>آخرین فعالیت</th></tr></thead><tbody>' + rows + '</tbody></table>' +
           '</div>';
@@ -354,10 +403,14 @@
         if (!d.ok) return;
         if (!d.activity.length) { body.innerHTML = '<div class="section"><div class="empty-state">فعالیتی ثبت نشده</div></div>'; return; }
         var rows = d.activity.map(function (l) {
-          return '<tr><td>' + esc(l.admin) + '</td><td>' + esc(l.action_type) + '</td><td>' + esc(l.description) + '</td><td>' + fmtDate(l.logged_at) + '</td></tr>';
+          return '<tr>' +
+            '<td class="cell-primary">' + esc(l.admin) + '</td>' +
+            '<td data-label="نوع اقدام">' + esc(l.action_type) + '</td>' +
+            '<td data-label="توضیح">' + esc(l.description) + '</td>' +
+            '<td data-label="زمان">' + fmtDate(l.logged_at) + '</td></tr>';
         }).join("");
         body.innerHTML =
-          '<div class="section">' +
+          '<div class="section table-as-cards">' +
             '<div class="section-head"><h3>فعالیت‌های اخیر</h3><span class="count">' + d.total + ' مورد</span></div>' +
             '<table><thead><tr><th>مدیر</th><th>نوع اقدام</th><th>توضیح</th><th>زمان</th></tr></thead><tbody>' + rows + '</tbody></table>' +
           '</div>';
@@ -389,10 +442,13 @@
         if (!d.ok) return;
         if (!d.sessions.length) { body.innerHTML = '<div class="section"><div class="empty-state">گفتگویی با دستیار ثبت نشده</div></div>'; return; }
         var rows = d.sessions.map(function (s) {
-          return '<tr><td>' + esc(s.title || "بدون عنوان") + '</td><td>' + s.msg_count + '</td><td>' + fmtDate(s.last_message_at) + '</td></tr>';
+          return '<tr>' +
+            '<td class="cell-primary">' + esc(s.title || "بدون عنوان") + '</td>' +
+            '<td data-label="تعداد پیام">' + s.msg_count + '</td>' +
+            '<td data-label="آخرین پیام">' + fmtDate(s.last_message_at) + '</td></tr>';
         }).join("");
         body.innerHTML =
-          '<div class="section">' +
+          '<div class="section table-as-cards">' +
             '<div class="section-head"><h3>جلسات دستیار هوش مصنوعی</h3><span class="count">' + d.sessions.length + '</span></div>' +
             '<table><thead><tr><th>عنوان</th><th>تعداد پیام</th><th>آخرین پیام</th></tr></thead><tbody>' + rows + '</tbody></table>' +
           '</div>';
@@ -404,10 +460,10 @@
         if (!d.ok) return;
         if (!d.settings.length) { body.innerHTML = '<div class="section"><div class="empty-state">تنظیماتی ثبت نشده</div></div>'; return; }
         var rows = d.settings.map(function (s) {
-          return '<tr><td>' + esc(s.key) + '</td><td>' + esc(s.value) + '</td></tr>';
+          return '<tr><td class="cell-primary">' + esc(s.key) + '</td><td data-label="مقدار">' + esc(s.value) + '</td></tr>';
         }).join("");
         body.innerHTML =
-          '<div class="section">' +
+          '<div class="section table-as-cards">' +
             '<div class="section-head"><h3>تنظیمات سیستم</h3></div>' +
             '<table><thead><tr><th>کلید</th><th>مقدار</th></tr></thead><tbody>' + rows + '</tbody></table>' +
           '</div>';
@@ -474,8 +530,6 @@
   function startApp() {
     document.getElementById("login-screen").classList.add("hidden");
     document.getElementById("app").classList.remove("hidden");
-    var btn = document.querySelector(".mobile-toggle");
-    if (btn) { btn.classList.remove("hidden"); btn.setAttribute("aria-expanded", "false"); }
     tickClock();
     setInterval(tickClock, 1000);
     render();

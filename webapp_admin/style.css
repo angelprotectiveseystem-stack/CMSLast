@@ -42,6 +42,7 @@
   --brick:      #b2534a;   /* آجریِ کم‌رنگ — باخت/هشدار/در انتظار */
   --radius: 6px;
   --font: "Vazirmatn", Tahoma, sans-serif;
+  --bottom-nav-h: 66px;
 }
 
 * { box-sizing: border-box; }
@@ -83,7 +84,7 @@ a { color: var(--amber); }
 
 /* ── صفحه ورود ─────────────────────────────────────────── */
 #login-screen {
-  min-height: 100vh;
+  min-height: 100vh; min-height: 100dvh;
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
 }
@@ -91,9 +92,15 @@ a { color: var(--amber); }
   width: 100%; max-width: 360px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 16px;
   padding: 36px 30px;
   text-align: center;
+  animation: card-pop .5s cubic-bezier(.2,.8,.2,1) backwards;
+  animation-delay: .06s;
+}
+@keyframes card-pop {
+  from { opacity: 0; transform: translateY(14px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 .login-mark {
   width: 64px; height: 64px; margin: 0 auto 18px;
@@ -113,24 +120,65 @@ a { color: var(--amber); }
   color: var(--ivory-dim); font-size: 13.5px; margin: 0 0 22px;
 }
 #login-password {
-  width: 100%; padding: 12px 14px;
+  width: 100%; padding: 13px 14px;
   background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius);
-  color: var(--ivory); font-size: 14px; margin-bottom: 12px;
-  outline: none; transition: border-color .15s;
+  color: var(--ivory); font-size: 16px; margin-bottom: 12px;
+  outline: none; transition: border-color .15s, box-shadow .15s;
+  -webkit-appearance: none;
 }
-#login-password:focus { border-color: var(--amber); }
+#login-password:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(201,154,70,.15); }
 #login-btn {
-  width: 100%; padding: 12px 14px;
+  width: 100%; padding: 13px 14px;
   background: var(--amber); color: #201607;
   border: none; border-radius: var(--radius);
   font-size: 14.5px; font-weight: 700; cursor: pointer;
-  transition: filter .15s;
+  transition: filter .15s, transform .1s;
 }
 #login-btn:hover { filter: brightness(1.08); }
-#login-btn:focus-visible, .nav-item:focus-visible, .tab-btn:focus-visible {
+#login-btn:active { transform: scale(.98); }
+#login-btn:focus-visible, .nav-item:focus-visible, .tab-btn:focus-visible, .bn-item:focus-visible {
   outline: 2px solid var(--amber); outline-offset: 2px;
 }
 .login-error { color: var(--brick); font-size: 13px; margin-top: 12px; min-height: 1em; }
+
+/* ── بنر خوش‌آمدگویی ───────────────────────────────────── */
+.welcome-banner {
+  background: linear-gradient(135deg, rgba(201,154,70,.14), rgba(122,155,114,.08));
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  display: flex; align-items: center; gap: 14px;
+  animation: welcome-in .45s cubic-bezier(.2,.8,.2,1) backwards;
+  animation-delay: .04s;
+  position: relative;
+  overflow: hidden;
+}
+.welcome-banner::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 100% 0%, rgba(201,154,70,.12), transparent 60%);
+  pointer-events: none;
+}
+@keyframes welcome-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.welcome-emoji {
+  font-size: 30px; flex-shrink: 0;
+  animation: welcome-wave 1.6s ease-in-out .5s 1;
+  transform-origin: 70% 70%;
+}
+@keyframes welcome-wave {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(16deg); }
+  30% { transform: rotate(-8deg); }
+  45% { transform: rotate(14deg); }
+  60% { transform: rotate(-4deg); }
+}
+.welcome-text { min-width: 0; }
+.welcome-text h3 { margin: 0 0 3px; font-size: 15.5px; font-weight: 700; color: var(--ivory); }
+.welcome-text p { margin: 0; font-size: 12.5px; color: var(--ivory-dim); line-height: 1.6; }
 
 /* ── چیدمان اصلی ───────────────────────────────────────── */
 #app { display: flex; min-height: 100vh; }
@@ -184,6 +232,7 @@ html[dir="rtl"] .nav-item:hover { transform: translateX(2px); }
   flex-shrink: 0;
   transition: background .15s ease, color .15s ease;
 }
+.nav-ic { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
 .nav-label { flex: 1; }
 
 .sidebar-foot {
@@ -291,6 +340,8 @@ html[dir="rtl"] .nav-item:hover { transform: translateX(2px); }
 .tab-btn.active { background: var(--amber); border-color: var(--amber); color: #201607; font-weight: 700; }
 
 /* ── جدول‌ها ────────────────────────────────────────────── */
+/* ستون خلاصه‌ی مخصوص کارت موبایل — در دسکتاپ (جدول واقعی) نمایش داده نمی‌شود */
+td.cell-primary { display: none; }
 table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 13.3px; }
 thead th {
   text-align: right; color: var(--ivory-dim); font-weight: 600; font-size: 12px;
@@ -346,7 +397,7 @@ tbody tr:last-child td { border-bottom: none; }
 
 .sparkline { width: 100%; height: 130px; display: block; }
 
-/* ── دکمه‌ی همبرگری موبایل (توسط app.js اضافه می‌شود) ──── */
+/* ── دکمه‌ی همبرگری «بیشتر» (توسط app.js اضافه می‌شود) ──── */
 .mobile-toggle {
   display: none;
   position: fixed; top: 14px; inset-inline-end: 16px; z-index: 20;
@@ -358,7 +409,7 @@ tbody tr:last-child td { border-bottom: none; }
 /* ── واکنش‌گرا / موبایل ─────────────────────────────────── */
 .sidebar-backdrop {
   display: none;
-  position: fixed; inset: 0; z-index: 14;
+  position: fixed; inset: 0; z-index: 24;
   background: rgba(4,7,5,.55);
   backdrop-filter: blur(1px);
   opacity: 0; transition: opacity .22s ease;
@@ -367,24 +418,107 @@ tbody tr:last-child td { border-bottom: none; }
 /* وقتی منوی موبایل بازه، پس‌زمینه اسکرول نخوره تا حس نپریدن صفحه حفظ بشه */
 body.no-scroll { overflow: hidden; }
 
+/* ── ناوبری پایین صفحه (فقط موبایل) — الگوی پنل مدیر مدرسه ── */
+.bottom-nav {
+  display: none;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+  justify-content: space-around;
+  background: rgba(23,33,27,0.97);
+  border-top: 1px solid var(--line);
+  padding: 6px 2px calc(6px + env(safe-area-inset-bottom, 0px));
+  backdrop-filter: blur(8px);
+  box-shadow: 0 -4px 18px rgba(0,0,0,.25);
+}
+.bn-item {
+  background: none; border: none; color: var(--ivory-dim);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 6px 6px 5px; border-radius: 10px; flex: 1; min-width: 0;
+  transition: color .15s ease, background .15s ease;
+}
+.bn-ic {
+  font-size: 20px; line-height: 1;
+  transition: transform .22s cubic-bezier(.4,1.6,.5,1);
+}
+.bn-label { font-size: 10px; white-space: nowrap; font-weight: 500; }
+.bn-item.active { color: var(--amber); background: rgba(201,154,70,.09); }
+.bn-item.active .bn-ic { transform: scale(1.14) translateY(-1px); }
+.bn-item:active { transform: scale(.94); }
+.bn-item.bn-more.menu-open .bn-ic { transform: rotate(90deg); }
+
 @media (max-width: 860px) {
   .sidebar {
-    position: fixed; inset-inline-end: 0; top: 0; height: 100vh;
+    position: fixed; inset-inline-start: 0; top: 0; height: 100vh; height: 100dvh;
     width: 82%; max-width: 300px;
     background: var(--panel);
     transform: translateX(100%);
-    transition: transform .28s cubic-bezier(.2,.8,.2,1); z-index: 15;
+    transition: transform .28s cubic-bezier(.2,.8,.2,1); z-index: 25;
     box-shadow: -8px 0 24px rgba(0,0,0,.45);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  html[dir="rtl"] .sidebar.open { transform: translateX(0); }
+  .sidebar.open { transform: translateX(0); }
   .sidebar-backdrop { display: block; }
   .sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
   .sidebar-backdrop:not(.show) { pointer-events: none; }
-  .mobile-toggle { display: block; }
-  .topbar { padding-inline-end: 62px; }
-  .view-body { padding: 18px 16px 50px; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .mobile-toggle { display: none; } /* جایگزین شده با دکمه «بیشتر» در نوار پایین */
+  .nav-coord { display: none; } /* روی موبایل به‌جای مختصات شطرنجی از آیکون واقعی استفاده می‌شود */
+
+  .topbar { padding: 16px 16px 10px; }
+  .topbar h2 { font-size: 17px; }
+  .view-body { padding: 4px 14px 22px; }
+  .view-body.fade-in { animation: view-in-mobile .32s cubic-bezier(.2,.8,.2,1); }
+  @keyframes view-in-mobile {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .main { padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px)); }
+  .bottom-nav { display: flex; }
+
+  .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px; border-radius: 12px; }
+  .stat-value { font-size: 22px; }
+  .stat-label { font-size: 12px; margin-bottom: 6px; }
+
+  .section { padding: 14px 14px; border-radius: 12px; }
+  .section-head h3 { font-size: 14px; }
+
   .bar-label { width: 90px; }
+
+  /* ── جدول‌ها روی موبایل به کارت تبدیل می‌شوند ─────────── */
+  .section.table-as-cards { overflow-x: visible; }
+  .table-as-cards table { min-width: 0; }
+  .table-as-cards thead { display: none; }
+  .table-as-cards tbody, .table-as-cards tr { display: block; width: 100%; }
+  .table-as-cards tr {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    animation: card-in .3s cubic-bezier(.2,.8,.2,1) backwards;
+  }
+  .table-as-cards tr:last-child { margin-bottom: 0; }
+  .table-as-cards td {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--line);
+    text-align: left;
+  }
+  .table-as-cards td:last-child { border-bottom: none; }
+  .table-as-cards td::before {
+    content: attr(data-label);
+    font-size: 11.5px; color: var(--ivory-dim); font-weight: 600;
+    flex-shrink: 0;
+  }
+  .table-as-cards td.cell-primary {
+    display: block !important; text-align: right;
+    font-weight: 700; font-size: 14.5px; color: var(--ivory);
+    border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 4px;
+  }
+  .table-as-cards td.cell-primary::before { content: none; }
+}
+
+@media (min-width: 861px) {
+  .bottom-nav { display: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
