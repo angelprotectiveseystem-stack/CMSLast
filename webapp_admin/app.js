@@ -44,9 +44,14 @@ async function switchView(view) {
   setActiveNav(view);
   viewTitleEl.textContent = VIEW_TITLES[view] || "";
   window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+  viewBodyEl.classList.remove("view-fade-in");
   viewBodyEl.innerHTML = `<div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>`;
   try {
     await RENDERERS[view]();
+    // ری‌استارت انیمیشنِ ورودِ نرم برای محتوای تازه‌رندرشده
+    viewBodyEl.classList.remove("view-fade-in");
+    void viewBodyEl.offsetWidth;
+    viewBodyEl.classList.add("view-fade-in");
   } catch (e) {
     viewBodyEl.innerHTML = `<div class="empty-state">⚠️ خطا در دریافت اطلاعات.<br>لطفاً دوباره تلاش کنید.</div>`;
     console.error(e);
@@ -356,6 +361,8 @@ function playWelcome() {
   return new Promise(resolve => {
     const screen = document.getElementById("welcome-screen");
     if (!screen) { resolve(); return; }
+    const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) { screen.remove(); resolve(); return; }
     typeWelcomeWord();
     setTimeout(() => {
       screen.classList.add("wl-hide");
@@ -363,10 +370,19 @@ function playWelcome() {
         screen.remove();
         resolve();
       }, { once: true });
-    }, 2200);
+    }, 2600);
   });
 }
 
 // ─── شروع ─────────────────────────────────────────────────────
 bindNav();
-playWelcome().then(() => switchView("home"));
+switchView("home"); // داده‌های خانه همزمان با پخش خوش‌آمدگویی لود می‌شن، تا وقتی خوش‌آمدگویی تموم بشه آماده باشن
+playWelcome().then(() => {
+  const appEl = document.getElementById("app");
+  if (!appEl) return;
+  appEl.classList.add("reveal");
+  // بعد از پایان انیمیشن ورود، کلاس‌های veil/reveal (که transform دارن) رو کامل
+  // حذف می‌کنیم؛ وگرنه #app یه "containing block" جدید می‌سازه و ناوبری
+  // position:fixed پایین صفحه دیگه نسبت به کل صفحه فیکس نمی‌مونه.
+  setTimeout(() => appEl.classList.remove("app-veil", "reveal"), 700);
+});
