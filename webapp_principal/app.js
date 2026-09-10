@@ -355,6 +355,14 @@ switchView("home"); // داده‌های خانه همزمان با پخش اس�
   setTimeout(() => {
     splashEl.classList.add("leaving");
     appEl.classList.add("reveal");
-    setTimeout(() => splashEl.remove(), EXIT_MS);
+    setTimeout(() => {
+      splashEl.remove();
+      // مهم: بعد از پایان انیمیشن، کلاس‌های veil/reveal (که transform دارن) رو
+      // کامل حذف می‌کنیم. تا وقتی #app یه transform فعال داشته باشه، خودش
+      // یه "containing block" جدید می‌سازه و باعث می‌شه بچه‌های position:fixed
+      // داخلش (مثل ناوبری پایین صفحه) دیگه نسبت به کل صفحه فیکس نمونن، بلکه
+      // نسبت به #app فیکس بشن — که باعث میشه منو فقط با اسکرول تا ته دیده بشه.
+      appEl.classList.remove("app-veil", "reveal");
+    }, EXIT_MS);
   }, SPLASH_MS);
 })();
