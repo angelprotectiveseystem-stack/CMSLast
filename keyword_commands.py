@@ -20,7 +20,7 @@ ADMIN_KEYWORDS = {"تنظیم مدیر", "تنظیم مدیر امنیتی", "ح
 
 # کلمه‌ی گفته‌شده -> نام یکتای عملیات (برای پشتیبانی از مترادف‌ها)
 SIMPLE_KEYWORDS = {
-    "پنل": "restart",
+    "پنل": "quick_panel",
     "داشبورد": "dashboard",
     "وظیفه": "tasks",
     "مسابقه": "matches",
@@ -49,7 +49,7 @@ SIMPLE_KEYWORDS = {
     "بستن": "close_panel",
     "خروج": "close_panel",
     "مدیر ارشد": "pishva_panel",       # فقط برای مدیر ارشد پنلش رو باز می‌کنه
-    "مدیریت": "pishva_panel",         # مترادف «مدیر ارشد» — مستقیم پنل مدیر ارشد
+    "مدیریت": "restart",              # مترادف «شروع» — خوش‌آمدگویی کامل (/start)
     "دست": "ai_manage_panel",         # فقط برای مدیر ارشد — پنل مدیریت دستیار
     "رصد": "ai_manage_panel",         # مترادف «دست» — پنل مدیریت دستیار
     "اطلاعات": "reply_info",       # ریپلای روی یه پیام → جزئیات کاربر
@@ -240,6 +240,7 @@ def _action_label(action: str) -> str:
         "classes": "کلاس‌ها",
         "lottery": "قرعه‌کشی",
         "pishva_panel": "پنل مدیر ارشد",
+        "quick_panel": "پنل",
         "ai_manage_panel": "مدیریت دستیار",
         "security": "امنیت",
         "backup": "بکاپ",
@@ -267,6 +268,17 @@ async def _panel_content(action: str, uid: int, is_pishva: bool, admin):
         if not is_pishva:
             return None, None, "⛔ شما مجوز باز کردن این پنل را ندارید."
         return box("👑 پنل مدیر ارشد"), kb.kb_pishva_main(), None
+
+    if action == "quick_panel":
+        # پنل ساده و سریع: بدون خوش‌آمدگویی/آب‌وهوا/جزئیات، فقط عنوان + کیبورد کامل.
+        # مدیر ارشد → پنل مدیر ارشد، مدیر مسابقات/امنیتی → پنل مخصوص خودشون.
+        if is_pishva:
+            return box("👑 پنل مدیر ارشد"), kb.kb_pishva_main(), None
+        if admin and admin["role"] == ROLE_TOURNAMENT_MANAGER:
+            return box("🏆 پنل مدیر مسابقات"), kb.kb_tournament_manager_main(), None
+        if admin and admin["role"] == ROLE_SECURITY_MANAGER:
+            return box("🛡️ پنل مدیر امنیتی"), kb.kb_security_manager_main(), None
+        return None, None, "⛔ شما مجوز باز کردن این پنل را ندارید."
 
     if action == "ai_manage_panel":
         if not is_pishva:
@@ -433,6 +445,23 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             sent = await update.message.reply_text(
                 box("👑 پنل مدیر ارشد"), reply_markup=kb.kb_pishva_main(), parse_mode="Markdown"
             )
+            await register_panel_owner(update, ctx, sent.message_id)
+        raise ApplicationHandlerStop()
+
+    # ─── پنل سریع (کلمه «پنل») ───
+    # برای همه‌ی نقش‌ها (مدیر ارشد/مدیر مسابقات/مدیر امنیتی) کار می‌کنه.
+    # برخلاف «restart»، هیچ خوش‌آمدگویی/آب‌وهوا/جزئیاتی نداره — فقط عنوانِ
+    # کوتاه + همون کیبوردِ کامل، برای باز شدنِ خیلی سریع‌تر.
+    if action == "quick_panel":
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "quick_panel")
+        else:
+            text, markup, err = await _panel_content("quick_panel", uid, is_pishva, admin)
+            if text is None:
+                await update.message.reply_text(err or "⛔ شما مجوز باز کردن این پنل را ندارید.")
+                raise ApplicationHandlerStop()
+            sent = await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
             await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
