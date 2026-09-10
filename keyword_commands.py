@@ -477,7 +477,10 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             )
             return
         text_lines = await _build_user_info(target_id, target_name, target_username)
-        await update.message.reply_text("\n".join(text_lines), parse_mode="Markdown")
+        try:
+            await update.message.reply_text("\n".join(text_lines), parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text("\n".join(text_lines))
         raise ApplicationHandlerStop()
 
     # ─── آنلاین / الان (وضعیت لحظه‌ایِ همه‌ی ادمین‌ها) ───
@@ -549,13 +552,16 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         admins_all = await db.get_active_admins()
         lines = [box(f"👥 مدیران فعال — {len(admins_all)} نفر")]
         for a in admins_all:
-            name = a["display_name"] or a["full_name"]
-            uname = f"@{a['username']}" if a.get("username") else "—"
+            name = escape_md_legacy(a["display_name"] or a["full_name"])
+            uname = f"@{escape_md_legacy(a['username'])}" if a.get("username") else "—"
             role_lbl = "🏆 مدیر مسابقات" if a["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
             lines.append(f"• {name} ({uname}) — {role_lbl}")
         if not admins_all:
             lines.append("❗ هیچ مدیر فعالی ثبت نشده.")
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        try:
+            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text("\n".join(lines))
         raise ApplicationHandlerStop()
 
     # ─── آمار سریع ───
@@ -590,14 +596,19 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             return
         lines = [box("🏆 آخرین نتایج")]
         for m in done:
+            white_n = escape_md_legacy(m['white_name'])
+            black_n = escape_md_legacy(m['black_name'])
             if m["result"] == "white":
-                res = f"🥇 {m['white_name']} برنده"
+                res = f"🥇 {white_n} برنده"
             elif m["result"] == "black":
-                res = f"🥇 {m['black_name']} برنده"
+                res = f"🥇 {black_n} برنده"
             else:
                 res = "🤝 تساوی"
-            lines.append(f"• {m['white_name']} vs {m['black_name']} — {res}")
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+            lines.append(f"• {white_n} vs {black_n} — {res}")
+        try:
+            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text("\n".join(lines))
         raise ApplicationHandlerStop()
 
     # ─── لیست اخطارها ───
@@ -611,8 +622,11 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         lines = [box(f"⚠️ بازیکنان با اخطار — {len(warned)} نفر")]
         for p in warned:
             bar = "🔴" * min(p["warnings"], 3) + "⚪" * max(0, 3 - p["warnings"])
-            lines.append(f"• {p['full_name']} — {bar} ({p['warnings']} اخطار)")
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+            lines.append(f"• {escape_md_legacy(p['full_name'])} — {bar} ({p['warnings']} اخطار)")
+        try:
+            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text("\n".join(lines))
         raise ApplicationHandlerStop()
 
     # ─── وظیفه ───
@@ -730,15 +744,20 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             role_label = "🏆 مدیر مسابقات" if req["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
             rtext = (
                 f"📥 *درخواست دسترسی*\n\n"
-                f"👤 نام: {req['full_name']}\n"
-                f"🔗 یوزرنیم: {req['username']}\n"
+                f"👤 نام: {escape_md_legacy(req['full_name'])}\n"
+                f"🔗 یوزرنیم: {escape_md_legacy(req['username'])}\n"
                 f"💼 نقش: {role_label}\n"
-                f"📝 پیام: {req['message'] or '—'}\n"
+                f"📝 پیام: {escape_md_legacy(req['message']) or '—'}\n"
                 f"⏱️ زمان: `{str(req['requested_at'])[:19]}`"
             )
-            await update.message.reply_text(
-                rtext, reply_markup=kb.kb_access_request(req["id"]), parse_mode="Markdown"
-            )
+            try:
+                await update.message.reply_text(
+                    rtext, reply_markup=kb.kb_access_request(req["id"]), parse_mode="Markdown"
+                )
+            except Exception:
+                await update.message.reply_text(
+                    rtext, reply_markup=kb.kb_access_request(req["id"])
+                )
         raise ApplicationHandlerStop()
 
     # ─── لاگ / گزارش ───
@@ -799,8 +818,11 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         lines = [box("🏆 جدول رتبه‌بندی Elo")]
         for i, p in enumerate(leaders):
             medal = medals[i] if i < 3 else f"`{i+1}.`"
-            lines.append(f"{medal} {p['full_name']} — `{int(p['rating'])}` ({get_elo_title(p['rating'])})")
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+            lines.append(f"{medal} {escape_md_legacy(p['full_name'])} — `{int(p['rating'])}` ({get_elo_title(p['rating'])})")
+        try:
+            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text("\n".join(lines))
         raise ApplicationHandlerStop()
 
     # ─── قهرمانان ───
@@ -816,10 +838,13 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             weekly = monthly = None
         lines = [
             box("🏆 قهرمانان"),
-            "🌟 هفته: " + (f"{weekly['name']} ({weekly['wins']} برد)" if weekly else "—"),
-            "👑 ماه: " + (f"{monthly['name']} ({monthly['wins']} برد)" if monthly else "—"),
+            "🌟 هفته: " + (f"{escape_md_legacy(weekly['name'])} ({weekly['wins']} برد)" if weekly else "—"),
+            "👑 ماه: " + (f"{escape_md_legacy(monthly['name'])} ({monthly['wins']} برد)" if monthly else "—"),
         ]
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        try:
+            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text("\n".join(lines))
         raise ApplicationHandlerStop()
 
     # ─── یادآور ───
@@ -927,7 +952,7 @@ async def stranger_info_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         await query.message.reply_text("❗ اطلاعاتی از این کاربر پیدا نشد.")
         return
 
-    uname = summary["username"] or ""
+    uname = escape_md_legacy(summary["username"] or "")
     fname = summary["full_name"] or "بی‌نام"
     lines = [
         box("🙍 جزییات کاربر غریبه"),
@@ -952,6 +977,8 @@ async def stranger_info_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         await query.message.reply_text(text)
 async def _build_user_info(target_id: int, target_name: str, target_username: str) -> list:
     from datetime import datetime, timedelta
+    target_name = escape_md_legacy(target_name)
+    target_username = escape_md_legacy(target_username)
     lines = [box(f"🔍 اطلاعات — {target_name}")]
 
     # یوزرنیم
