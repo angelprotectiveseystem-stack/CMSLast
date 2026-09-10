@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────
-   پنل مدیر مدرسه — فقط‌خواندنی، موبایل-اول
+   پنل مدیریت مسابقات شطرنج — تم تخته و ساعت شطرنج
    ──────────────────────────────────────────────────────────── */
 
 @font-face {
@@ -22,25 +22,29 @@
   src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-Bold.woff2") format("woff2");
   font-weight: 700; font-display: swap;
 }
-
-:root {
-  --ink:        #0f1712;
-  --panel:      #17211b;
-  --panel-2:    #1e2a22;
-  --walnut:     #2c2018;
-  --line:       #3a3126;
-  --ivory:      #ece3d2;
-  --ivory-dim:  #b9b0a0;
-  --amber:      #c99a46;
-  --amber-dim:  #8a6b34;
-  --sage:       #7a9b72;
-  --brick:      #b2534a;
-  --radius: 10px;
-  --font: "Vazirmatn", Tahoma, sans-serif;
-  --bottom-nav-h: 66px;
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-ExtraBold.woff2") format("woff2");
+  font-weight: 800; font-display: swap;
 }
 
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+:root {
+  --ink:        #0f1712;   /* پس‌زمینه اصلی، سبز-مشکیِ خانه‌ی تیره‌ی تخته */
+  --panel:      #17211b;   /* پنل‌ها روی ink */
+  --panel-2:    #1e2a22;   /* پنل روشن‌تر / hover */
+  --walnut:     #2c2018;   /* قهوه‌ی گردویی — خط‌ها و مرزها */
+  --line:       #3a3126;   /* خطوط ظریف */
+  --ivory:      #ece3d2;   /* متن اصلی، رنگ خانه‌ی روشن تخته */
+  --ivory-dim:  #b9b0a0;   /* متن ثانویه */
+  --amber:      #c99a46;   /* برنجِ ساعت شطرنج — تاکید اصلی */
+  --amber-dim:  #8a6b34;
+  --sage:       #7a9b72;   /* سبز نمدِ روی میز — برد/آنلاین/مثبت */
+  --brick:      #b2534a;   /* آجریِ کم‌رنگ — باخت/هشدار/در انتظار */
+  --radius: 6px;
+  --font: "Vazirmatn", Tahoma, sans-serif;
+}
+
+* { box-sizing: border-box; }
 
 html, body {
   margin: 0; padding: 0; height: 100%;
@@ -49,11 +53,15 @@ html, body {
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.6;
+  /* هیچ عنصری (مثل کشوی موبایل که خارج از صفحه‌ست) حق نداره اسکرول
+     افقی کل صفحه رو باز کنه — همون چیزی که کل چیدمان رو کوچک/زوم‌اوت
+     نشون می‌داد. */
   overflow-x: hidden;
   width: 100%;
 }
 
 body {
+  /* بافت خیلی کم‌رنگِ خانه‌های شطرنج در زمینه‌ی کل برنامه */
   background-image:
     linear-gradient(45deg, rgba(236,227,210,0.025) 25%, transparent 25%, transparent 75%, rgba(236,227,210,0.025) 75%),
     linear-gradient(45deg, rgba(236,227,210,0.025) 25%, transparent 25%, transparent 75%, rgba(236,227,210,0.025) 75%);
@@ -61,263 +69,324 @@ body {
   background-position: 0 0, 32px 32px;
 }
 
-button { font-family: var(--font); cursor: pointer; }
+button, input { font-family: var(--font); }
 
-::-webkit-scrollbar { width: 8px; height: 8px; }
+.hidden { display: none !important; }
+
+a { color: var(--amber); }
+
+::selection { background: var(--amber); color: var(--ink); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--walnut); border-radius: 8px; }
 
-#app {
-  display: flex;
+/* ── صفحه ورود ─────────────────────────────────────────── */
+#login-screen {
   min-height: 100vh;
-  min-height: 100dvh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
 }
+.login-card {
+  width: 100%; max-width: 360px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 36px 30px;
+  text-align: center;
+}
+.login-mark {
+  width: 64px; height: 64px; margin: 0 auto 18px;
+  display: flex; align-items: center; justify-content: center;
+  filter: drop-shadow(0 6px 16px rgba(138,15,15,.35));
+  animation: mark-in .5s cubic-bezier(.2,.8,.2,1);
+}
+.login-mark .brand-svg, .brand-mark .brand-svg { border-radius: 22%; display: block; }
+@keyframes mark-in {
+  from { opacity: 0; transform: translateY(-6px) scale(.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.login-card h1 {
+  font-size: 19px; font-weight: 700; margin: 0 0 8px;
+}
+.login-sub {
+  color: var(--ivory-dim); font-size: 13.5px; margin: 0 0 22px;
+}
+#login-password {
+  width: 100%; padding: 12px 14px;
+  background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--ivory); font-size: 14px; margin-bottom: 12px;
+  outline: none; transition: border-color .15s;
+}
+#login-password:focus { border-color: var(--amber); }
+#login-btn {
+  width: 100%; padding: 12px 14px;
+  background: var(--amber); color: #201607;
+  border: none; border-radius: var(--radius);
+  font-size: 14.5px; font-weight: 700; cursor: pointer;
+  transition: filter .15s;
+}
+#login-btn:hover { filter: brightness(1.08); }
+#login-btn:focus-visible, .nav-item:focus-visible, .tab-btn:focus-visible {
+  outline: 2px solid var(--amber); outline-offset: 2px;
+}
+.login-error { color: var(--brick); font-size: 13px; margin-top: 12px; min-height: 1em; }
 
-/* ── ساید‌بار: پیش‌فرض مخفی، فقط دسکتاپ نشون داده می‌شه ── */
+/* ── چیدمان اصلی ───────────────────────────────────────── */
+#app { display: flex; min-height: 100vh; }
+
 .sidebar {
-  display: none;
+  width: 232px; flex-shrink: 0;
+  background: var(--panel);
+  border-inline-start: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh;
 }
-
 .brand {
   display: flex; align-items: center; gap: 10px;
-  padding: 18px 16px;
+  padding: 20px 20px 16px;
   border-bottom: 1px solid var(--line);
 }
-.brand-text { font-weight: 700; font-size: 15px; color: var(--ivory); }
+.brand-mark { display: flex; flex-shrink: 0; }
+.brand-text { font-size: 14.5px; font-weight: 700; letter-spacing: .2px; }
 
-#side-nav { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px; flex: 1; }
+#nav {
+  flex: 1; overflow-y: auto;
+  padding: 10px 10px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.nav-group-label {
+  display: block;
+  font-size: 11px; font-weight: 700; color: var(--amber-dim);
+  text-transform: uppercase; letter-spacing: .4px;
+  padding: 14px 12px 6px;
+}
+.nav-group-label:first-child { padding-top: 6px; }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
-  background: transparent; border: none; color: var(--ivory-dim);
-  padding: 11px 12px; border-radius: var(--radius);
-  font-size: 14px; text-align: right; width: 100%;
-  transition: background .15s, color .15s;
+  width: 100%; text-align: right;
+  background: transparent; border: none; border-inline-start: 2px solid transparent; border-radius: var(--radius);
+  color: var(--ivory-dim);
+  padding: 10px 12px;
+  font-size: 13.8px; cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease;
 }
-.nav-item:hover { background: var(--panel-2); color: var(--ivory); }
-.nav-item.active { background: var(--panel-2); color: var(--amber); font-weight: 600; }
-.nav-ic { font-size: 17px; width: 22px; text-align: center; }
+.nav-item:hover { background: var(--panel-2); color: var(--ivory); transform: translateX(-2px); }
+html[dir="rtl"] .nav-item:hover { transform: translateX(2px); }
+.nav-item.active { background: var(--panel-2); color: var(--ivory); border-inline-start-color: var(--amber); }
+.nav-item.active .nav-coord { color: var(--ink); background: var(--amber); }
+.nav-coord {
+  font-family: monospace; font-size: 10.5px; font-weight: 700;
+  color: var(--amber-dim);
+  background: var(--ink);
+  border-radius: 3px; padding: 2px 5px;
+  min-width: 24px; text-align: center;
+  flex-shrink: 0;
+  transition: background .15s ease, color .15s ease;
+}
+.nav-label { flex: 1; }
 
 .sidebar-foot {
-  padding: 14px 16px; border-top: 1px solid var(--line);
-  font-size: 12px; color: var(--ivory-dim);
+  padding: 14px 20px; border-top: 1px solid var(--line);
   display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--ivory-dim);
 }
 .live-dot {
   width: 8px; height: 8px; border-radius: 50%;
-  background: var(--sage); box-shadow: 0 0 6px var(--sage);
-  flex-shrink: 0;
+  background: var(--sage); flex-shrink: 0;
+  box-shadow: 0 0 0 3px rgba(122,155,114,0.18);
 }
+.live-dot.off { background: var(--brick); box-shadow: 0 0 0 3px rgba(178,83,74,0.18); }
 
-/* ── محتوای اصلی ─────────────────────────────────────────── */
-.main {
-  flex: 1;
-  display: flex; flex-direction: column;
-  min-width: 0;
-  padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
-}
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 16px 10px;
-  position: sticky; top: 0; z-index: 5;
-  background: linear-gradient(180deg, var(--ink) 70%, transparent);
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--ink); z-index: 5;
 }
-.topbar h2 { margin: 0; font-size: 18px; font-weight: 700; color: var(--ivory); }
+.topbar h2 { font-size: 18px; font-weight: 700; margin: 0; }
 .topbar-clock {
-  font-size: 12px; color: var(--ivory-dim);
   font-variant-numeric: tabular-nums;
-  background: var(--panel); border: 1px solid var(--line);
-  padding: 4px 10px; border-radius: 20px;
+  font-size: 14px; color: var(--amber);
+  letter-spacing: .5px;
 }
 
-.view-body { padding: 4px 14px 24px; flex: 1; }
+.view-body { padding: 24px 28px 60px; }
+.view-body.fade-in { animation: view-in .28s cubic-bezier(.2,.8,.2,1); }
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 .loading-state, .empty-state {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 10px; padding: 60px 20px; color: var(--ivory-dim); text-align: center;
+  color: var(--ivory-dim); font-size: 13.5px;
+  padding: 28px 10px; text-align: center;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
 }
+.empty-state { display: block; }
 .spinner {
-  width: 26px; height: 26px; border-radius: 50%;
-  border: 3px solid var(--line); border-top-color: var(--amber);
-  animation: spin 0.8s linear infinite;
+  width: 16px; height: 16px; flex-shrink: 0;
+  border: 2px solid var(--line); border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── کارت‌های آماری خانه ─────────────────────────────────── */
-.stat-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
-  margin-bottom: 18px;
+/* ── کارت‌های آماری خانه ───────────────────────────────── */
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px; margin-bottom: 24px;
 }
 .stat-card {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 14px; display: flex; flex-direction: column; gap: 6px;
+  padding: 16px 18px;
+  border-inline-start: 3px solid var(--amber-dim);
+  animation: card-in .32s cubic-bezier(.2,.8,.2,1) backwards;
 }
-.stat-card .val { font-size: 22px; font-weight: 800; color: var(--amber); }
-.stat-card .lbl { font-size: 12.5px; color: var(--ivory-dim); }
-
-.section-title {
-  font-size: 13px; color: var(--ivory-dim); margin: 18px 2px 8px;
-  display: flex; align-items: center; gap: 6px;
+.grid .stat-card:nth-child(1) { animation-delay: .02s; }
+.grid .stat-card:nth-child(2) { animation-delay: .06s; }
+.grid .stat-card:nth-child(3) { animation-delay: .10s; }
+.grid .stat-card:nth-child(4) { animation-delay: .14s; }
+.grid .stat-card:nth-child(5) { animation-delay: .18s; }
+.grid .stat-card:nth-child(6) { animation-delay: .22s; }
+.grid .stat-card:nth-child(7) { animation-delay: .26s; }
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.stat-card.accent-sage { border-inline-start-color: var(--sage); }
+.stat-card.accent-rust { border-inline-start-color: var(--brick); }
+.stat-label { font-size: 12.5px; color: var(--ivory-dim); margin-bottom: 8px; }
+.stat-value {
+  font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums;
+  letter-spacing: .5px;
 }
 
-/* ── کارت عمومی لیست ─────────────────────────────────────── */
-.card-list { display: flex; flex-direction: column; gap: 8px; }
-.row-card {
+/* ── بخش‌ها ────────────────────────────────────────────── */
+.section {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 18px 20px; margin-bottom: 18px;
+  max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
 }
-.row-card .main-txt { font-weight: 600; font-size: 14.5px; color: var(--ivory); }
-.row-card .sub-txt { font-size: 12px; color: var(--ivory-dim); margin-top: 2px; }
-.row-card .badge-group { display: flex; gap: 6px; flex-shrink: 0; }
+.section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.section-head h3 { font-size: 15px; font-weight: 700; margin: 0; }
+.count { font-size: 12px; color: var(--amber); font-variant-numeric: tabular-nums; }
 
-.badge {
-  font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 20px;
-  white-space: nowrap;
-}
-.badge.win  { background: rgba(122,155,114,0.18); color: var(--sage); }
-.badge.loss { background: rgba(178,83,74,0.18); color: var(--brick); }
-.badge.draw { background: rgba(201,154,70,0.18); color: var(--amber); }
-.badge.muted{ background: var(--panel-2); color: var(--ivory-dim); }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
 
-/* ── جعبه‌ی جستجو ────────────────────────────────────────── */
-.search-box { position: relative; margin-bottom: 12px; }
-.search-box input {
-  width: 100%; box-sizing: border-box; background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 10px 40px 10px 14px; font-size: 14px; color: var(--ivory);
-  font-family: inherit; outline: none;
-}
-.search-box input::placeholder { color: var(--ivory-dim); }
-.search-box input:focus { border-color: var(--amber); }
-.search-box .search-ic {
-  position: absolute; right: 13px; top: 50%; transform: translateY(-50%);
-  font-size: 15px; color: var(--ivory-dim); pointer-events: none;
-}
-
-/* ── تب‌های فیلتر (دوره) ─────────────────────────────────── */
-.tabs { display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 2px; }
+/* ── تب‌ها (فیلتر مسابقات) ─────────────────────────────── */
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
 .tab-btn {
-  background: var(--panel); border: 1px solid var(--line); color: var(--ivory-dim);
-  padding: 7px 16px; border-radius: 20px; font-size: 13px; white-space: nowrap; flex-shrink: 0;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ivory-dim);
+  border-radius: 999px; padding: 6px 16px; font-size: 12.8px; cursor: pointer;
+  transition: all .12s;
 }
-.tab-btn.active { background: var(--amber); color: var(--ink); border-color: var(--amber); font-weight: 700; }
+.tab-btn:hover { color: var(--ivory); }
+.tab-btn.active { background: var(--amber); border-color: var(--amber); color: #201607; font-weight: 700; }
 
-/* ── نفرات برتر ───────────────────────────────────────────── */
-.top-row {
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 12px 14px; display: flex; align-items: center; gap: 12px; margin-bottom: 8px;
+/* ── جدول‌ها ────────────────────────────────────────────── */
+table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 13.3px; }
+thead th {
+  text-align: right; color: var(--ivory-dim); font-weight: 600; font-size: 12px;
+  padding: 8px 10px; border-bottom: 1px solid var(--amber-dim);
 }
-.top-rank {
-  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 800; font-size: 13px; background: var(--panel-2); color: var(--ivory-dim);
-}
-.top-row:nth-child(1) .top-rank { background: #c99a46; color: #1a1206; }
-.top-row:nth-child(2) .top-rank { background: #b9b0a0; color: #1a1206; }
-.top-row:nth-child(3) .top-rank { background: #8a5a3a; color: #1a1206; }
-.top-info { flex: 1; min-width: 0; }
-.top-score { text-align: left; flex-shrink: 0; }
-.top-score .val { font-size: 17px; font-weight: 800; color: var(--amber); }
-.top-score .lbl { font-size: 10.5px; color: var(--ivory-dim); }
+tbody td { padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tbody tr:hover td { background: var(--panel-2); }
+tbody tr:last-child td { border-bottom: none; }
 
-/* ── چارت‌ها ──────────────────────────────────────────────── */
-.chart-card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 14px; margin-bottom: 14px;
+.player-name-cell { line-height: 1.5; }
+.class-tag {
+  display: inline-block; font-size: 11px; color: var(--ivory-dim);
+  background: var(--ink); border: 1px solid var(--line);
+  border-radius: 3px; padding: 1px 6px; margin-top: 3px;
 }
-.chart-card h4 { margin: 0 0 10px; font-size: 13.5px; color: var(--ivory); font-weight: 600; }
-.chart-card svg { width: 100%; height: auto; display: block; }
+.rating-cell { font-weight: 700; color: var(--amber); font-variant-numeric: tabular-nums; }
 
-/* ── ناوبری پایین صفحه (موبایل) ──────────────────────────── */
-.bottom-nav {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
-  display: flex; justify-content: space-around;
-  background: rgba(23,33,27,0.97);
-  border-top: 1px solid var(--line);
-  padding: 6px 2px calc(6px + env(safe-area-inset-bottom, 0px));
-  backdrop-filter: blur(6px);
+.progress-mini {
+  display: inline-block; width: 60px; height: 5px; border-radius: 3px;
+  background: var(--ink); margin-inline-start: 8px; overflow: hidden; vertical-align: middle;
 }
-.bn-item {
-  background: none; border: none; color: var(--ivory-dim);
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 4px 6px; border-radius: 8px; flex: 1; min-width: 0;
-}
-.bn-ic { font-size: 19px; line-height: 1; }
-.bn-label { font-size: 10px; white-space: nowrap; }
-.bn-item.active { color: var(--amber); }
-.bn-item.active .bn-ic { transform: scale(1.08); }
+.progress-mini-fill { display: block; height: 100%; background: var(--sage); }
 
-/* ── صفحه خوش‌آمدگویی اولیه ───────────────────────────────── */
-.welcome-screen {
-  position: fixed; inset: 0; z-index: 9999;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--ink);
-  background-image:
-    linear-gradient(45deg, rgba(236,227,210,0.025) 25%, transparent 25%, transparent 75%, rgba(236,227,210,0.025) 75%),
-    linear-gradient(45deg, rgba(236,227,210,0.025) 25%, transparent 25%, transparent 75%, rgba(236,227,210,0.025) 75%);
-  background-size: 64px 64px;
-  background-position: 0 0, 32px 32px;
-  transition: opacity .55s ease, transform .55s ease;
+.pin-tag { margin-inline-end: 4px; }
+
+/* ── نشان‌ها (Badges) ──────────────────────────────────── */
+.badge {
+  display: inline-block; font-size: 11.5px; font-weight: 600;
+  border-radius: 999px; padding: 3px 10px;
+  border: 1px solid transparent;
 }
-.welcome-screen.wl-hide {
-  opacity: 0;
-  transform: scale(1.03);
-  pointer-events: none;
+.badge.win, .badge.online { background: rgba(122,155,114,0.15); color: var(--sage); border-color: rgba(122,155,114,0.35); }
+.badge.loss { background: rgba(178,83,74,0.15); color: var(--brick); border-color: rgba(178,83,74,0.35); }
+.badge.draw { background: rgba(201,154,70,0.15); color: var(--amber); border-color: rgba(201,154,70,0.35); }
+.badge.pending { background: rgba(236,227,210,0.08); color: var(--ivory-dim); border-color: var(--line); }
+
+/* ── پیام‌ها / فعالیت‌ها ────────────────────────────────── */
+.msg-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.msg-item:last-child { border-bottom: none; }
+.msg-text { font-size: 13.6px; line-height: 1.7; }
+.msg-meta { font-size: 11.5px; color: var(--ivory-dim); margin-top: 5px; }
+
+/* ── نمودارها ──────────────────────────────────────────── */
+.chart-wrap { padding-top: 4px; }
+.bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.bar-label {
+  width: 140px; flex-shrink: 0; font-size: 12.5px; color: var(--ivory-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.welcome-inner { display: flex; flex-direction: column; align-items: center; }
-.welcome-mark {
-  display: block; margin-bottom: 18px;
-  opacity: 0;
-  animation: wlPop .75s cubic-bezier(.25,.8,.3,1.2) .1s forwards;
-}
-.welcome-word {
-  display: flex; direction: rtl; font-size: 26px; font-weight: 800; color: var(--ivory);
-  letter-spacing: 0.5px;
-}
-.wl-char {
-  display: inline-block; opacity: 0;
-  animation: wlCharUp .5s ease forwards;
-  animation-delay: calc(var(--i) * 60ms + 500ms);
-}
-.welcome-line {
-  width: 0; height: 2px; background: var(--amber); margin: 14px 0 12px;
-  animation: wlLine .5s ease 1.35s forwards;
-}
-.welcome-sub {
-  font-size: 13px; color: var(--ivory-dim); opacity: 0;
-  animation: wlFadeUp .5s ease 1.55s forwards;
-}
-@keyframes wlPop {
-  0%   { opacity: 0; transform: scale(.35) rotate(-12deg); }
-  60%  { opacity: 1; transform: scale(1.08) rotate(3deg); }
-  100% { opacity: 1; transform: scale(1) rotate(0); }
-}
-@keyframes wlCharUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes wlFadeUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes wlLine {
-  from { width: 0; }
-  to   { width: 64px; }
+.bar-track { flex: 1; height: 10px; background: var(--ink); border-radius: 5px; overflow: hidden; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, var(--amber-dim), var(--amber)); border-radius: 5px; }
+.bar-value { width: 34px; text-align: left; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ivory); }
+
+.sparkline { width: 100%; height: 130px; display: block; }
+
+/* ── دکمه‌ی همبرگری موبایل (توسط app.js اضافه می‌شود) ──── */
+.mobile-toggle {
+  display: none;
+  position: fixed; top: 14px; inset-inline-end: 16px; z-index: 20;
+  width: 38px; height: 38px; border-radius: var(--radius);
+  background: var(--panel); border: 1px solid var(--line); color: var(--ivory);
+  font-size: 18px; cursor: pointer;
 }
 
-/* ── دسکتاپ: ساید‌بار به‌جای ناوبری پایین ─────────────────── */
-@media (min-width: 880px) {
+/* ── واکنش‌گرا / موبایل ─────────────────────────────────── */
+.sidebar-backdrop {
+  display: none;
+  position: fixed; inset: 0; z-index: 14;
+  background: rgba(4,7,5,.55);
+  backdrop-filter: blur(1px);
+  opacity: 0; transition: opacity .22s ease;
+}
+
+/* وقتی منوی موبایل بازه، پس‌زمینه اسکرول نخوره تا حس نپریدن صفحه حفظ بشه */
+body.no-scroll { overflow: hidden; }
+
+@media (max-width: 860px) {
   .sidebar {
-    display: flex; flex-direction: column;
-    width: 236px; flex-shrink: 0;
-    background: var(--panel); border-left: 1px solid var(--line);
-    height: 100vh; position: sticky; top: 0;
+    position: fixed; inset-inline-end: 0; top: 0; height: 100vh;
+    width: 82%; max-width: 300px;
+    background: var(--panel);
+    transform: translateX(100%);
+    transition: transform .28s cubic-bezier(.2,.8,.2,1); z-index: 15;
+    box-shadow: -8px 0 24px rgba(0,0,0,.45);
   }
-  .bottom-nav { display: none; }
-  .main { padding-bottom: 0; }
-  .view-body { padding: 6px 28px 32px; max-width: 1100px; }
-  .topbar { padding: 22px 28px 14px; }
-  .stat-grid { grid-template-columns: repeat(4, 1fr); }
+  html[dir="rtl"] .sidebar.open { transform: translateX(0); }
+  .sidebar-backdrop { display: block; }
+  .sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
+  .sidebar-backdrop:not(.show) { pointer-events: none; }
+  .mobile-toggle { display: block; }
+  .topbar { padding-inline-end: 62px; }
+  .view-body { padding: 18px 16px 50px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .bar-label { width: 90px; }
 }
 
-@media (min-width: 1280px) {
-  .stat-grid { grid-template-columns: repeat(4, 1fr); }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
 }

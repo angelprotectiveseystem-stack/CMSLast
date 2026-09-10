@@ -1,372 +1,490 @@
-// پنل مدیر مدرسه — فقط‌خواندنی. هیچ درخواست POST/PUT/DELETE‌ای در این فایل وجود ندارد.
+(function () {
+  "use strict";
 
-const KEY = window.PRINCIPAL_KEY || "";
-const viewTitleEl = document.getElementById("view-title");
-const viewBodyEl = document.getElementById("view-body");
-const clockEl = document.getElementById("topbar-clock");
+  var TOKEN_KEY = "chess_panel_token";
+  var POLL_MS = 4000; // زنده بدون فشار به سرور: هر ۴ ثانیه فقط GET های سبک
+  var state = { view: "home", timer: null, activityPage: 0 };
 
-const VIEW_TITLES = {
-  home: "خانه",
-  classes: "کلاس‌ها",
-  players: "بازیکن‌ها",
-  matches: "مسابقات",
-  top: "نفرات برتر",
-  trends: "روندها",
-};
+  // ── HTTP ──────────────────────────────────────────────
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = opts.headers || {};
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) headers["X-Panel-Token"] = token;
+    return fetch(path, Object.assign({}, opts, { headers: headers }))
+      .then(function (r) {
+        if (r.status === 401) {
+          doLogout();
+          throw new Error("unauthorized");
+        }
+        return r.json();
+      });
+  }
 
-let currentView = "home";
-const cache = {};
+  function doLogout() {
+    localStorage.removeItem(TOKEN_KEY);
+    document.getElementById("app").classList.add("hidden");
+    document.getElementById("login-screen").classList.remove("hidden");
+    var btn = document.querySelector(".mobile-toggle");
+    if (btn) btn.classList.add("hidden");
+    if (state.timer) clearInterval(state.timer);
+  }
 
-// ─── ابزار API ────────────────────────────────────────────────
-async function api(path, params = {}) {
-  const url = new URL(path, window.location.origin);
-  url.searchParams.set("k", KEY);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error("request_failed:" + res.status);
-  return res.json();
-}
+  // ── Login ─────────────────────────────────────────────
+  function tryLogin() {
+    var pw = document.getElementById("login-password").value;
+    var errEl = document.getElementById("login-error");
+    errEl.textContent = "";
+    fetch("/api/panel/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          localStorage.setItem(TOKEN_KEY, data.token);
+          startApp();
+        } else {
+          errEl.textContent = data.error || "ورود ناموفق بود.";
+        }
+      })
+      .catch(function () { errEl.textContent = "ارتباط با سرور برقرار نشد."; });
+  }
 
-// ─── ناوبری ───────────────────────────────────────────────────
-function setActiveNav(view) {
-  document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.view === view));
-  document.querySelectorAll(".bn-item").forEach(b => b.classList.toggle("active", b.dataset.view === view));
-}
-
-function bindNav() {
-  document.querySelectorAll(".nav-item, .bn-item").forEach(btn => {
-    btn.addEventListener("click", () => switchView(btn.dataset.view));
+  document.getElementById("login-btn").addEventListener("click", tryLogin);
+  document.getElementById("login-password").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") tryLogin();
   });
-}
 
-async function switchView(view) {
-  currentView = view;
-  setActiveNav(view);
-  viewTitleEl.textContent = VIEW_TITLES[view] || "";
-  window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
-  viewBodyEl.innerHTML = `<div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>`;
-  try {
-    await RENDERERS[view]();
-  } catch (e) {
-    viewBodyEl.innerHTML = `<div class="empty-state">⚠️ خطا در دریافت اطلاعات.<br>لطفاً دوباره تلاش کنید.</div>`;
-    console.error(e);
+  // ── Nav ───────────────────────────────────────────────
+  var VIEW_TITLES = {
+    home: "خانه", matches: "مسابقات شطرنج", live: "شطرنج زنده",
+    players: "مسابقه‌دهنده‌ها", elo: "سطح پیشرفت / ELO", admins: "مدیر‌ها",
+    online: "آنلاین‌ها", messages: "پیام‌های ارسالی", activity: "فعالیت‌ها",
+    charts: "نمودارها", assistant: "دستیار", settings: "تنظیمات",
+  };
+
+  document.getElementById("nav").addEventListener("click", function (e) {
+    var btn = e.target.closest(".nav-item");
+    if (!btn) return;
+    document.querySelectorAll(".nav-item").forEach(function (n) { n.classList.remove("active"); });
+    btn.classList.add("active");
+    state.view = btn.getAttribute("data-view");
+    document.getElementById("view-title").textContent = VIEW_TITLES[state.view];
+    document.getElementById("view-body").innerHTML = '<div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>';
+    closeSidebar();
+    render();
+  });
+
+  // ── Mobile toggle ─────────────────────────────────────
+  function closeSidebar() {
+    var sb = document.querySelector(".sidebar");
+    if (sb) sb.classList.remove("open");
+    var bd = document.getElementById("sidebar-backdrop");
+    if (bd) bd.classList.remove("show");
+    document.body.classList.remove("no-scroll");
+    var btn = document.querySelector(".mobile-toggle");
+    if (btn) { btn.innerHTML = "≡"; btn.setAttribute("aria-expanded", "false"); }
   }
-}
-
-// ─── کمکی‌های نمایش ───────────────────────────────────────────
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-function fmtDate(iso) {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("fa-IR", { year: "numeric", month: "2-digit", day: "2-digit" });
-  } catch { return iso; }
-}
-
-// ─── خانه ─────────────────────────────────────────────────────
-async function renderHome() {
-  const [ov, top] = await Promise.all([api("/api/principal/overview"), api("/api/principal/top", { period: "week" })]);
-  const s = ov.stats;
-  viewBodyEl.innerHTML = `
-    <div class="stat-grid">
-      ${statCard(s.classes_total, "کلاس")}
-      ${statCard(s.players_total, "بازیکن (" + s.players_active + " فعال)")}
-      ${statCard(s.matches_total, "مسابقه ثبت‌شده")}
-      ${statCard(s.matches_this_week, "مسابقه این هفته")}
-      ${statCard(s.matches_decided, "مسابقه با نتیجه")}
-      ${statCard(s.tournaments_active, "تورنومنت فعال")}
-    </div>
-    <div class="section-title">🏆 نفرات برتر این هفته</div>
-    <div id="home-top" class="card-list"></div>
-  `;
-  const box = document.getElementById("home-top");
-  const rows = (top.leaderboard || []).slice(0, 5);
-  box.innerHTML = rows.length ? rows.map((r, i) => topRow(r, i)).join("") :
-    `<div class="empty-state">این هفته هنوز مسابقه‌ای با نتیجه ثبت نشده.</div>`;
-}
-
-function statCard(val, lbl) {
-  return `<div class="stat-card"><span class="val">${esc(val ?? 0)}</span><span class="lbl">${esc(lbl)}</span></div>`;
-}
-
-// ─── کلاس‌ها ──────────────────────────────────────────────────
-async function renderClasses() {
-  const data = await api("/api/principal/classes");
-  const list = data.classes || [];
-  if (!list.length) {
-    viewBodyEl.innerHTML = `<div class="empty-state">هنوز کلاسی ثبت نشده.</div>`;
-    return;
+  function openSidebar() {
+    var sb = document.querySelector(".sidebar");
+    if (sb) sb.classList.add("open");
+    var bd = document.getElementById("sidebar-backdrop");
+    if (bd) bd.classList.add("show");
+    document.body.classList.add("no-scroll");
+    var btn = document.querySelector(".mobile-toggle");
+    if (btn) { btn.innerHTML = "✕"; btn.setAttribute("aria-expanded", "true"); }
   }
-  viewBodyEl.innerHTML = `<div class="card-list">${list.map(c => `
-    <div class="row-card">
-      <div>
-        <div class="main-txt">${esc(c.name)}</div>
-        <div class="sub-txt">${esc(c.player_count)} بازیکن</div>
-      </div>
-      <div class="badge-group">
-        <span class="badge win">${esc(c.wins)} برد</span>
-        <span class="badge draw">${esc(c.draws)} مساوی</span>
-        <span class="badge loss">${esc(c.losses)} باخت</span>
-      </div>
-    </div>
-  `).join("")}</div>`;
-}
+  var toggleBtn = document.createElement("button");
+  toggleBtn.className = "mobile-toggle hidden";
+  toggleBtn.type = "button";
+  toggleBtn.setAttribute("aria-label", "باز و بسته کردن منو");
+  toggleBtn.innerHTML = "≡";
+  toggleBtn.addEventListener("click", function () {
+    var sb = document.querySelector(".sidebar");
+    if (sb.classList.contains("open")) closeSidebar(); else openSidebar();
+  });
+  document.body.appendChild(toggleBtn);
+  var backdropEl = document.getElementById("sidebar-backdrop");
+  if (backdropEl) backdropEl.addEventListener("click", closeSidebar);
 
-// ─── بازیکنان ─────────────────────────────────────────────────
-async function renderPlayers() {
-  const data = await api("/api/principal/players");
-  const list = (data.players || []).slice().sort((a, b) => b.wins - a.wins);
-  if (!list.length) {
-    viewBodyEl.innerHTML = `<div class="empty-state">هنوز بازیکنی ثبت نشده.</div>`;
-    return;
-  }
-  viewBodyEl.innerHTML = `
-    <div class="search-box">
-      <input type="text" id="players-search" placeholder="جستجوی نام بازیکن یا کلاس…" autocomplete="off">
-      <span class="search-ic">🔍</span>
-    </div>
-    <div class="tabs" id="players-filter">
-      <button class="tab-btn active" data-f="all">همه</button>
-      <button class="tab-btn" data-f="active">فعال</button>
-    </div>
-    <div class="card-list" id="players-list"></div>
-  `;
-  const listEl = document.getElementById("players-list");
-  const searchEl = document.getElementById("players-search");
-  let activeFilter = "all";
+  // بستن با کلید Escape
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeSidebar();
+  });
+  // اگر صفحه بزرگ‌تر از حالت موبایل شد (چرخش صفحه یا تغییر اندازه)،
+  // هر باقیمانده‌ای از حالت باز/بک‌دراپ رو پاک کن تا قفل چیدمان دسکتاپ رو نگیره
+  window.addEventListener("resize", function () {
+    if (window.innerWidth > 860) closeSidebar();
+  });
 
-  function draw() {
-    let rows = activeFilter === "active" ? list.filter(p => p.status === "active") : list;
-    const q = searchEl.value.trim().toLowerCase();
-    if (q) {
-      rows = rows.filter(p =>
-        (p.full_name || "").toLowerCase().includes(q) ||
-        (p.class_name || "").toLowerCase().includes(q)
-      );
-    }
-    listEl.innerHTML = rows.length ? rows.map(p => `
-      <div class="row-card">
-        <div>
-          <div class="main-txt">${esc(p.full_name)}${p.is_elite ? " ⭐" : ""}</div>
-          <div class="sub-txt">${esc(p.class_name)} · ${esc(p.games)} بازی</div>
-        </div>
-        <div class="badge-group">
-          <span class="badge win">${esc(p.wins)}</span>
-          <span class="badge draw">${esc(p.draws)}</span>
-          <span class="badge loss">${esc(p.losses)}</span>
-        </div>
-      </div>
-    `).join("") : `<div class="empty-state">بازیکنی یافت نشد.</div>`;
+  // ── Clock ─────────────────────────────────────────────
+  function tickClock() {
+    var el = document.getElementById("topbar-clock");
+    if (el) el.textContent = new Date().toLocaleTimeString("fa-IR");
   }
-  document.querySelectorAll("#players-filter .tab-btn").forEach(b => {
-    b.addEventListener("click", () => {
-      document.querySelectorAll("#players-filter .tab-btn").forEach(x => x.classList.remove("active"));
-      b.classList.add("active");
-      activeFilter = b.dataset.f;
-      draw();
+
+  // ── Helpers ───────────────────────────────────────────
+  function esc(s) {
+    if (s == null) return "";
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
-  });
-  searchEl.addEventListener("input", draw);
-  draw();
-}
-
-// ─── مسابقات ──────────────────────────────────────────────────
-async function renderMatches(period = "all", searchTerm = "") {
-  viewBodyEl.innerHTML = `
-    <div class="search-box">
-      <input type="text" id="matches-search" placeholder="جستجوی نام بازیکن…" autocomplete="off">
-      <span class="search-ic">🔍</span>
-    </div>
-    <div class="tabs" id="matches-filter">
-      <button class="tab-btn" data-f="all">همه</button>
-      <button class="tab-btn" data-f="today">امروز</button>
-      <button class="tab-btn" data-f="week">این هفته</button>
-      <button class="tab-btn" data-f="month">این ماه</button>
-    </div>
-    <div class="card-list" id="matches-list"><div class="loading-state"><span class="spinner"></span></div></div>
-  `;
-  const btns = document.querySelectorAll("#matches-filter .tab-btn");
-  btns.forEach(b => b.classList.toggle("active", b.dataset.f === period));
-  const searchEl = document.getElementById("matches-search");
-  searchEl.value = searchTerm;
-  btns.forEach(b => b.addEventListener("click", () => renderMatches(b.dataset.f, searchEl.value)));
-
-  const data = await api("/api/principal/matches", { period });
-  const allMatches = data.matches || [];
-  const listEl = document.getElementById("matches-list");
-  const resultBadge = { white: "win", black: "loss", draw: "draw" };
-
-  function draw() {
-    const q = searchEl.value.trim().toLowerCase();
-    const list = q
-      ? allMatches.filter(m =>
-          (m.white || "").toLowerCase().includes(q) ||
-          (m.black || "").toLowerCase().includes(q)
-        )
-      : allMatches;
-    listEl.innerHTML = list.length ? list.map(m => `
-      <div class="row-card">
-        <div>
-          <div class="main-txt">${esc(m.white)} <span style="color:var(--ivory-dim)">در برابر</span> ${esc(m.black)}</div>
-          <div class="sub-txt">${fmtDate(m.match_date || m.created_at)}</div>
-        </div>
-        <span class="badge ${resultBadge[m.result] || "muted"}">${esc(m.result_fa)}</span>
-      </div>
-    `).join("") : `<div class="empty-state">مسابقه‌ای یافت نشد.</div>`;
   }
-  searchEl.addEventListener("input", draw);
-  draw();
-}
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return esc(iso);
+      return d.toLocaleString("fa-IR", { dateStyle: "short", timeStyle: "short" });
+    } catch (e) { return esc(iso); }
+  }
+  function resultBadge(result) {
+    if (!result) return '<span class="badge pending">در انتظار</span>';
+    if (result === "white" || result === "black") return '<span class="badge win">' + (result === "white" ? "برد سفید" : "برد سیاه") + '</span>';
+    if (result === "draw") return '<span class="badge draw">مساوی</span>';
+    return '<span class="badge pending">' + esc(result) + '</span>';
+  }
+  function roleLabel(role) {
+    var map = { pishva: "پیشوا", tournament_manager: "مدیر مسابقات", security_manager: "مدیر امنیت" };
+    return map[role] || esc(role || "—");
+  }
 
-// ─── نفرات برتر ───────────────────────────────────────────────
-function topRow(r, i) {
-  return `
-    <div class="top-row">
-      <div class="top-rank">${i + 1}</div>
-      <div class="top-info">
-        <div class="main-txt">${esc(r.full_name)}</div>
-        <div class="sub-txt">${esc(r.class_name)} · ${esc(r.games)} بازی (${esc(r.wins)}ب / ${esc(r.draws)}م / ${esc(r.losses)}ش)</div>
-      </div>
-      <div class="top-score">
-        <div class="val">${esc(r.score)}</div>
-        <div class="lbl">امتیاز</div>
-      </div>
-    </div>
-  `;
-}
+  // ── Views ─────────────────────────────────────────────
+  var body;
 
-async function renderTop(period = "week") {
-  viewBodyEl.innerHTML = `
-    <div class="tabs" id="top-filter">
-      <button class="tab-btn" data-f="week">این هفته</button>
-      <button class="tab-btn" data-f="month">این ماه</button>
-      <button class="tab-btn" data-f="all">کل دوران</button>
-    </div>
-    <div id="top-list"><div class="loading-state"><span class="spinner"></span></div></div>
-  `;
-  const btns = document.querySelectorAll("#top-filter .tab-btn");
-  btns.forEach(b => b.classList.toggle("active", b.dataset.f === period));
-  btns.forEach(b => b.addEventListener("click", () => renderTop(b.dataset.f)));
+  function render(silent) {
+    body = document.getElementById("view-body");
 
-  const data = await api("/api/principal/top", { period });
-  const rows = data.leaderboard || [];
-  const box = document.getElementById("top-list");
-  box.innerHTML = rows.length ? rows.map((r, i) => topRow(r, i)).join("") :
-    `<div class="empty-state">در این بازه هنوز مسابقه‌ای با نتیجه ثبت نشده.</div>`;
-}
+    if (silent) {
+      // آپدیت خاموش (پولینگ زنده): چون هر ویو داده‌ش رو async می‌گیره،
+      // با MutationObserver صبر می‌کنیم تا DOM واقعاً عوض بشه، بعد
+      // موقعیت اسکرول رو برمی‌گردونیم — بدون این کار، صفحه هر ۴ ثانیه
+      // می‌پرید بالا و همون «سکته»ای بود که حس می‌شد.
+      var scrollY = window.scrollY;
+      var innerScroll = body.scrollTop;
+      var obs = new MutationObserver(function () {
+        obs.disconnect();
+        window.scrollTo(0, scrollY);
+        body.scrollTop = innerScroll;
+      });
+      obs.observe(body, { childList: true, subtree: true });
+      // اگر ویو به هر دلیلی چیزی عوض نکرد (خطا و ...)، آبزرور رها نشه
+      setTimeout(function () { obs.disconnect(); }, 8000);
 
-// ─── نمودارهای روند (SVG دستی، بدون کتابخانه) ────────────────
-function barChartSVG(data, opts = {}) {
-  const w = 320, h = 150, pad = 22;
-  const max = Math.max(1, ...data.map(d => d.value));
-  const bw = (w - pad * 2) / data.length;
-  const bars = data.map((d, i) => {
-    const bh = Math.max(2, (d.value / max) * (h - pad - 24));
-    const x = pad + i * bw + bw * 0.15;
-    const y = h - pad - bh;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw * 0.7).toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${opts.color || 'var(--amber)'}"/>
-            <text x="${(x + bw * 0.35).toFixed(1)}" y="${h - 6}" font-size="8" fill="var(--ivory-dim)" text-anchor="middle">${esc(shorten(d.label))}</text>
-            <text x="${(x + bw * 0.35).toFixed(1)}" y="${(y - 4).toFixed(1)}" font-size="8" fill="var(--ivory)" text-anchor="middle">${d.value}</text>`;
-  }).join("");
-  return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
-}
+      var fn = VIEWS[state.view];
+      if (fn) fn();
+      // در حالت خاموش عمداً کلاس fade-in رو دست نمی‌زنیم تا محتوا
+      // چشمک نزنه و کل بخش محو/ظاهر نشه.
+      return;
+    }
 
-function lineChartSVG(data, opts = {}) {
-  const w = 320, h = 150, pad = 22;
-  const max = Math.max(1, ...data.map(d => d.value));
-  const stepX = (w - pad * 2) / Math.max(1, data.length - 1);
-  const pts = data.map((d, i) => {
-    const x = pad + i * stepX;
-    const y = h - pad - (d.value / max) * (h - pad - 20);
-    return [x, y];
-  });
-  const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
-  const area = path + ` L${pts[pts.length - 1][0].toFixed(1)},${h - pad} L${pts[0][0].toFixed(1)},${h - pad} Z`;
-  const dots = pts.map((p, i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.4" fill="${opts.color || 'var(--sage)'}"/>`).join("");
-  const lbl = data.length ? `<text x="${pts[0][0]}" y="${h - 4}" font-size="8" fill="var(--ivory-dim)">${esc(shorten(data[0].label))}</text>
-    <text x="${pts[pts.length - 1][0]}" y="${h - 4}" font-size="8" fill="var(--ivory-dim)" text-anchor="end">${esc(shorten(data[data.length - 1].label))}</text>` : "";
-  return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">
-    <path d="${area}" fill="${opts.color || 'var(--sage)'}" fill-opacity="0.12" stroke="none"/>
-    <path d="${path}" fill="none" stroke="${opts.color || 'var(--sage)'}" stroke-width="2"/>
-    ${dots}${lbl}
-  </svg>`;
-}
+    var fn2 = VIEWS[state.view];
+    if (fn2) fn2();
+    body.classList.remove("fade-in");
+    // ری‌استارت انیمیشن حتی اگر کلاس از قبل حذف نشده باشد
+    void body.offsetWidth;
+    body.classList.add("fade-in");
+  }
 
-function shorten(s) {
-  s = String(s ?? "");
-  return s.length > 6 ? s.slice(5) : s; // برای تاریخ‌های ISO فقط روز/ماه رو نشون بده
-}
+  var VIEWS = {
+    home: function () {
+      api("/api/panel/overview").then(function (d) {
+        if (!d.ok) return;
+        var s = d.stats;
+        var onlineList = d.online_admins.map(function (a) {
+          return '<div class="msg-item"><strong>' + esc(a.name) + '</strong> <span class="msg-meta">' + roleLabel(a.role) + '</span></div>';
+        }).join("") || '<div class="empty-state">هیچ مدیری آنلاین نیست</div>';
 
-async function renderTrends() {
-  const data = await api("/api/principal/trends");
-  viewBodyEl.innerHTML = `
-    <div class="chart-card">
-      <h4>📈 تعداد مسابقات ثبت‌شده در ۳۰ روز اخیر</h4>
-      ${lineChartSVG(data.matches_by_day, { color: "var(--amber)" })}
-    </div>
-    <div class="chart-card">
-      <h4>📊 تعداد مسابقات هفتگی (۸ هفته اخیر)</h4>
-      ${barChartSVG(data.matches_by_week, { color: "var(--sage)" })}
-    </div>
-    <div class="chart-card">
-      <h4>🏫 توزیع بازیکنان بر اساس کلاس</h4>
-      ${barChartSVG(data.players_by_class, { color: "var(--amber)" })}
-    </div>
-    <div class="chart-card">
-      <h4>♟️ توزیع نتایج مسابقات</h4>
-      ${barChartSVG(data.results_distribution, { color: "var(--brick)" })}
-    </div>
-  `;
-}
+        body.innerHTML =
+          '<div class="grid">' +
+            statCard("مسابقه‌دهنده‌ها", s.players_total, "") +
+            statCard("مدیران", s.admins_total, "") +
+            statCard("مدیران آنلاین", s.admins_online, "accent-sage") +
+            statCard("کل مسابقات", s.matches_total, "") +
+            statCard("مسابقات در انتظار", s.matches_pending, "accent-rust") +
+            statCard("تورنومنت‌های فعال", s.tournaments_active, "") +
+            statCard("شطرنج‌های زنده", s.live_games, "accent-sage") +
+          '</div>' +
+          '<div class="section">' +
+            '<div class="section-head"><h3>مدیران آنلاین اکنون</h3></div>' +
+            onlineList +
+          '</div>';
+      });
+    },
 
-const RENDERERS = {
-  home: renderHome,
-  classes: renderClasses,
-  players: renderPlayers,
-  matches: () => renderMatches("all"),
-  top: () => renderTop("week"),
-  trends: renderTrends,
-};
+    matches: function () {
+      body.innerHTML =
+        '<div class="section">' +
+          '<div class="tabs" id="match-tabs">' +
+            tabBtn("all", "همه", true) + tabBtn("today", "امروز") + tabBtn("week", "این هفته") + tabBtn("month", "این ماه") +
+          '</div>' +
+          '<div id="matches-table-wrap"><div class="loading-state">در حال بارگذاری…</div></div>' +
+        '</div>';
 
-// ─── ساعت بالای صفحه ──────────────────────────────────────────
-function tickClock() {
-  clockEl.textContent = new Date().toLocaleTimeString("fa-IR");
-}
-setInterval(tickClock, 1000);
-tickClock();
+      function load(period) {
+        api("/api/panel/matches?period=" + period).then(function (d) {
+          var wrap = document.getElementById("matches-table-wrap");
+          if (!wrap) return;
+          if (!d.ok || !d.matches.length) { wrap.innerHTML = '<div class="empty-state">مسابقه‌ای ثبت نشده</div>'; return; }
+          var rows = d.matches.map(function (m) {
+            return '<tr><td>' + (m.is_pinned ? '<span class="pin-tag">📌</span>' : '') + esc(m.white) + '</td><td>' + esc(m.black) + '</td><td>' + resultBadge(m.result) + '</td><td>' + fmtDate(m.match_date || m.created_at) + '</td></tr>';
+          }).join("");
+          wrap.innerHTML = '<table><thead><tr><th>سفید</th><th>سیاه</th><th>نتیجه</th><th>تاریخ</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        });
+      }
+      document.getElementById("match-tabs").addEventListener("click", function (e) {
+        var btn = e.target.closest(".tab-btn"); if (!btn) return;
+        document.querySelectorAll("#match-tabs .tab-btn").forEach(function (b) { b.classList.remove("active"); });
+        btn.classList.add("active");
+        load(btn.getAttribute("data-period"));
+      });
+      load("all");
+    },
 
-// ─── خوش‌آمدگویی اولیه ────────────────────────────────────────
-function typeWelcomeWord() {
-  const word = "خوش آمدید";
-  const wrap = document.getElementById("welcome-word");
-  if (!wrap) return;
-  [...word].forEach((ch, i) => {
-    const span = document.createElement("span");
-    span.className = "wl-char";
-    span.style.setProperty("--i", i);
-    span.textContent = ch === " " ? "\u00A0" : ch;
-    wrap.appendChild(span);
-  });
-}
+    live: function () {
+      api("/api/panel/live-chess").then(function (d) {
+        if (!d.ok) return;
+        if (!d.games.length) { body.innerHTML = '<div class="section"><div class="empty-state">هیچ بازی زنده‌ای در جریان نیست</div></div>'; return; }
+        var rows = d.games.map(function (g) {
+          return '<tr><td>' + esc(g.white_name) + '</td><td>' + esc(g.black_name) + '</td>' +
+            '<td>' + fmtClock(g.white_time) + '</td><td>' + fmtClock(g.black_time) + '</td>' +
+            '<td>' + fmtDate(g.last_move_at) + '</td></tr>';
+        }).join("");
+        body.innerHTML =
+          '<div class="section">' +
+            '<div class="section-head"><h3>بازی‌های زنده</h3><span class="count">' + d.games.length + ' بازی</span></div>' +
+            '<table><thead><tr><th>سفید</th><th>سیاه</th><th>زمان سفید</th><th>زمان سیاه</th><th>آخرین حرکت</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+          '</div>';
+      });
+    },
 
-function playWelcome() {
-  return new Promise(resolve => {
-    const screen = document.getElementById("welcome-screen");
-    if (!screen) { resolve(); return; }
-    typeWelcomeWord();
-    setTimeout(() => {
-      screen.classList.add("wl-hide");
-      screen.addEventListener("transitionend", () => {
-        screen.remove();
-        resolve();
-      }, { once: true });
-    }, 2200);
-  });
-}
+    players: function () {
+      api("/api/panel/players").then(function (d) {
+        if (!d.ok) return;
+        if (!d.players.length) { body.innerHTML = '<div class="section"><div class="empty-state">بازیکنی ثبت نشده</div></div>'; return; }
+        var rows = d.players.map(function (p) {
+          var total = (p.wins || 0) + (p.losses || 0) + (p.draws || 0);
+          var pct = total ? Math.round((p.wins / total) * 100) : 0;
+          return '<tr><td class="player-name-cell">' + esc(p.full_name) + (p.is_elite ? ' ⭐' : '') + '<br><span class="class-tag">' + esc(p.class_name || "بدون کلاس") + '</span></td>' +
+            '<td>' + p.wins + '/' + p.losses + '/' + p.draws + '</td>' +
+            '<td>' + pct + '٪<span class="progress-mini"><span class="progress-mini-fill" style="width:' + pct + '%"></span></span></td>' +
+            '<td>' + (p.status === "active" ? '<span class="badge win">فعال</span>' : '<span class="badge pending">' + esc(p.status) + '</span>') + '</td></tr>';
+        }).join("");
+        body.innerHTML =
+          '<div class="section">' +
+            '<div class="section-head"><h3>مسابقه‌دهنده‌ها</h3><span class="count">' + d.players.length + ' نفر</span></div>' +
+            '<table><thead><tr><th>نام</th><th>برد/باخت/مساوی</th><th>درصد برد</th><th>وضعیت</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+          '</div>';
+      });
+    },
 
-// ─── شروع ─────────────────────────────────────────────────────
-bindNav();
-playWelcome().then(() => switchView("home"));
+    elo: function () {
+      api("/api/panel/elo").then(function (d) {
+        if (!d.ok) return;
+        if (!d.leaderboard.length) { body.innerHTML = '<div class="section"><div class="empty-state">داده‌ای ثبت نشده</div></div>'; return; }
+        var rows = d.leaderboard.map(function (r, i) {
+          return '<tr><td>' + (i + 1) + '</td><td class="player-name-cell">' + esc(r.full_name) + '</td><td class="rating-cell">' + Math.round(r.rating) + '</td>' +
+            '<td>' + Math.round(r.peak_rating) + '</td><td>' + r.games_played + '</td><td>' + r.wins + '/' + r.losses + '/' + r.draws + '</td></tr>';
+        }).join("");
+        body.innerHTML =
+          '<div class="section">' +
+            '<div class="section-head"><h3>رده‌بندی ELO</h3><span class="count">' + d.leaderboard.length + ' بازیکن</span></div>' +
+            '<table><thead><tr><th>#</th><th>نام</th><th>امتیاز</th><th>اوج</th><th>بازی‌ها</th><th>ب/ب/م</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+          '</div>';
+      });
+    },
+
+    admins: function () {
+      api("/api/panel/admins").then(function (d) {
+        if (!d.ok) return;
+        var rows = d.admins.map(function (a) {
+          return '<tr><td>' + esc(a.name) + (a.username ? '<br><span class="class-tag">@' + esc(a.username) + '</span>' : '') + '</td>' +
+            '<td>' + roleLabel(a.role) + '</td>' +
+            '<td>' + (a.online ? '<span class="badge online">آنلاین</span>' : '<span class="badge pending">آفلاین</span>') + '</td>' +
+            '<td>' + fmtDate(a.last_active) + '</td>' +
+            '<td>' + (a.is_active ? '<span class="badge win">فعال</span>' : '<span class="badge loss">غیرفعال</span>') + '</td></tr>';
+        }).join("");
+        body.innerHTML =
+          '<div class="section">' +
+            '<div class="section-head"><h3>مدیر‌ها</h3><span class="count">' + d.admins.length + ' نفر</span></div>' +
+            '<table><thead><tr><th>نام</th><th>نقش</th><th>وضعیت</th><th>آخرین فعالیت</th><th>حساب</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+          '</div>';
+      });
+    },
+
+    online: function () {
+      api("/api/panel/online").then(function (d) {
+        if (!d.ok) return;
+        if (!d.online.length) { body.innerHTML = '<div class="section"><div class="empty-state">در حال حاضر کسی آنلاین نیست</div></div>'; return; }
+        var rows = d.online.map(function (a) {
+          return '<tr><td>' + esc(a.name) + '</td><td>' + roleLabel(a.role) + '</td><td>' + fmtDate(a.last_active) + '</td></tr>';
+        }).join("");
+        body.innerHTML =
+          '<div class="section">' +
+            '<div class="section-head"><h3>آنلاین‌های اکنون</h3><span class="count">' + d.online.length + ' نفر</span></div>' +
+            '<table><thead><tr><th>نام</th><th>نقش</th><th>آخرین فعالیت</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+          '</div>';
+      });
+    },
+
+    messages: function () {
+      api("/api/panel/messages").then(function (d) {
+        if (!d.ok) return;
+        function list(items, emptyText) {
+          if (!items.length) return '<div class="empty-state">' + emptyText + '</div>';
+          return items.map(function (m) {
+            return '<div class="msg-item">' + (m.is_pinned ? '<span class="pin-tag">📌</span>' : '') +
+              '<div class="msg-text">' + esc(m.text || m.content) + '</div>' +
+              '<div class="msg-meta">' + fmtDate(m.sent_at) + (m.title ? ' · ' + esc(m.title) : '') + '</div></div>';
+          }).join("");
+        }
+        body.innerHTML =
+          '<div class="two-col">' +
+            '<div class="section"><div class="section-head"><h3>اطلاعیه‌ها</h3><span class="count">' + d.announcements.length + '</span></div>' + list(d.announcements, "اطلاعیه‌ای ارسال نشده") + '</div>' +
+            '<div class="section"><div class="section-head"><h3>اخبار</h3><span class="count">' + d.news.length + '</span></div>' + list(d.news, "خبری ارسال نشده") + '</div>' +
+          '</div>' +
+          '<div class="section"><div class="section-head"><h3>بازخوردها</h3><span class="count">' + d.feedback.length + '</span></div>' + list(d.feedback, "بازخوردی ثبت نشده") + '</div>';
+      });
+    },
+
+    activity: function () {
+      api("/api/panel/activity?page=0").then(function (d) {
+        if (!d.ok) return;
+        if (!d.activity.length) { body.innerHTML = '<div class="section"><div class="empty-state">فعالیتی ثبت نشده</div></div>'; return; }
+        var rows = d.activity.map(function (l) {
+          return '<tr><td>' + esc(l.admin) + '</td><td>' + esc(l.action_type) + '</td><td>' + esc(l.description) + '</td><td>' + fmtDate(l.logged_at) + '</td></tr>';
+        }).join("");
+        body.innerHTML =
+          '<div class="section">' +
+            '<div class="section-head"><h3>فعالیت‌های اخیر</h3><span class="count">' + d.total + ' مورد</span></div>' +
+            '<table><thead><tr><th>مدیر</th><th>نوع اقدام</th><th>توضیح</th><th>زمان</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+          '</div>';
+      });
+    },
+
+    charts: function () {
+      body.innerHTML = '<div class="loading-state">در حال بارگذاری نمودارها…</div>';
+      api("/api/panel/charts").then(function (d) {
+        if (!d.ok) return;
+        body.innerHTML =
+          '<div class="section">' +
+            '<div class="section-head"><h3>مسابقات به تفکیک تورنومنت (میله‌ای)</h3></div>' +
+            '<div class="chart-wrap">' + barChart(d.matches_by_tournament) + '</div>' +
+          '</div>' +
+          '<div class="section">' +
+            '<div class="section-head"><h3>روند ثبت مسابقات — ۳۰ روز اخیر (خط شکسته)</h3></div>' +
+            '<div class="chart-wrap">' + lineChart(d.matches_by_day) + '</div>' +
+          '</div>' +
+          '<div class="section">' +
+            '<div class="section-head"><h3>توزیع بازیکنان بر اساس کلاس</h3></div>' +
+            '<div class="chart-wrap">' + barChart(d.players_by_class) + '</div>' +
+          '</div>';
+      });
+    },
+
+    assistant: function () {
+      api("/api/panel/assistant").then(function (d) {
+        if (!d.ok) return;
+        if (!d.sessions.length) { body.innerHTML = '<div class="section"><div class="empty-state">گفتگویی با دستیار ثبت نشده</div></div>'; return; }
+        var rows = d.sessions.map(function (s) {
+          return '<tr><td>' + esc(s.title || "بدون عنوان") + '</td><td>' + s.msg_count + '</td><td>' + fmtDate(s.last_message_at) + '</td></tr>';
+        }).join("");
+        body.innerHTML =
+          '<div class="section">' +
+            '<div class="section-head"><h3>جلسات دستیار هوش مصنوعی</h3><span class="count">' + d.sessions.length + '</span></div>' +
+            '<table><thead><tr><th>عنوان</th><th>تعداد پیام</th><th>آخرین پیام</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+          '</div>';
+      });
+    },
+
+    settings: function () {
+      api("/api/panel/settings").then(function (d) {
+        if (!d.ok) return;
+        if (!d.settings.length) { body.innerHTML = '<div class="section"><div class="empty-state">تنظیماتی ثبت نشده</div></div>'; return; }
+        var rows = d.settings.map(function (s) {
+          return '<tr><td>' + esc(s.key) + '</td><td>' + esc(s.value) + '</td></tr>';
+        }).join("");
+        body.innerHTML =
+          '<div class="section">' +
+            '<div class="section-head"><h3>تنظیمات سیستم</h3></div>' +
+            '<table><thead><tr><th>کلید</th><th>مقدار</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+          '</div>';
+      });
+    },
+  };
+
+  function statCard(label, value, accentClass) {
+    return '<div class="stat-card ' + accentClass + '"><div class="stat-label">' + label + '</div><div class="stat-value">' + value + '</div></div>';
+  }
+  function tabBtn(period, label, active) {
+    return '<button class="tab-btn' + (active ? " active" : "") + '" data-period="' + period + '">' + label + '</button>';
+  }
+  function fmtClock(seconds) {
+    if (seconds == null) return "—";
+    var m = Math.floor(seconds / 60), s = Math.floor(seconds % 60);
+    return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function barChart(items) {
+    if (!items || !items.length) return '<div class="empty-state">داده‌ای موجود نیست</div>';
+    var max = Math.max.apply(null, items.map(function (i) { return i.value; })) || 1;
+    return items.map(function (i) {
+      var pct = Math.round((i.value / max) * 100);
+      return '<div class="bar-row"><div class="bar-label" title="' + esc(i.label) + '">' + esc(i.label) + '</div>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="bar-value">' + i.value + '</div></div>';
+    }).join("");
+  }
+
+  function lineChart(items) {
+    if (!items || !items.length) return '<div class="empty-state">داده‌ای موجود نیست</div>';
+    var w = 700, h = 120, pad = 10;
+    var max = Math.max.apply(null, items.map(function (i) { return i.value; })) || 1;
+    var stepX = items.length > 1 ? (w - pad * 2) / (items.length - 1) : 0;
+    var pts = items.map(function (i, idx) {
+      var x = pad + idx * stepX;
+      var y = h - pad - (i.value / max) * (h - pad * 2);
+      return x + "," + y;
+    });
+    var path = "M" + pts.join(" L");
+    var dots = items.map(function (i, idx) {
+      var coords = pts[idx].split(",");
+      return '<circle cx="' + coords[0] + '" cy="' + coords[1] + '" r="2.5" fill="#c9922b"><title>' + esc(i.label) + ": " + i.value + '</title></circle>';
+    }).join("");
+    return '<svg class="sparkline" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' +
+      '<path d="' + path + '" fill="none" stroke="#c9922b" stroke-width="2"/>' + dots + '</svg>';
+  }
+
+  // ── Poll / live update ─────────────────────────────────
+  function poll() {
+    var el = document.getElementById("conn-status");
+    var dot = document.querySelector(".live-dot");
+    api("/api/panel/overview").then(function (d) {
+      if (d.ok) { el.textContent = "زنده و به‌روز"; dot.classList.remove("off"); }
+      if (state.view === "home" || state.view === "live" || state.view === "online" || state.view === "admins") {
+        render(true);
+      }
+    }).catch(function () {
+      el.textContent = "قطع ارتباط"; dot.classList.add("off");
+    });
+  }
+
+  function startApp() {
+    document.getElementById("login-screen").classList.add("hidden");
+    document.getElementById("app").classList.remove("hidden");
+    var btn = document.querySelector(".mobile-toggle");
+    if (btn) { btn.classList.remove("hidden"); btn.setAttribute("aria-expanded", "false"); }
+    tickClock();
+    setInterval(tickClock, 1000);
+    render();
+    if (state.timer) clearInterval(state.timer);
+    state.timer = setInterval(poll, POLL_MS);
+  }
+
+  // ── Init ──────────────────────────────────────────────
+  if (localStorage.getItem(TOKEN_KEY)) {
+    startApp();
+  }
+})();
