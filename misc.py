@@ -1,6 +1,7 @@
 """
 Combined handlers for: tasks, admin management, feedback, help, teams, slash commands
 """
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 import database as db
@@ -243,13 +244,17 @@ async def admin_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     tid = int(query.data.split("_")[-1])
-    admin = await db.get_admin(tid)
+    # قبلاً get_admin، بعد get_tasks_for، بعد get_action_logs پشتِ‌سرِهم صدا
+    # زده می‌شدن — یعنی همون «باز شدنِ کندِ پنلِ مدیر» که حس می‌شد. هر سه
+    # مستقلن (فقط پیدا نبودنِ admin باعثِ خروجِ زودهنگام می‌شه که پایین چک
+    # می‌کنیم)، پس هم‌زمان گرفته می‌شن.
+    admin, tasks, (_logs_rows, logs_total) = await asyncio.gather(
+        db.get_admin(tid), db.get_tasks_for(tid), db.get_action_logs("all", tid)
+    )
     if not admin:
         await query.answer("مدیر یافت نشد.", show_alert=True)
         return
 
-    tasks = await db.get_tasks_for(tid)
-    _logs_rows, logs_total = await db.get_action_logs("all", tid)
     warn_bar = warning_bar_admin(admin["warnings"])
     role_label = "🏆 مدیر مسابقات" if admin["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
 

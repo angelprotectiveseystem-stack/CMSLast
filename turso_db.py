@@ -37,7 +37,17 @@ class _TursoHttpClient:
             url = "https://" + url[len("libsql://"):]
         self._base_url = url.rstrip("/")
         self._token = token
-        self._http = httpx.AsyncClient(timeout=30.0)
+        self._http = httpx.AsyncClient(
+            timeout=30.0,
+            http2=True,
+            # FIX (کندیِ حسِ‌شده روی دکمه‌هایی که چند کوئریِ مستقل رو هم‌زمان
+            # می‌زنن، مثل منوی شطرنج یا پروفایلِ مدیر): با HTTP/1.1، هر
+            # asyncio.gather یِ چند کوئری یعنی باز شدنِ چند اتصالِ TCP/TLS
+            # جداگانه به Turso (هر کدوم با هندشیکِ خودش). با HTTP/2، همه‌ی
+            # این درخواست‌های هم‌زمان روی یک اتصال مالتی‌پلکس می‌شن — یک
+            # هندشیک، به‌جای چندتا.
+            limits=httpx.Limits(max_keepalive_connections=20, keepalive_expiry=30.0),
+        )
 
     async def _pipeline(self, requests):
         endpoint = f"{self._base_url}/v2/pipeline"
