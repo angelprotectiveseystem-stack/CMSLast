@@ -14,6 +14,7 @@ import hmac
 import json
 import logging
 import os
+import asyncio
 from datetime import datetime, timedelta
 
 from aiohttp import web
@@ -67,8 +68,8 @@ def _disabled_page():
         "<style>body{font-family:Tahoma,sans-serif;background:#111;color:#eee;"
         "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"
         "text-align:center;padding:20px}</style></head><body>"
-        "<div>⚙️ این پنل به علت نقص فنی توسط سیستم غیرفعال شده است و به‌زودی فعال می‌گردد.<br>"
-        "ممنون از شکیبایی شما.</div></body></html>"
+        "<div>🔒 این پنل توسط مدیر ارشد غیرفعال شده است.<br>"
+        "لطفاً بعداً دوباره تلاش کنید.</div></body></html>"
     )
     return web.Response(text=html, content_type="text/html", charset="utf-8", status=503)
 
@@ -160,11 +161,22 @@ def _result_fa(m):
 async def principal_overview(request):
     _require_auth(request)
     await _require_enabled(request)
-    classes = await db.get_all_classes() or []
-    players = await db.get_all_players() or []
-    tournaments = await db.get_all_tournaments() or []
-    matches_all = await db.get_matches_by_filter("all") or []
-    matches_week = await db.get_matches_by_filter("week") or []
+    # قبلاً این ۵ کوئری پشتِ‌سرِهم (نه هم‌زمان) اجرا می‌شدن — یعنی ۵ رفت‌وبرگشتِ
+    # کاملِ شبکه‌ای به Turso، یکی بعد از اون یکی. چون کاملاً مستقل از همدیگه‌ن،
+    # با gather هم‌زمان اجرا می‌شن و کل زمانِ انتظار برابرِ کندترین‌شون می‌شه،
+    # نه مجموعِ همه‌شون.
+    classes, players, tournaments, matches_all, matches_week = await asyncio.gather(
+        db.get_all_classes(),
+        db.get_all_players(),
+        db.get_all_tournaments(),
+        db.get_matches_by_filter("all"),
+        db.get_matches_by_filter("week"),
+    )
+    classes = classes or []
+    players = players or []
+    tournaments = tournaments or []
+    matches_all = matches_all or []
+    matches_week = matches_week or []
 
     players_active = sum(1 for p in players if p and p["status"] == "active")
     decided = [m for m in matches_all if m and m["result"] in ("white", "black", "draw")]
@@ -189,10 +201,19 @@ async def principal_overview(request):
 async def principal_classes(request):
     _require_auth(request)
     await _require_enabled(request)
-    classes = await db.get_all_classes() or []
+    # قبلاً برای هر کلاس یک کوئری جدا (get_players_by_class) زده می‌شد — یعنی
+    # با N کلاس، N رفت‌وبرگشتِ شبکه‌ایِ اضافه، پشتِ‌سرِهم. چون get_all_players
+    # همه‌ی بازیکن‌ها رو با class_id برمی‌گردونه (و الان کش هم می‌شه)، به‌جاش
+    # یک‌بار همه رو می‌گیریم و خودمون توی پایتون بر اساس کلاس گروه‌بندی می‌کنیم.
+    classes, players = await asyncio.gather(db.get_all_classes(), db.get_all_players())
+    classes = classes or []
+    players = players or []
+    by_class = {}
+    for p in players:
+        by_class.setdefault(p["class_id"], []).append(p)
     out = []
     for c in classes:
-        cplayers = await db.get_players_by_class(c["id"]) or []
+        cplayers = by_class.get(c["id"], [])
         out.append({
             "name": c["name"],
             "player_count": len(cplayers),
@@ -251,8 +272,11 @@ async def principal_top(request):
     _require_auth(request)
     await _require_enabled(request)
     period = request.query.get("period", "week")
-    matches = await db.get_matches_by_filter(period) or []
-    players = await db.get_all_players() or []
+    matches, players = await asyncio.gather(
+        db.get_matches_by_filter(period), db.get_all_players()
+    )
+    matches = matches or []
+    players = players or []
     meta = {p["id"]: {"full_name": p["full_name"], "class_name": p["class_name"] or "بدون کلاس"} for p in players}
 
     stats = {}
@@ -298,30 +322,31 @@ async def principal_trends(request):
     async with _a.connect(db.DB_PATH) as conn:
         conn.row_factory = _a.Row
 
-        async with conn.execute(
-            """SELECT substr(created_at,1,10) as d, COUNT(*) as cnt
-               FROM matches WHERE created_at IS NOT NULL
-               GROUP BY d ORDER BY d DESC LIMIT 30"""
-        ) as cur:
-            daily_rows = await cur.fetchall()
-
-        async with conn.execute(
-            "SELECT created_at FROM matches WHERE created_at >= ?",
-            ((now - timedelta(days=56)).isoformat(),),
-        ) as cur:
-            week_rows = await cur.fetchall()
-
-        async with conn.execute(
-            """SELECT c.name as cname, COUNT(p.id) as cnt
-               FROM classes c LEFT JOIN players p ON p.class_id = c.id
-               GROUP BY c.id ORDER BY cnt DESC"""
-        ) as cur:
-            class_rows = await cur.fetchall()
-
-        async with conn.execute(
-            "SELECT result, COUNT(*) as cnt FROM matches WHERE result IS NOT NULL GROUP BY result"
-        ) as cur:
-            result_rows = await cur.fetchall()
+        # این ۴ کوئری کاملاً مستقلن (فقط SELECT، هیچ‌کدوم به نتیجه‌ی بقیه
+        # نیاز نداره)؛ قبلاً پشتِ‌سرِهم اجرا می‌شدن، الان هم‌زمان.
+        daily_cur, week_cur, class_cur, result_cur = await asyncio.gather(
+            conn.execute(
+                """SELECT substr(created_at,1,10) as d, COUNT(*) as cnt
+                   FROM matches WHERE created_at IS NOT NULL
+                   GROUP BY d ORDER BY d DESC LIMIT 30"""
+            ),
+            conn.execute(
+                "SELECT created_at FROM matches WHERE created_at >= ?",
+                ((now - timedelta(days=56)).isoformat(),),
+            ),
+            conn.execute(
+                """SELECT c.name as cname, COUNT(p.id) as cnt
+                   FROM classes c LEFT JOIN players p ON p.class_id = c.id
+                   GROUP BY c.id ORDER BY cnt DESC"""
+            ),
+            conn.execute(
+                "SELECT result, COUNT(*) as cnt FROM matches WHERE result IS NOT NULL GROUP BY result"
+            ),
+        )
+        daily_rows = await daily_cur.fetchall()
+        week_rows = await week_cur.fetchall()
+        class_rows = await class_cur.fetchall()
+        result_rows = await result_cur.fetchall()
 
     # سطل‌بندی هفتگی (۸ هفته اخیر، از قدیم به جدید)
     buckets = [0] * 8

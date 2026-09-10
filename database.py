@@ -51,6 +51,19 @@ _admin_cache = {}     # telegram_id -> (row, expires_at_monotonic)
 _admin_list_cache = {}       # "all" | "active" -> (rows, expires_at_monotonic)
 _continuing_players_cache = {}  # "list" -> (rows, expires_at_monotonic)
 
+# ─── کش لیست‌های بازیکنان/کلاس‌ها/تورنومنت‌ها/مسابقات ────────────────
+# FIX (کندیِ منوی بازیکن‌ها / منوی شطرنج / پنل پیشوا): همون مشکلِ بالا،
+# اینجا هم بود. get_all_players/get_all_classes/get_all_tournaments/
+# get_matches_by_filter هیچ‌کدوم کش نمی‌شدن، و دقیقاً همین‌ها هستن که
+# منوهای «بازیکن‌ها»، «شطرنج»، و خلاصه‌ی پنل پیشوا صداشون می‌زنن — در
+# موردِ پنل پیشوا حتی ۵ تا از این‌ها پشتِ‌سرِهم (نه موازی) توی یک صفحه.
+# همون الگوی TTL کوتاه + invalidate روی نوشتنِ واقعی.
+_LIST_CACHE_TTL = 15  # ثانیه — کوتاه‌تر از کشِ تنظیمات چون این جدول‌ها بیشتر عوض می‌شن
+_players_cache = {}      # "all" | "active" -> (rows, expires_at_monotonic)
+_classes_cache = {}      # "all" -> (rows, expires_at_monotonic)
+_tournaments_cache = {}  # "all" -> (rows, expires_at_monotonic)
+_matches_cache = {}      # period -> (rows, expires_at_monotonic)
+
 # ─── کش «بلاک بودن کاربر» ───────────────────────────────────────────
 # block_gate روی *هر تک آپدیت* (هر پیام، هر دکمه، از هر نفر) قبل از هر
 # چیز دیگه‌ای اجرا می‌شه و get_blocked_user رو صدا می‌زنه. یعنی این یکی
@@ -121,6 +134,23 @@ def _invalidate_blocked_cache(telegram_id=None):
 
 def _invalidate_continuing_players_cache():
     _continuing_players_cache.clear()
+
+
+def _invalidate_players_cache():
+    _players_cache.clear()
+    _continuing_players_cache.clear()
+
+
+def _invalidate_classes_cache():
+    _classes_cache.clear()
+
+
+def _invalidate_tournaments_cache():
+    _tournaments_cache.clear()
+
+
+def _invalidate_matches_cache():
+    _matches_cache.clear()
 
 
 async def init_db():
@@ -829,10 +859,15 @@ async def update_admin_role_active(telegram_id: int, new_role: str):
 
 # ─── Classes ─────────────────────────────────────────────────
 async def get_all_classes():
+    cached = _cache_get(_classes_cache, "all")
+    if cached is not _CACHE_MISS:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM classes ORDER BY name") as cur:
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            _cache_set(_classes_cache, "all", rows, ttl=_LIST_CACHE_TTL)
+            return rows
 
 
 async def get_class(class_id: int):
@@ -847,12 +882,14 @@ async def create_class(name: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("INSERT OR IGNORE INTO classes(name,created_at) VALUES (?,?)", (name, now))
         await db.commit()
+    _invalidate_classes_cache()
 
 
 async def rename_class(class_id: int, new_name: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE classes SET name=? WHERE id=?", (new_name, class_id))
         await db.commit()
+    _invalidate_classes_cache()
 
 
 async def get_class_player_count(class_id: int) -> int:
@@ -874,26 +911,37 @@ async def delete_class(class_id: int) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM classes WHERE id=?", (class_id,))
         await db.commit()
+    _invalidate_classes_cache()
     return True
 
 
 # ─── Players ─────────────────────────────────────────────────
 async def get_all_players():
+    cached = _cache_get(_players_cache, "all")
+    if cached is not _CACHE_MISS:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT p.*, c.name as class_name FROM players p LEFT JOIN classes c ON p.class_id=c.id ORDER BY p.full_name"
         ) as cur:
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            _cache_set(_players_cache, "all", rows, ttl=_LIST_CACHE_TTL)
+            return rows
 
 
 async def get_active_players():
+    cached = _cache_get(_players_cache, "active")
+    if cached is not _CACHE_MISS:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT p.*, c.name as class_name FROM players p LEFT JOIN classes c ON p.class_id=c.id WHERE p.status='active' ORDER BY p.full_name"
         ) as cur:
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            _cache_set(_players_cache, "active", rows, ttl=_LIST_CACHE_TTL)
+            return rows
 
 
 async def get_player(player_id: int):
@@ -914,7 +962,7 @@ async def create_player(full_name: str, class_id: int):
             (full_name, class_id, now)
         )
         await db.commit()
-        _invalidate_continuing_players_cache()
+        _invalidate_players_cache()
         return cur.lastrowid
 
 
@@ -925,6 +973,7 @@ async def update_player_stats(player_id: int, result: str):
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(f"UPDATE players SET {col}={col}+1 WHERE id=?", (player_id,))
             await db.commit()
+        _invalidate_players_cache()
 
 
 async def update_player(player_id: int, **kwargs):
@@ -936,8 +985,8 @@ async def update_player(player_id: int, **kwargs):
         await db.execute(f"UPDATE players SET {sets} WHERE id=?", vals)
         await db.commit()
     # class_id/status/warnings از طریق این تابع هم قابل‌تغییرن (مثلاً
-    # ویرایش کلاس یا وضعیت بازیکن)، پس لیستِ «ادامه‌دهنده‌ها» رو هم پاک کن.
-    _invalidate_continuing_players_cache()
+    # ویرایش کلاس یا وضعیت بازیکن)، پس لیستِ بازیکنان و «ادامه‌دهنده‌ها» هم پاک بشن.
+    _invalidate_players_cache()
 
 
 async def delete_player_hard(player_id: int):
@@ -966,7 +1015,8 @@ async def delete_player_hard(player_id: int):
             )
             await db.execute("DELETE FROM players WHERE id=?", (player_id,))
         await db.commit()
-    _invalidate_continuing_players_cache()
+    _invalidate_players_cache()
+    _invalidate_matches_cache()
 
 
 async def add_player_warning(player_id: int, reason: str, issued_by: int):
@@ -979,7 +1029,7 @@ async def add_player_warning(player_id: int, reason: str, issued_by: int):
                 ("player", player_id, reason, issued_by, now)
             )
         await db.commit()
-    _invalidate_continuing_players_cache()
+    _invalidate_players_cache()
 
 
 async def get_players_by_class(class_id: int):
@@ -1020,10 +1070,15 @@ async def get_continuing_players():
 
 # ─── Tournaments ─────────────────────────────────────────────
 async def get_all_tournaments():
+    cached = _cache_get(_tournaments_cache, "all")
+    if cached is not _CACHE_MISS:
+        return cached
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM tournaments ORDER BY created_at DESC") as cur:
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            _cache_set(_tournaments_cache, "all", rows, ttl=_LIST_CACHE_TTL)
+            return rows
 
 
 async def get_tournament(tid: int):
@@ -1048,6 +1103,7 @@ async def create_tournament(name: str) -> int:
             (name, "active", now)
         )
         await db.commit()
+        _invalidate_tournaments_cache()
         return cur.lastrowid
 
 
@@ -1059,6 +1115,7 @@ async def update_tournament(tid: int, **kwargs):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(f"UPDATE tournaments SET {sets} WHERE id=?", vals)
         await db.commit()
+    _invalidate_tournaments_cache()
 
 
 async def set_default_tournament(tid: int):
@@ -1067,6 +1124,7 @@ async def set_default_tournament(tid: int):
             await db.execute("UPDATE tournaments SET is_default=0")
             await db.execute("UPDATE tournaments SET is_default=1 WHERE id=?", (tid,))
         await db.commit()
+    _invalidate_tournaments_cache()
 
 
 async def get_tournament_stats(tid: int):
@@ -1155,6 +1213,7 @@ async def create_match(white_id, black_id, match_date, tournament_id, created_by
             (white_id, black_id, match_date, tournament_id, created_by, now)
         )
         await db.commit()
+        _invalidate_matches_cache()
         return cur.lastrowid
 
 
@@ -1205,6 +1264,7 @@ async def claim_match(mid: int, admin_id: int):
             (admin_id, now, mid)
         )
         await db.commit()
+    _invalidate_matches_cache()
 
 
 async def set_match_result(mid: int, result: str, draw_reason: str, updated_by: int):
@@ -1215,6 +1275,7 @@ async def set_match_result(mid: int, result: str, draw_reason: str, updated_by: 
             (result, draw_reason, updated_by, now, mid)
         )
         await db.commit()
+    _invalidate_matches_cache()
 
 
 async def record_match_result(mid: int, result: str, reason: str, updated_by: int):
@@ -1270,6 +1331,9 @@ async def get_matches_by_filter(period: str = "all"):
     ساخته می‌شه، فعلاً قابل‌سوءاستفاده نبود، ولی سبکش برخلافِ همه‌جای بقیه‌ی
     این فایله (که پارامتری‌ان) و اگه یک روز این تابع پارامتر گرفت، دقیقاً
     همین الگو راهِ SQL injection می‌شه. الان مثل بقیه‌ی توابع، پارامتری شده."""
+    cached = _cache_get(_matches_cache, period)
+    if cached is not _CACHE_MISS:
+        return cached
     from datetime import timedelta
     now = datetime.now()
     where = ""
@@ -1293,7 +1357,9 @@ async def get_matches_by_filter(period: str = "all"):
                {where} ORDER BY m.created_at DESC LIMIT 50""",
             params
         ) as cur:
-            return await cur.fetchall()
+            rows = await cur.fetchall()
+            _cache_set(_matches_cache, period, rows, ttl=_LIST_CACHE_TTL)
+            return rows
 
 
 async def search_matches(query: str):
@@ -1316,6 +1382,7 @@ async def delete_match(mid: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM matches WHERE id=?", (mid,))
         await db.commit()
+    _invalidate_matches_cache()
 
 
 async def update_match(mid: int, **kwargs):
@@ -1326,6 +1393,7 @@ async def update_match(mid: int, **kwargs):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(f"UPDATE matches SET {sets} WHERE id=?", vals)
         await db.commit()
+    _invalidate_matches_cache()
 
 
 async def reverse_player_stats(player_id: int, result: str):
@@ -1335,6 +1403,7 @@ async def reverse_player_stats(player_id: int, result: str):
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(f"UPDATE players SET {col}=MAX(0,{col}-1) WHERE id=?", (player_id,))
             await db.commit()
+        _invalidate_players_cache()
 
 
 async def correct_match_result(mid: int, new_result: str, reason: str, updated_by: int):
@@ -1944,6 +2013,10 @@ async def reset_active_data():
         UPDATE tournaments SET status='archived';
         """)
         await db.commit()
+    _invalidate_players_cache()
+    _invalidate_classes_cache()
+    _invalidate_matches_cache()
+    _invalidate_tournaments_cache()
 
 
 # ─── Security: Queue & Block (صف انتظار و بلاک) ────────────────
@@ -2093,7 +2166,7 @@ async def restore_upsert_player(full_name: str, class_id=None, status=None, warn
                 (class_id, status, warnings, is_elite, is_special, wins, losses, draws, existing["id"])
             )
             await db.commit()
-            _invalidate_continuing_players_cache()
+            _invalidate_players_cache()
             return existing["id"], False
         else:
             cur = await db.execute(
@@ -2103,7 +2176,7 @@ async def restore_upsert_player(full_name: str, class_id=None, status=None, warn
                  wins, losses, draws, now)
             )
             await db.commit()
-            _invalidate_continuing_players_cache()
+            _invalidate_players_cache()
             return cur.lastrowid, True
 
 
@@ -2145,6 +2218,7 @@ async def insert_match_raw(white_id, black_id, result, draw_reason, match_date,
             (white_id, black_id, result, draw_reason, match_date, tournament_id, created_by, now)
         )
         await db.commit()
+        _invalidate_matches_cache()
         return cur.lastrowid
 
 

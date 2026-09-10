@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from telegram import Update
@@ -28,7 +29,7 @@ QUEUE_MESSAGE = (
 # last_active اون به‌روز می‌شه؛ اگه نه مدیر ارشده نه ادمین («غریبه»)،
 # فعالیتش توی stranger_log ثبت می‌شه تا هم توی لیست آنلاین دیده بشه هم
 # جزییات کارش با یه دکمه قابل مشاهده باشه.
-async def _track_activity(update: Update):
+async def _track_activity(update: Update, admin=None):
     user = update.effective_user
     if user is None:
         return
@@ -37,7 +38,8 @@ async def _track_activity(update: Update):
         return  # مدیر ارشد نیازی به رهگیری نداره
 
     try:
-        admin = await db.get_admin(uid)
+        if admin is None:
+            admin = await db.get_admin(uid)
         if admin and admin["is_active"]:
             await db.update_admin_activity(uid)
             return
@@ -80,11 +82,28 @@ APS_GATE_ALERT = (
 # ─── دروازه‌ی امنیتی (روی هر آپدیت اجرا می‌شود) ────────────────
 async def block_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """اگر کاربر بلاک باشد، هر پیام/دکمه‌ای که بفرستد همینجا متوقف می‌شود
-    و به بقیه‌ی هندلرها اصلاً نمی‌رسد."""
+    و به بقیه‌ی هندلرها اصلاً نمی‌رسد.
+
+    FIX (کندیِ کلیِ ربات): این تابع روی *هر* آپدیت اجرا می‌شه. قبلاً
+    get_blocked_user اینجا، بعد get_admin توی _track_activity، بعد
+    get_setting و دوباره get_admin توی aps_gate — چهار کوئری، پشتِ‌سرِهم،
+    که get_admin هم دوبار پرسیده می‌شد. با کشِ گرم فرقی حس نمی‌شه، ولی
+    روی کشِ سرد (اولین پیام بعد از چند دقیقه سکوت) یعنی چند رفت‌وبرگشتِ
+    سریالیِ اضافه دقیقاً روی مسیری که هیچ آپدیتی ازش فرار نمی‌کنه. الان
+    هر سه هم‌زمان گرفته می‌شن و admin فقط یک‌بار بینِ مراحل به اشتراک
+    گذاشته می‌شه."""
     user = update.effective_user
     if user is None:
         return
-    blocked = await db.get_blocked_user(user.id)
+    uid = user.id
+    if uid == PISHVA_ID:
+        blocked, admin, status = await db.get_blocked_user(uid), None, None
+    else:
+        blocked, admin, status = await asyncio.gather(
+            db.get_blocked_user(uid),
+            db.get_admin(uid),
+            db.get_setting("system_status", "normal"),
+        )
     if blocked:
         try:
             if update.callback_query:
@@ -98,31 +117,37 @@ async def block_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         raise ApplicationHandlerStop()
 
     # کاربر بلاک نیست — فعالیتش رو برای «آنلاین/الان» ثبت می‌کنیم.
-    await _track_activity(update)
+    await _track_activity(update, admin)
 
     # حالا دروازه‌ی وضعیت امنیتی APS را بررسی می‌کنیم.
-    await aps_gate(update, ctx, user)
+    await aps_gate(update, ctx, user, admin, status)
 
 
 # ─── دروازه‌ی «وضعیت امنیتی APS» ──────────────────────────────
-async def aps_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user=None):
+async def aps_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user=None, admin=None, status=None):
     """وقتی system_status روی APS باشد:
     - هیچ دکمه‌ی پنلی برای هیچ ادمینی (چه پنل از قبل باز بوده چه نه) کار نمی‌کند؛
       روی هر تپ، همان دکمه با یک پیام هشدار وضعیت را توضیح می‌دهد.
     - اگر ادمین دستور /start بزند، پنل باز نمی‌شود و به‌جایش پیام وضعیت داده می‌شود.
     - اگر ادمین از دستورات کلمه‌ای (مثل «پنل»، «داشبورد»، «امنیت» و ...) استفاده کند،
       باز هم به‌جای اجرای دستور، پیام وضعیت داده می‌شود.
-    مدیر ارشد از این محدودیت مستثناست، چون خودش کنترل‌کنندهٔ وضعیت APS است."""
+    مدیر ارشد از این محدودیت مستثناست، چون خودش کنترل‌کنندهٔ وضعیت APS است.
+
+    admin/status اگه از قبل (توسطِ block_gate) گرفته شده باشن پاس داده می‌شن
+    تا دوباره پرسیده نشن؛ اگه این تابع مستقیم (بدون block_gate) صدا زده بشه،
+    خودش می‌گیردشون."""
     if user is None:
         user = update.effective_user
     if user is None or user.id == PISHVA_ID:
         return
 
-    status = await db.get_setting("system_status", "normal")
+    if status is None:
+        status = await db.get_setting("system_status", "normal")
     if status != STATUS_APS:
         return
 
-    admin = await db.get_admin(user.id)
+    if admin is None:
+        admin = await db.get_admin(user.id)
     if not (admin and admin["is_active"]):
         return  # این دروازه فقط برای ادمین‌های فعال است
 

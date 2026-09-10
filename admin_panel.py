@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import time
+import asyncio
 from datetime import datetime, timedelta
 
 from aiohttp import web
@@ -177,15 +178,22 @@ def _is_online(last_active_iso, minutes=5) -> bool:
 async def panel_overview(request):
     _require_auth(request)
     await _require_enabled(request)
-    players = await db.get_all_players()
-    admins = await db.get_all_admins()
-    matches = await db.get_matches_by_filter("all")
-    tournaments = await db.get_all_tournaments()
+    # قبلاً این ۴ کوئری + گرفتنِ بازی‌های زنده پشتِ‌سرِهم اجرا می‌شدن — یعنی
+    # هر بار باز شدنِ صفحه‌ی خانه‌ی پنلِ وب (که هر ۴ ثانیه هم پولینگ می‌شه)
+    # چند رفت‌وبرگشتِ سریالی به Turso. کاملاً مستقلن، پس هم‌زمان اجرا می‌شن.
+    async def _live_games_safe():
+        try:
+            return await _fetch_live_games_raw()
+        except Exception:
+            return []
 
-    try:
-        live_games = await _fetch_live_games_raw()
-    except Exception:
-        live_games = []
+    players, admins, matches, tournaments, live_games = await asyncio.gather(
+        db.get_all_players(),
+        db.get_all_admins(),
+        db.get_matches_by_filter("all"),
+        db.get_all_tournaments(),
+        _live_games_safe(),
+    )
 
     online_admins = [a for a in admins if _is_online(a["last_active"] if a else None)]
     active_tournaments = [t for t in tournaments if (t["status"] if t else None) == "active"]
@@ -324,8 +332,11 @@ async def panel_activity(request):
     _require_auth(request)
     await _require_enabled(request)
     page = int(request.query.get("page", "0"))
-    logs, total = await db.get_action_logs(period="all", page=page, page_size=30)
-    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in (await db.get_all_admins() or [])}
+    (logs, total), admins_rows = await asyncio.gather(
+        db.get_action_logs(period="all", page=page, page_size=30),
+        db.get_all_admins(),
+    )
+    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in (admins_rows or [])}
     out = []
     for l in logs or []:
         out.append({
@@ -394,32 +405,30 @@ async def panel_charts(request):
     await _require_enabled(request)
     import turso_db as _a
 
-    # میله‌ای: تعداد مسابقات هر تورنومنت
+    # هر سه کوئری مستقلن — هم‌زمان اجرا می‌شن.
     async with _a.connect(db.DB_PATH) as conn:
         conn.row_factory = _a.Row
-        async with conn.execute("""
-            SELECT t.name as tname, COUNT(m.id) as cnt
-            FROM tournaments t LEFT JOIN matches m ON m.tournament_id = t.id
-            GROUP BY t.id ORDER BY cnt DESC LIMIT 12
-        """) as cur:
-            tourn_rows = await cur.fetchall()
-
-        # خط شکسته: تعداد مسابقات ثبت‌شده به تفکیک روز (۳۰ روز اخیر)
-        async with conn.execute("""
-            SELECT substr(created_at,1,10) as d, COUNT(*) as cnt
-            FROM matches
-            WHERE created_at IS NOT NULL
-            GROUP BY d ORDER BY d DESC LIMIT 30
-        """) as cur:
-            daily_rows = await cur.fetchall()
-
-        # کلاس‌ها: توزیع بازیکنان
-        async with conn.execute("""
-            SELECT c.name as cname, COUNT(p.id) as cnt
-            FROM classes c LEFT JOIN players p ON p.class_id = c.id
-            GROUP BY c.id ORDER BY cnt DESC
-        """) as cur:
-            class_rows = await cur.fetchall()
+        tourn_cur, daily_cur, class_cur = await asyncio.gather(
+            conn.execute("""
+                SELECT t.name as tname, COUNT(m.id) as cnt
+                FROM tournaments t LEFT JOIN matches m ON m.tournament_id = t.id
+                GROUP BY t.id ORDER BY cnt DESC LIMIT 12
+            """),
+            conn.execute("""
+                SELECT substr(created_at,1,10) as d, COUNT(*) as cnt
+                FROM matches
+                WHERE created_at IS NOT NULL
+                GROUP BY d ORDER BY d DESC LIMIT 30
+            """),
+            conn.execute("""
+                SELECT c.name as cname, COUNT(p.id) as cnt
+                FROM classes c LEFT JOIN players p ON p.class_id = c.id
+                GROUP BY c.id ORDER BY cnt DESC
+            """),
+        )
+        tourn_rows = await tourn_cur.fetchall()
+        daily_rows = await daily_cur.fetchall()
+        class_rows = await class_cur.fetchall()
 
     return _json({
         "ok": True,
