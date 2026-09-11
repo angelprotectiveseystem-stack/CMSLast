@@ -1,7 +1,10 @@
 import random
 import time
 import asyncio
+import logging
 from datetime import datetime, timezone, timedelta
+
+_perf_logger = logging.getLogger("perf")
 
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
@@ -263,10 +266,22 @@ def _status_line(status: str) -> str:
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    # ─── DIAG: زمان‌سنجیِ موقت برای پیدا کردنِ منشأِ کندیِ /start ───
+    # این ۳ خطِ لاگ بعداً (وقتی مشکل پیدا شد) باید حذف بشن.
+    _t0 = time.monotonic()
+    if update.message and update.message.date:
+        _delay = (datetime.now(timezone.utc) - update.message.date).total_seconds()
+        _perf_logger.warning(
+            "⏱️ DIAG /start: از لحظه‌ی ارسالِ پیام توی تلگرام تا رسیدنش به هندلر، %.2f ثانیه طول کشیده "
+            "(اگر این عدد بزرگه یعنی مشکل از قبل از اجرای کدِ ماست: ربات خواب بوده/چند اینستنس هم‌زمان اجرا میشه/کانفلیکتِ getUpdates)",
+            _delay,
+        )
+
     uid = update.effective_user.id
     is_pishva = (uid == PISHVA_ID)
     admin = None if is_pishva else await db.get_admin(uid)
     is_admin = bool(admin and admin["is_active"])
+    _perf_logger.warning("⏱️ DIAG /start: تا اینجا (بعد از db.get_admin) %.2f ثانیه از شروعِ اجرای هندلر گذشته", time.monotonic() - _t0)
 
     # ─── دیپ‌لینک پنل (وقتی از دکمه‌ی «🔒 پیوی» در گروه اومده) ───
     # لینک به‌صورت https://t.me/<bot>?start=panel_<action> ساخته می‌شه؛
@@ -353,10 +368,14 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     if is_pishva:
-        return await show_pishva_welcome(update, ctx)
+        _r = await show_pishva_welcome(update, ctx)
+        _perf_logger.warning("⏱️ DIAG /start: کلِ اجرای هندلر (پیشوا) %.2f ثانیه طول کشید", time.monotonic() - _t0)
+        return _r
     if is_admin:
         await db.update_admin_activity(uid)
-        return await show_admin_welcome(update, ctx, admin)
+        _r = await show_admin_welcome(update, ctx, admin)
+        _perf_logger.warning("⏱️ DIAG /start: کلِ اجرای هندلر (ادمین) %.2f ثانیه طول کشید", time.monotonic() - _t0)
+        return _r
 
     # ⏳ اگر این شخص در صف انتظار امنیتی است، اجازه‌ی درخواست جدید نمی‌دهیم
     queued = await db.get_queued_request_by_uid(uid)
