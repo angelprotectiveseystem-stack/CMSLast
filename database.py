@@ -1266,28 +1266,159 @@ async def get_match(mid: int):
             return await cur.fetchone()
 
 
+_PENDING_REQUESTS_SQL = "SELECT * FROM access_requests WHERE status='pending' ORDER BY requested_at DESC"
+_PENDING_MATCHES_SQL = """SELECT m.*,
+    wp.full_name as white_name, bp.full_name as black_name,
+    COALESCE(a.display_name, a.full_name) as claimed_by_name
+    FROM matches m
+    LEFT JOIN players wp ON m.white_player_id=wp.id
+    LEFT JOIN players bp ON m.black_player_id=bp.id
+    LEFT JOIN admins a ON m.claimed_by=a.telegram_id
+    WHERE m.result IS NULL ORDER BY m.created_at DESC"""
+_ALL_TASKS_SQL = "SELECT * FROM tasks ORDER BY assigned_at DESC"
+_ACTIVE_ADMINS_SQL = "SELECT * FROM admins WHERE is_active=1"
+
+
+def _collect_missing_settings(keys_with_defaults: dict):
+    """کلیدهایی که هنوز در کش نیستن رو برمی‌گردونه، به‌همراه مقدارهای
+    از-قبل-کش‌شده. (کمکی برای بندل‌های زیر — تا هرچی «الان» در کش هست
+    اصلاً وارد کوئری نشه.)"""
+    cached = {}
+    missing = []
+    for k in keys_with_defaults:
+        v = _cache_get(_setting_cache, k)
+        if v is not _CACHE_MISS:
+            cached[k] = v
+        else:
+            missing.append(k)
+    return cached, missing
+
+
+async def get_pishva_panel_bundle():
+    """همه‌ی چیزهای لازم برای پنلِ خوش‌آمدگوییِ پیشوا. سه موردِ اول
+    (درخواست‌ها/مسابقات/وظایف) همیشه تازه‌ان (عمداً کش نمی‌شن). بقیه
+    (نمایش‌نام، وضعیتِ سیستم، ساعتِ کاری، وضعیتِ دیتابیس، AI، لیستِ
+    ادمین‌های فعال) اگه در کش باشن از کش میان، وگرنه — نه یکی‌یکی، بلکه
+    با همون یک رفت‌وبرگشتِ شبکه‌ی بالا — گرفته و کش می‌شن. نتیجه: حتی درست
+    بعدِ منقضی‌شدنِ کش (مثلاً بعد از ۱ دقیقه بی‌کاری)، کلِ پنل با **یک**
+    رفت‌وبرگشتِ شبکه (نه ۵-۶ تای جدا) آماده می‌شه."""
+    defaults = {
+        "pishva_display_name": "مدیر ارشد",
+        "system_status": "normal",
+        "working_hours_active": "0",
+        "db_manual_status": "1",
+        "ai_online": "1",
+    }
+    settings, missing_keys = _collect_missing_settings(defaults)
+    need_admins = _cache_get(_admin_list_cache, "active") is _CACHE_MISS
+
+    stmts = [
+        (_PENDING_REQUESTS_SQL, []),
+        (_PENDING_MATCHES_SQL, []),
+        (_ALL_TASKS_SQL, []),
+    ]
+    if missing_keys:
+        placeholders = ",".join("?" for _ in missing_keys)
+        stmts.append((f"SELECT key, value FROM system_settings WHERE key IN ({placeholders})", missing_keys))
+    if need_admins:
+        stmts.append((_ACTIVE_ADMINS_SQL, []))
+
+    cursors = await aiosqlite.execute_pipeline(stmts)
+    reqs = await cursors[0].fetchall()
+    matches = await cursors[1].fetchall()
+    tasks = await cursors[2].fetchall()
+    i = 3
+    if missing_keys:
+        rows = await cursors[i].fetchall()
+        i += 1
+        found = {row["key"]: row["value"] for row in rows}
+        for k in missing_keys:
+            value = found.get(k, defaults[k])
+            _cache_set(_setting_cache, k, value)
+            settings[k] = value
+    if need_admins:
+        admins = await cursors[i].fetchall()
+        _cache_set(_admin_list_cache, "active", admins)
+    else:
+        admins = _cache_get(_admin_list_cache, "active")
+
+    return {
+        "pending_requests": reqs,
+        "pending_matches": matches,
+        "all_tasks": tasks,
+        "admins": admins,
+        "pname": settings["pishva_display_name"],
+        "status": settings["system_status"],
+        "wh": settings["working_hours_active"],
+        "db_stat": settings["db_manual_status"],
+        "ai_on": settings["ai_online"],
+    }
+
+
+async def get_admin_panel_bundle(admin_id: int):
+    """همون ایده‌ی get_pishva_panel_bundle برای پنلِ ادمین: pending_matches +
+    tasks_for(admin_id) همیشه تازه‌ان؛ لیستِ بازیکنان و تنظیمات اگه کش
+    نباشن با همون یک رفت‌وبرگشت گرفته می‌شن."""
+    defaults = {
+        "system_status": "normal",
+        "working_hours_active": "0",
+        "ai_online": "1",
+    }
+    settings, missing_keys = _collect_missing_settings(defaults)
+    need_players = _cache_get(_players_cache, "all") is _CACHE_MISS
+
+    stmts = [
+        (_PENDING_MATCHES_SQL, []),
+        ("SELECT * FROM tasks WHERE assigned_to=? ORDER BY assigned_at DESC", [admin_id]),
+    ]
+    if missing_keys:
+        placeholders = ",".join("?" for _ in missing_keys)
+        stmts.append((f"SELECT key, value FROM system_settings WHERE key IN ({placeholders})", missing_keys))
+    if need_players:
+        stmts.append((
+            "SELECT p.*, c.name as class_name FROM players p LEFT JOIN classes c ON p.class_id=c.id ORDER BY p.full_name",
+            [],
+        ))
+
+    cursors = await aiosqlite.execute_pipeline(stmts)
+    matches = await cursors[0].fetchall()
+    tasks = await cursors[1].fetchall()
+    i = 2
+    if missing_keys:
+        rows = await cursors[i].fetchall()
+        i += 1
+        found = {row["key"]: row["value"] for row in rows}
+        for k in missing_keys:
+            value = found.get(k, defaults[k])
+            _cache_set(_setting_cache, k, value)
+            settings[k] = value
+    if need_players:
+        all_players = await cursors[i].fetchall()
+        _cache_set(_players_cache, "all", all_players, ttl=_LIST_CACHE_TTL)
+    else:
+        all_players = _cache_get(_players_cache, "all")
+
+    return {
+        "pending_matches": matches,
+        "tasks": tasks,
+        "all_players": all_players,
+        "status": settings["system_status"],
+        "wh": settings["working_hours_active"],
+        "ai_on": settings["ai_online"],
+    }
+
+
 async def get_fresh_pishva_panel_data():
     """FIX (کندیِ /start): pending_requests + pending_matches + all_tasks عمداً
     کش نمی‌شن (باید همیشه تازه باشن، وگرنه مثلاً دو ادمین می‌تونن هم‌زمان
-    سراغِ یک مسابقه‌ی claim‌شده برن). مشکل این بود که همین سه‌تا، هرکدوم یک
-    رفت‌وبرگشتِ جداگانه به Turso می‌زدن؛ چون Turso روی ap-northeast-1 (توکیو)ست،
-    هر رفت‌وبرگشت ~۶۰۰-۷۰۰ میلی‌ثانیه طول می‌کشه، پس این سه‌تا با هم ~۲ ثانیه
-    اضافه می‌کردن. این تابع هر سه رو با یک درخواستِ شبکه‌ی واحد می‌گیره —
-    هیچ‌کدوم کش نمی‌شن (همون تازگیِ قبلی حفظ می‌شه)، فقط یک بار به شبکه می‌ریم."""
+    سراغِ یک مسابقه‌ی claim‌شده برن). این تابع هر سه رو با یک درخواستِ
+    شبکه‌ی واحد می‌گیره. (نگاه کن: get_pishva_panel_bundle برای نسخه‌ی
+    کامل‌تر که تنظیمات/لیستِ‌ادمین‌های کش‌سرد رو هم توی همون یک رفت‌وبرگشت
+    می‌گنجونه.)"""
     reqs_cur, matches_cur, tasks_cur = await aiosqlite.execute_pipeline([
-        ("SELECT * FROM access_requests WHERE status='pending' ORDER BY requested_at DESC", []),
-        (
-            """SELECT m.*,
-               wp.full_name as white_name, bp.full_name as black_name,
-               COALESCE(a.display_name, a.full_name) as claimed_by_name
-               FROM matches m
-               LEFT JOIN players wp ON m.white_player_id=wp.id
-               LEFT JOIN players bp ON m.black_player_id=bp.id
-               LEFT JOIN admins a ON m.claimed_by=a.telegram_id
-               WHERE m.result IS NULL ORDER BY m.created_at DESC""",
-            [],
-        ),
-        ("SELECT * FROM tasks ORDER BY assigned_at DESC", []),
+        (_PENDING_REQUESTS_SQL, []),
+        (_PENDING_MATCHES_SQL, []),
+        (_ALL_TASKS_SQL, []),
     ])
     return await reqs_cur.fetchall(), await matches_cur.fetchall(), await tasks_cur.fetchall()
 
@@ -1296,17 +1427,7 @@ async def get_fresh_admin_panel_data(admin_id: int):
     """همون FIX بالا، برای پنلِ ادمین: pending_matches + tasks_for(admin_id)
     با یک رفت‌وبرگشتِ شبکه‌ی واحد به‌جای دوتای جدا."""
     matches_cur, tasks_cur = await aiosqlite.execute_pipeline([
-        (
-            """SELECT m.*,
-               wp.full_name as white_name, bp.full_name as black_name,
-               COALESCE(a.display_name, a.full_name) as claimed_by_name
-               FROM matches m
-               LEFT JOIN players wp ON m.white_player_id=wp.id
-               LEFT JOIN players bp ON m.black_player_id=bp.id
-               LEFT JOIN admins a ON m.claimed_by=a.telegram_id
-               WHERE m.result IS NULL ORDER BY m.created_at DESC""",
-            [],
-        ),
+        (_PENDING_MATCHES_SQL, []),
         ("SELECT * FROM tasks WHERE assigned_to=? ORDER BY assigned_at DESC", [admin_id]),
     ])
     return await matches_cur.fetchall(), await tasks_cur.fetchall()

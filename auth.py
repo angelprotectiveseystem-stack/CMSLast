@@ -405,16 +405,19 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # بیماریِ داشبورد) — همینه که پنل خوش‌آمدگویی چند ثانیه طول می‌کشید.
     # الان همه با هم (asyncio.gather) اجرا می‌شن، و آب‌وهوا هم دیگه هرگز
     # پنل رو معطلِ شبکه نگه نمی‌داره.
-    pname, weather, admins, (pending, pending_matches, all_tasks), status, wh, db_stat, ai_on = await asyncio.gather(
-        pishva_display(),
+    weather, bundle = await asyncio.gather(
         get_weather_line_nowait(),
-        db.get_active_admins(),
-        db.get_fresh_pishva_panel_data(),  # FIX: pending+matches+tasks با یک رفت‌وبرگشتِ شبکه به‌جای سه‌تا
-        db.get_setting("system_status", "normal"),
-        db.get_setting("working_hours_active", "0"),
-        db.get_setting("db_manual_status", "1"),
-        db.get_setting("ai_online", "1"),
+        db.get_pishva_panel_bundle(),  # FIX: کلِ پنل (حتی اگه کش تازه‌منقضی‌شده باشه) با یک رفت‌وبرگشتِ شبکه
     )
+    pname = bundle["pname"]
+    admins = bundle["admins"]
+    pending = bundle["pending_requests"]
+    pending_matches = bundle["pending_matches"]
+    all_tasks = bundle["all_tasks"]
+    status = bundle["status"]
+    wh = bundle["wh"]
+    db_stat = bundle["db_stat"]
+    ai_on = bundle["ai_on"]
     greeting = time_greeting(pname)
 
     try:
@@ -453,14 +456,16 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
     greeting = time_greeting(_aname)
 
     # همون فیکس: همه‌ی کوئری‌های مستقل با هم، نه یکی‌یکی.
-    weather, (pending_matches, admin_tasks), all_players, status, wh, ai_on = await asyncio.gather(
+    weather, bundle = await asyncio.gather(
         get_weather_line_nowait(),
-        db.get_fresh_admin_panel_data(admin["telegram_id"]),  # FIX: matches+tasks با یک رفت‌وبرگشت به‌جای دوتا
-        db.get_all_players(),
-        db.get_setting("system_status", "normal"),
-        db.get_setting("working_hours_active", "0"),
-        db.get_setting("ai_online", "1"),
+        db.get_admin_panel_bundle(admin["telegram_id"]),  # FIX: کلِ پنل با یک رفت‌وبرگشتِ شبکه، حتی با کشِ سرد
     )
+    pending_matches = bundle["pending_matches"]
+    admin_tasks = bundle["tasks"]
+    all_players = bundle["all_players"]
+    status = bundle["status"]
+    wh = bundle["wh"]
+    ai_on = bundle["ai_on"]
 
     try:
         pending_tasks = [t for t in admin_tasks if t["status"] == "pending"]
