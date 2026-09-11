@@ -384,7 +384,11 @@ async def check_status_gate(query, action_name: str = "") -> bool:
     if working_hours == "0":
         wh_system = await db.get_setting("working_hours_system_enabled", "0")
         if wh_system == "1":
-            await query.answer("🕐 ساعت کاری پایان یافته است. منتظر دستور مدیر ارشد باشید.", show_alert=True)
+            await query.answer(
+                "🕐⛔ ساعت کاری موقتاً بسته شده است!\n"
+                "🙏 لطفاً منتظر بمانید تا مدیر ارشد دوباره ساعت کاری رو باز کنه. ⏳✨",
+                show_alert=True
+            )
             return True
 
     if status == "aps":
