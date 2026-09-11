@@ -535,7 +535,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
                 "❗ برای دیدن اطلاعات، روی پیام شخص موردنظر ریپلای کنید و «اطلاعات» بنویسید."
             )
             return
-        text_lines = await _build_user_info(target_id, target_name, target_username)
+        text_lines = await _build_user_info(target_id, target_name, target_username, ctx)
         try:
             await update.message.reply_text("\n".join(text_lines), parse_mode="Markdown")
         except Exception:
@@ -1048,7 +1048,28 @@ async def stranger_info_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         await query.message.reply_text(text, parse_mode="Markdown")
     except Exception:
         await query.message.reply_text(text)
-async def _build_user_info(target_id: int, target_name: str, target_username: str) -> list:
+def _ago_label(iso_ts: str) -> str:
+    """یک timestamp ایزو رو به برچسب «چند وقت پیش» با رنگ تبدیل می‌کنه —
+    دقیقاً همون آستانه‌هایی که توی «آنلاین/الان» و پنل ادمین استفاده می‌شه،
+    تا همه‌جای ربات یک‌دست باشه."""
+    from datetime import datetime
+    try:
+        last_dt = datetime.fromisoformat(str(iso_ts))
+    except Exception:
+        return "نامشخص"
+    diff = datetime.now() - last_dt
+    mins = int(diff.total_seconds() // 60)
+    if mins < 2:
+        return "🟢 همین الان (آنلاین روی ربات)"
+    elif mins < 60:
+        return f"🟡 {mins} دقیقه پیش"
+    elif mins < 1440:
+        return f"🟠 {int(mins // 60)} ساعت پیش"
+    else:
+        return f"🔴 {int(mins // 1440)} روز پیش"
+
+
+async def _build_user_info(target_id: int, target_name: str, target_username: str, ctx: ContextTypes.DEFAULT_TYPE = None) -> list:
     from datetime import datetime, timedelta
     target_name = escape_md_legacy(target_name)
     target_username = escape_md_legacy(target_username)
@@ -1133,9 +1154,56 @@ async def _build_user_info(target_id: int, target_name: str, target_username: st
         if warns:
             lines.append(f"\n⚠️ اخطارهای مدیریتی: `{warns}`")
     else:
-        # نه مدیر ارشد، نه ادمین
-        lines.append("👤 نقش: کاربر عادی")
-        lines.append("❌ در سیستم ثبت نشده")
+        # نه مدیر ارشد، نه ادمینِ فعال — ولی شاید قبلاً ادمین بوده،
+        # یا قبلاً («غریبه») با ربات کار کرده و الان دیگه نیست.
+        if admin and not admin["is_active"]:
+            role_lbl = "🏆 مدیر مسابقات" if admin["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
+            lines.append(f"👤 نقش: کاربر عادی *(قبلاً {role_lbl} بوده — الان اخراج/حذف شده)*")
+            joined = admin.get("joined_at")
+            if joined:
+                lines.append(f"📅 تاریخ عضویتِ قبلی: `{str(joined)[:10]}`")
+            last = admin.get("last_active")
+            if last:
+                lines.append(f"⏱️ آخرین فعالیتِ ثبت‌شده (به‌عنوان ادمین): {_ago_label(last)}")
+        else:
+            lines.append("👤 نقش: کاربر عادی")
+            lines.append("❌ در سیستم به‌عنوان مدیر ثبت نشده")
+
+        # سابقه‌ی فعالیتش به‌عنوان «غریبه» (هر پیام/دکمه‌ای که با ربات زده)
+        stranger = await db.get_stranger_summary(target_id)
+        if stranger and stranger["action_count"]:
+            lines.append("")
+            lines.append(separator("📜 سابقه‌ی فعالیت روی ربات"))
+            lines.append(f"🕐 اولین فعالیت: `{str(stranger['first_seen'] or '')[:16]}`")
+            lines.append(f"⏱️ آخرین فعالیت: {_ago_label(stranger['last_active'])}")
+            lines.append(f"📊 تعداد کل اقدامات ثبت‌شده: {stranger['action_count']}")
+        elif not (admin and not admin["is_active"]):
+            lines.append("")
+            lines.append("📜 هیچ سابقه‌ی فعالیتی از این کاربر روی ربات ثبت نشده.")
+
+        # پروفایل زنده‌ی تلگرام (تا جایی که Bot API اجازه می‌ده) ───
+        # نکته‌ی مهم: تلگرام برای ربات‌ها وضعیت «آنلاین/آفلاین لحظه‌ای»
+        # (همون تیک سبز/آخرین بازدید) رو اصلاً در اختیار نمی‌ذاره — این‌ فقط
+        # از طریق حساب کاربریِ خودِ تلگرام (نه ربات) و با اجازه‌ی حریم‌خصوصیِ
+        # خودِ طرف قابل دیدنه. چیزی که این‌جا می‌شه نشون داد اینه که آیا
+        # ربات هنوز می‌تونه به این کاربر پیام بده (یعنی بلاکش نکرده) و
+        # آخرین نام/یوزرنیمِ شناخته‌شده‌اش چیه.
+        lines.append("")
+        lines.append(separator("📡 وضعیت زنده در تلگرام"))
+        if ctx is not None:
+            try:
+                chat = await ctx.bot.get_chat(target_id)
+                live_name = " ".join(filter(None, [getattr(chat, "first_name", None), getattr(chat, "last_name", None)])) or "—"
+                live_uname = f"@{chat.username}" if getattr(chat, "username", None) else "—"
+                lines.append("✅ ربات هنوز به این کاربر دسترسی دارد (بلاک نکرده)")
+                lines.append(f"👤 نام فعلی: {escape_md_legacy(live_name)}")
+                lines.append(f"🪪 یوزرنیم فعلی: {escape_md_legacy(live_uname)}")
+            except Exception:
+                lines.append("⛔ ربات دیگر به این کاربر دسترسی ندارد (بلاک کرده یا هیچ‌وقت با ربات شروع نکرده)")
+        lines.append(
+            "_ℹ️ تلگرام وضعیت «آنلاین/آفلاین لحظه‌ای» (تیک سبز) رو برای ربات‌ها "
+            "در دسترس نمی‌ذاره؛ فقط «آخرین فعالیت روی همین ربات» بالا قابل‌مشاهده‌ست._"
+        )
 
         # شاید بلاک باشه
         blocked = await db.get_blocked_user(target_id)
