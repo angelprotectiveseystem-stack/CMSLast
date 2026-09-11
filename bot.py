@@ -793,6 +793,10 @@ def build_application():
             CommandHandler("open", workhour_start),
             CallbackQueryHandler(workhour_start, pattern="^wh_start$"),
             CallbackQueryHandler(workhours_reminder_minutes_start, pattern="^wh_reminder_set_minutes$"),
+            # کلمات کلیدی «آغاز/اغاز» و «پایان/تموم» — فقط برای مدیر ارشد،
+            # چک نهایی (PISHVA_ID) داخل خودِ workhour_start/workhour_end انجام می‌شه.
+            MessageHandler(filters.Regex("^(آغاز|اغاز)$") & filters.TEXT & ~filters.COMMAND, workhour_start),
+            MessageHandler(filters.Regex("^(پایان|تموم)$") & filters.TEXT & ~filters.COMMAND, workhour_end),
         ],
         states={
             ST_WORKHOURS_AUTOEND_MINUTES: [

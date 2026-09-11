@@ -65,11 +65,27 @@ SIMPLE_KEYWORDS = {
     "اخطارها": "warnings_list",    # لیست بازیکنان با اخطار
     "بازی": "live_chess",          # باز کردن منوی شطرنج زنده
     "شطرنج": "live_chess",         # مترادف بازی
+    # ─── ساعت کاری (فقط مدیر ارشد) ───
+    # توجه: «آغاز»/«اغاز» و «پایان»/«تموم» اینجا map نمی‌شن، چون خودشون
+    # به‌صورت جداگانه به‌عنوان entry_point به workhours_conv در bot.py
+    # اضافه شدن (چون workhour_start ممکنه یک state از مدیر ارشد بخواد
+    # و باید داخل خودِ ConversationHandler بمونه، نه اینجا).
+    "ساعت": "workhours_menu",       # باز کردن منوی ساعت کاری
+    "ساعت کاری": "workhours_menu",  # مترادف
+    "کاری": "workhours_menu",       # مترادف
+    "زمان": "workhours_menu",       # مترادف
 }
+
+# این کلمات مستقیماً به workhours_conv (در bot.py) به‌عنوان entry_point
+# وصل می‌شن، نه از طریق SIMPLE_KEYWORDS — برای این‌که handle_keyword_command
+# باید ازشون رد بشه و اجازه بده خودِ ConversationHandler بگیرتشون.
+WORKHOURS_START_KEYWORDS = {"آغاز", "اغاز"}
+WORKHOURS_END_KEYWORDS = {"پایان", "تموم"}
 
 PISHVA_ONLY_ACTIONS = {
     "security", "status", "backup", "requests", "logs", "reminders", "settings",
     "pishva_panel", "online_admins", "ai_manage_panel",
+    "workhours_menu", "workhours_start", "workhours_end",
 }
 
 
@@ -387,6 +403,13 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     if not update.message or not update.message.text:
         return
     text = update.message.text.strip()
+
+    # «آغاز/اغاز» و «پایان/تموم» رو دست نمی‌زنیم — می‌ذاریم خودِ
+    # workhours_conv (در bot.py) به‌عنوان entry_point بگیردشون، چون
+    # ممکنه یک state (مدت دقیقه) از مدیر ارشد بخوان.
+    if text in WORKHOURS_START_KEYWORDS or text in WORKHOURS_END_KEYWORDS:
+        return
+
     action = SIMPLE_KEYWORDS.get(text)
 
     if action is None and text not in ADMIN_KEYWORDS:
@@ -903,6 +926,20 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(
             f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",
             reply_markup=kb.kb_pishva_settings_simple(settings), parse_mode="Markdown"
+        )
+        raise ApplicationHandlerStop()
+
+    # ─── ساعت کاری ───
+    if action == "workhours_menu":
+        import workhours as wh
+        autoend_on = (await db.get_setting("workhours_autoend_enabled", "0")) == "1"
+        reminder_on = (await db.get_setting("workhours_reminder_enabled", "0")) == "1"
+        reminder_minutes = int(await db.get_setting("workhours_reminder_minutes", "60"))
+        status_extra = await wh._render_status_extra()
+        await update.message.reply_text(
+            f"{box('🕐 ساعت کاری')}\n\n📌 عملیات را انتخاب کنید:{status_extra}",
+            reply_markup=kb.kb_workhours(autoend_on, reminder_on, reminder_minutes),
+            parse_mode="Markdown"
         )
         raise ApplicationHandlerStop()
 
