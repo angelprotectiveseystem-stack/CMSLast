@@ -234,6 +234,57 @@ async def chess_menu_from_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE
     return await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
 
 
+async def chess_challenge_target_from_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE, target_id: int, target_name: str = None):
+    """وقتی کاربر روی یک نفر (یا روی پیامی حاوی آیدی) ریپلای می‌زنه و
+    کلمه‌ی «بازی»/«شطرنج» رو می‌فرسته: به‌جای نمایش کل لیست حریف‌ها،
+    مستقیم می‌ره سراغ انتخاب زمانِ بازی با همون شخص (معادل زدن دکمه‌ی
+    chess_req_{target_id} در منوی معمولی) — دقیقاً همون بررسی‌هایی که
+    chess_pick_time انجام می‌ده، ولی این‌جا با reply_text به‌جای
+    ویرایشِ پیامِ کال‌بک.
+    پیامِ ارسالی رو برمی‌گردونه تا مالکیتِ پنل (در گروه) براش ثبت بشه؛
+    در صورتِ مسدود بودن/نامعتبر بودن، None برمی‌گردونه."""
+    uid = update.effective_user.id
+
+    reason = await _chess_block_reason(uid)
+    if reason:
+        await update.message.reply_text(reason, parse_mode=ParseMode.MARKDOWN)
+        return None
+    if target_id == uid:
+        await update.message.reply_text("⛔ نمی‌توانید به خودتان درخواست بازی بدهید.")
+        return None
+    if target_id == CHESS_AI_ID:
+        await update.message.reply_text("⛔ برای بازی با هوش مصنوعی از منوی «بازی» استفاده کنید.")
+        return None
+    # حریف باید پیشوا یا مدیرِ فعال باشه — همون فهرستِ مجازِ منوی معمولی
+    eligible_ids = {oid for oid, _ in await _eligible_opponents(uid)}
+    if target_id not in eligible_ids:
+        await update.message.reply_text(
+            "⛔ این کاربر مدیرِ فعال یا مدیر ارشد نیست و نمی‌توان به او درخواست بازی داد."
+        )
+        return None
+    if await db.has_pending_chess_request(uid, target_id):
+        await update.message.reply_text("⏳ درخواست قبلی برای همین شخص هنوز در انتظار پاسخ است.")
+        return None
+    active_game = await db.get_active_chess_game_for(uid)
+    if active_game:
+        await update.message.reply_text("⛔ شما یک بازی فعال دارید؛ ابتدا آن را تمام کنید.")
+        return None
+
+    name = target_name or await _display_name(target_id, ctx.bot)
+    rows = [
+        [InlineKeyboardButton(label, callback_data=f"chess_time_{target_id}_{secs}")]
+        for secs, label in TIME_CONTROLS
+    ]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="chess_menu")])
+    return await update.message.reply_text(
+        f"{box('♟️ شطرنج زنده')}\n\n"
+        f"🎯 حریف: {name}\n"
+        f"⏱ زمان فکر هر طرف را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
 async def chess_active_games(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """بخشِ «📋 بازی‌های فعال»: همه‌ی بازی‌های شطرنجِ زنده‌ی در حال انجام
     را یک‌جا نشان می‌دهد — چه مدیر×مدیر، چه مدیر×پیشوا، چه هرکدام در

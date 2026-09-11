@@ -452,9 +452,16 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         raise ApplicationHandlerStop()
 
     # ─── شطرنج زنده (کلمه‌ی «بازی» یا «شطرنج») ───
+    # اگه این پیام ریپلای روی یک نفر باشه (یا روی پیامی که خودِ فرستنده
+    # قبلاً آیدی توش فرستاده)، به‌جای نمایشِ کل لیستِ حریف‌ها، مستقیم
+    # می‌ریم سراغِ درخواستِ بازی با همون شخص.
     if action == "live_chess":
-        from chess_challenge import chess_menu_from_message
-        sent = await chess_menu_from_message(update, ctx)
+        from chess_challenge import chess_menu_from_message, chess_challenge_target_from_message
+        target_id, target_name, _ = _extract_reply_target(update)
+        if target_id:
+            sent = await chess_challenge_target_from_message(update, ctx, target_id, target_name)
+        else:
+            sent = await chess_menu_from_message(update, ctx)
         if sent is not None:
             await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
