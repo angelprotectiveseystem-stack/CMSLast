@@ -16,6 +16,12 @@ def kb_back(target="main"):
 def kb_back_row(target="main"):
     return [InlineKeyboardButton("🔙 بازگشت", callback_data=f"back_{target}", style="danger")]
 
+def kb_cancel(cb):
+    """یک دکمهٔ «انصراف» ساده برای زیرِ فرم‌های متنی (مثلاً وقتی از کاربر
+    علتِ اخطار/لغو/رد خواسته می‌شود). cb همان callback_data ای است که در
+    fallbacks مکالمهٔ مربوطه ثبت شده، تا با زدنِ دکمه، حالتِ ورودی متن لغو شود."""
+    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ انصراف", callback_data=cb, style="danger")]])
+
 # ─── صفحه‌ی خلاصه بعد از «بستن»/«خروج» — فقط خوش‌آمدگویی + ۲ دکمه ───
 def kb_panel_closed_menu():
     return InlineKeyboardMarkup([

@@ -346,7 +346,7 @@ async def admin_warn_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["warn_admin_tid"] = tid
     admin = await db.get_admin(tid)
     await safe_edit_message_text(query, f"⚠️ دلیل اخطار برای *{admin['display_name'] or admin['full_name']}*:",
-                                   parse_mode="Markdown")
+                                   reply_markup=kb.kb_cancel("menu_pishva"), parse_mode="Markdown")
     return ST_ADMIN_WARNING_REASON
 
 

@@ -353,7 +353,8 @@ async def player_warn_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     pid = int(query.data.split("_")[-1])
     ctx.user_data["warning_player"] = pid
     p = await db.get_player(pid)
-    await safe_edit_message_text(query, f"⚠️ دلیل اخطار برای *{p['full_name']}*:", parse_mode="Markdown")
+    await safe_edit_message_text(query, f"⚠️ دلیل اخطار برای *{p['full_name']}*:",
+                                   reply_markup=kb.kb_cancel("back_players"), parse_mode="Markdown")
     return ST_WARNING_REASON
 
 async def player_warn_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

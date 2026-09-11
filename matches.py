@@ -453,7 +453,8 @@ async def result_cancel_ask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     mid = int(query.data.split("_")[-1])
     ctx.user_data["cancel_match"] = mid
-    await safe_edit_message_text(query, "📝 دلیل لغو مسابقه را بنویسید:")
+    await safe_edit_message_text(query, "📝 دلیل لغو مسابقه را بنویسید:",
+                                   reply_markup=kb.kb_cancel("back_matches"))
     return ST_MATCH_CANCEL_REASON
 
 async def match_cancel_reason_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
