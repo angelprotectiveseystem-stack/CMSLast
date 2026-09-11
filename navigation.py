@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
 import database as db
@@ -89,8 +90,15 @@ async def menu_pishva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     try:
-        pname = await pishva_display()
-        status = await db.get_setting("system_status", "normal")
+        # FIX (کندیِ حسِ‌شده روی دکمه‌ی «پنل مدیر ارشد»): این دو تا await
+        # قبلاً پشتِ‌سرِهم (نه موازی) اجرا می‌شدن — یعنی با کشِ سرد، دو
+        # رفت‌وبرگشتِ کاملِ شبکه‌ای به Turso، یکی بعد از اون یکی. با
+        # asyncio.gather هر دو هم‌زمان می‌رن، یعنی زمانِ کل تقریباً برابرِ
+        # کندترینِ تک‌کوئری می‌شه، نه مجموعِ هر دو.
+        pname, status = await asyncio.gather(
+            pishva_display(),
+            db.get_setting("system_status", "normal"),
+        )
         status_map = {"normal": "🟢 نرمال", "bad": "🟡 بد", "danger": "🔴 خطرناک", "aps": "🪽 APS"}
         await safe_edit_message_text(query,
             f"{box(f'👑 پنل مدیر ارشد — {pname}')}\n\n"

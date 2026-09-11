@@ -133,12 +133,24 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         new_val = "0" if current == "1" else "1"
         await db.set_setting(key, new_val)
         await db.log_action(PISHVA_ID, "toggle_setting", f"{key} -> {new_val}")
+    else:
+        new_val = None
     keys = ["notifications_enabled", "communications_enabled", "help_enabled",
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
         "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
         "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled"]
-    settings = {k: await db.get_setting(k, "1") for k in keys}
+    # FIX (کندیِ وحشتناکِ هر دکمه‌ی تنظیمات): این‌جا قبلاً، بعد از هر تاگل،
+    # ۱۵ تا db.get_setting توی یک دیکشنری‌کامپریهنشن پشتِ‌سرِهم (نه موازی)
+    # صدا زده می‌شدن — یعنی هر کلیک روی هر کدوم از دکمه‌های این صفحه،
+    # حتی جدا از خودِ خواندن/نوشتنِ تنظیمِ تاگل‌شده، ۱۵ رفت‌وبرگشتِ شبکه‌ایِ
+    # اضافه به Turso داشت. با asyncio.gather همه‌شون هم‌زمان خونده می‌شن،
+    # و چون مقدارِ تنظیمِ تازه‌تاگل‌شده رو همین بالا داریم، دیگه لازم نیست
+    # دوباره از دیتابیس بخونیمش.
+    values = await asyncio.gather(*(db.get_setting(k, "1") for k in keys))
+    settings = dict(zip(keys, values))
+    if key:
+        settings[key] = new_val
     await safe_edit_message_text(query, 
         f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",
         reply_markup=kb.kb_pishva_settings_simple(settings),
@@ -152,9 +164,12 @@ async def pishva_suspicious_settings(update: Update, ctx: ContextTypes.DEFAULT_T
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    enabled = await db.get_setting("suspicious_alert_enabled", "1")
-    threshold = await db.get_setting("suspicious_deletion_threshold", "5")
-    window = await db.get_setting("suspicious_deletion_window_minutes", "10")
+    # FIX: این سه‌تا await قبلاً پشتِ‌سرِهم بودن؛ حالا موازی خونده می‌شن.
+    enabled, threshold, window = await asyncio.gather(
+        db.get_setting("suspicious_alert_enabled", "1"),
+        db.get_setting("suspicious_deletion_threshold", "5"),
+        db.get_setting("suspicious_deletion_window_minutes", "10"),
+    )
     status = "🟢 فعال" if enabled == "1" else "🔴 غیرفعال"
     text = (
         f"{box('🚨 هشدار حذف مشکوک')}\n\n"
@@ -1017,9 +1032,13 @@ async def pishva_repair(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def repair_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await db.set_setting("repair_mode", "1")
-    await db.set_setting("bot_update_mode", "1")
-    reason = await db.get_setting("repair_reason", "")
+    # FIX: این سه‌تا (دو نوشتن + یک خواندن، روی کلیدهای کاملاً جدا از هم)
+    # قبلاً پشتِ‌سرِهم اجرا می‌شدن؛ حالا هر سه موازی.
+    _, _, reason = await asyncio.gather(
+        db.set_setting("repair_mode", "1"),
+        db.set_setting("bot_update_mode", "1"),
+        db.get_setting("repair_reason", ""),
+    )
     ts = now_shamsi()
     notif = (
         f"{box('🔧 حالت تعمیر فعال شد')}\n\n"
@@ -1035,8 +1054,8 @@ async def repair_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def repair_off(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await db.set_setting("repair_mode", "0")
-    await db.set_setting("bot_update_mode", "0")
+    # FIX: موازی‌سازیِ دو نوشتنِ مستقل (مثل repair_on).
+    await asyncio.gather(db.set_setting("repair_mode", "0"), db.set_setting("bot_update_mode", "0"))
     ts = now_shamsi()
     notif = f"✅ تعمیر پایان یافت. ربات آماده استفاده است.\n⏱️ `{ts}`"
     await broadcast_to_admins(ctx.bot, notif)
@@ -1345,10 +1364,20 @@ async def pishva_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
+    # FIX: قبلاً برای هر کدوم از موارد BROADCAST_ITEMS، دو تا db.get_setting
+    # پشتِ‌سرِهم صدا زده می‌شد (یعنی برای ۵ مورد فعلی، ۱۰ رفت‌وبرگشتِ شبکه‌ایِ
+    # کاملاً پشتِ‌سرِهم). حالا همه‌ی این خواندن‌ها هم‌زمان با asyncio.gather
+    # انجام می‌شن.
+    all_keys = []
+    for _, _, group_key, channel_key in BROADCAST_ITEMS:
+        all_keys.append(group_key)
+        all_keys.append(channel_key)
+    values = await asyncio.gather(*(db.get_setting(k, "1") for k in all_keys))
+    flags = dict(zip(all_keys, values))
     items = []
     for key, label, group_key, channel_key in BROADCAST_ITEMS:
-        g_on = (await db.get_setting(group_key, "1")) == "1"
-        c_on = (await db.get_setting(channel_key, "1")) == "1"
+        g_on = flags[group_key] == "1"
+        c_on = flags[channel_key] == "1"
         items.append((key, label, group_key, g_on, channel_key, c_on))
     await safe_edit_message_text(query, 
         f"{box('📡 پخش خودکار به گروه/کانال')}\n\n"
@@ -1417,8 +1446,11 @@ async def pishva_vault(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    players = await db.get_all_players()
-    backups = await db.get_all_backups()
+    # FIX: این دو تا await قبلاً پشتِ‌سرِهم بودن؛ حالا موازی خونده می‌شن.
+    players, backups = await asyncio.gather(
+        db.get_all_players(),
+        db.get_all_backups(),
+    )
     rows = []
     for i in range(0, min(len(players), 20), 2):
         row = [InlineKeyboardButton(
@@ -1446,10 +1478,13 @@ async def pishva_auto_backup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    enabled = await db.get_setting("auto_backup_enabled", "0")
-    interval = await db.get_setting("auto_backup_interval", "24")
-    fmt = await db.get_setting("auto_backup_format", "excel")
-    period = await db.get_setting("auto_backup_period", "all")
+    # FIX: این ۴ تا await قبلاً پشتِ‌سرِهم بودن؛ حالا موازی خونده می‌شن.
+    enabled, interval, fmt, period = await asyncio.gather(
+        db.get_setting("auto_backup_enabled", "0"),
+        db.get_setting("auto_backup_interval", "24"),
+        db.get_setting("auto_backup_format", "excel"),
+        db.get_setting("auto_backup_period", "all"),
+    )
     fmt_label = "Excel" if fmt == "excel" else "Word"
     period_fa = {"today": "امروز", "week": "هفته", "month": "ماه", "all": "کامل"}.get(period, period)
     status = "🟢 فعال" if enabled == "1" else "🔴 غیرفعال"
