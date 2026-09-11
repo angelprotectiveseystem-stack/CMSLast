@@ -111,6 +111,9 @@ from pishva import (
     pishva_ai_scheduled, ai_scheduled_cancel,
     pishva_suspicious_settings, sadel_toggle, sadel_threshold_menu, sadel_set_threshold,
     sadel_window_menu, sadel_set_window,
+    sadel_admin_list, sadel_admin_panel, sadel_admin_toggle, sadel_admin_reset,
+    sadel_admin_threshold_menu, sadel_admin_set_threshold,
+    sadel_admin_window_menu, sadel_admin_set_window,
 )
 from comms import (
     comms_msg_admin_start, comms_msg_target, comms_msg_send,
@@ -984,6 +987,15 @@ def build_application():
     app.add_handler(CallbackQueryHandler(sadel_set_threshold, pattern="^sadel_set_threshold_"))
     app.add_handler(CallbackQueryHandler(sadel_window_menu, pattern="^sadel_window_menu$"))
     app.add_handler(CallbackQueryHandler(sadel_set_window, pattern="^sadel_set_window_"))
+    # تنظیمِ اختصاصیِ هشدار حذف مشکوک برای هر ادمین
+    app.add_handler(CallbackQueryHandler(sadel_admin_list, pattern="^sadel_admins_p\\d+$"))
+    app.add_handler(CallbackQueryHandler(sadel_admin_toggle, pattern="^sadel_admin_toggle_"))
+    app.add_handler(CallbackQueryHandler(sadel_admin_reset, pattern="^sadel_admin_reset_"))
+    app.add_handler(CallbackQueryHandler(sadel_admin_threshold_menu, pattern="^sadel_admin_thr_menu_"))
+    app.add_handler(CallbackQueryHandler(sadel_admin_set_threshold, pattern="^sadel_admin_thr_set_"))
+    app.add_handler(CallbackQueryHandler(sadel_admin_window_menu, pattern="^sadel_admin_win_menu_"))
+    app.add_handler(CallbackQueryHandler(sadel_admin_set_window, pattern="^sadel_admin_win_set_"))
+    app.add_handler(CallbackQueryHandler(sadel_admin_panel, pattern="^sadel_admin_\\d+$"))
     app.add_handler(CallbackQueryHandler(pishva_ai_scheduled, pattern="^pishva_ai_scheduled$"))
     app.add_handler(CallbackQueryHandler(ai_scheduled_cancel, pattern="^aischedcancel_"))
     app.add_handler(CallbackQueryHandler(pishva_reminders, pattern="^pishva_reminders$"))

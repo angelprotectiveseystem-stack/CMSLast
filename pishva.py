@@ -225,6 +225,177 @@ async def sadel_set_window(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer(f"✅ بازه به {n} دقیقه تغییر یافت", show_alert=True)
     await pishva_suspicious_settings(update, ctx)
 
+# ─── تنظیمِ اختصاصیِ هشدار حذف مشکوک برای هر ادمین ──────────────
+_SADEL_ADMIN_PAGE_SIZE = 8
+
+
+async def sadel_admin_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    try:
+        page = int(query.data[len("sadel_admins_p"):])
+    except ValueError:
+        page = 0
+
+    all_admins = await db.get_all_admins()
+    total_pages = max(1, (len(all_admins) + _SADEL_ADMIN_PAGE_SIZE - 1) // _SADEL_ADMIN_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    start = page * _SADEL_ADMIN_PAGE_SIZE
+    admins_page = all_admins[start:start + _SADEL_ADMIN_PAGE_SIZE]
+
+    import anomaly_alerts
+    override_flags = await asyncio.gather(*(
+        asyncio.gather(*(
+            anomaly_alerts.get_admin_override(a["telegram_id"], field)
+            for field in ("enabled", "threshold", "window")
+        ))
+        for a in admins_page
+    ))
+    has_override = {
+        a["telegram_id"] for a, flags in zip(admins_page, override_flags) if any(flags)
+    }
+
+    text = (
+        f"{box('👤 تنظیمِ جداگانه — هشدار حذف مشکوک')}\n\n"
+        f"📌 ادمینی که می‌خواید براش تنظیمِ اختصاصی بذارید رو انتخاب کنید.\n"
+        f"⚙️ یعنی روی این ادمین یک یا چند تنظیمِ اختصاصی فعاله."
+    )
+    if not admins_page:
+        text += "\n\n(هنوز ادمینی ثبت نشده)"
+    await safe_edit_message_text(query, text,
+        reply_markup=kb.kb_suspicious_admin_list(admins_page, page, total_pages, has_override),
+        parse_mode="Markdown")
+
+
+async def _render_sadel_admin_panel(query, admin_id: int):
+    import anomaly_alerts
+    admin = await db.get_admin(admin_id)
+    admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(admin_id)
+    enabled_ov = await anomaly_alerts.get_admin_override(admin_id, "enabled")
+    threshold_ov = await anomaly_alerts.get_admin_override(admin_id, "threshold")
+    window_ov = await anomaly_alerts.get_admin_override(admin_id, "window")
+    enabled, threshold, window_min = await anomaly_alerts.get_effective_settings(admin_id)
+    status = "🟢 فعال" if enabled == "1" else "🔴 غیرفعال"
+    text = (
+        f"{box('👤 تنظیمِ اختصاصی — ' + admin_name)}\n\n"
+        f"📊 وضعیتِ مؤثر: {status}\n"
+        f"🔢 آستانهٔ مؤثر: `{threshold}` حذف\n"
+        f"⏱️ بازهٔ مؤثر: `{window_min}` دقیقه\n\n"
+        f"💡 هر گزینه‌ای که «↩️ پیروی از کلی» باشه، همون تنظیمِ عمومی رو "
+        f"می‌گیره؛ وگرنه مقدارِ اختصاصیِ همین ادمین اعمال می‌شه."
+    )
+    await safe_edit_message_text(query, text,
+        reply_markup=kb.kb_suspicious_admin_panel(admin_id, enabled_ov, threshold_ov, window_ov),
+        parse_mode="Markdown")
+
+
+async def sadel_admin_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    admin_id = int(query.data[len("sadel_admin_"):])
+    await _render_sadel_admin_panel(query, admin_id)
+
+
+async def sadel_admin_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    admin_id = int(query.data[len("sadel_admin_toggle_"):])
+    import anomaly_alerts
+    current = await anomaly_alerts.get_admin_override(admin_id, "enabled")
+    # چرخه: پیروی از کلی → روشن (اختصاصی) → خاموش (اختصاصی) → پیروی از کلی
+    nxt = "1" if current is None else ("0" if current == "1" else None)
+    await anomaly_alerts.set_admin_override(admin_id, "enabled", nxt)
+    await db.log_action(PISHVA_ID, "toggle_setting",
+        f"sadel_admin_enabled_{admin_id} -> {nxt if nxt is not None else 'inherit'}")
+    await query.answer("✅ ثبت شد")
+    await _render_sadel_admin_panel(query, admin_id)
+
+
+async def sadel_admin_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    admin_id = int(query.data[len("sadel_admin_reset_"):])
+    import anomaly_alerts
+    for field in ("enabled", "threshold", "window"):
+        await anomaly_alerts.set_admin_override(admin_id, field, None)
+    await db.log_action(PISHVA_ID, "toggle_setting", f"sadel_admin_reset_{admin_id}")
+    await query.answer("♻️ به حالت پیروی از تنظیمِ کلی برگشت", show_alert=True)
+    await _render_sadel_admin_panel(query, admin_id)
+
+
+async def sadel_admin_threshold_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    admin_id = int(query.data[len("sadel_admin_thr_menu_"):])
+    await safe_edit_message_text(query,
+        "🔢 آستانهٔ اختصاصیِ این ادمین رو انتخاب کنید:",
+        reply_markup=kb.kb_suspicious_admin_threshold(admin_id))
+
+
+async def sadel_admin_set_threshold(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    rest = query.data[len("sadel_admin_thr_set_"):]
+    admin_id_str, value = rest.rsplit("_", 1)
+    admin_id = int(admin_id_str)
+    import anomaly_alerts
+    if value == "def":
+        await anomaly_alerts.set_admin_override(admin_id, "threshold", None)
+        msg = "↩️ آستانه به پیروی از کلی برگشت"
+    else:
+        await anomaly_alerts.set_admin_override(admin_id, "threshold", value)
+        msg = f"✅ آستانهٔ اختصاصی به {value} تغییر یافت"
+    await db.log_action(PISHVA_ID, "toggle_setting", f"sadel_admin_threshold_{admin_id} -> {value}")
+    await query.answer(msg, show_alert=True)
+    await _render_sadel_admin_panel(query, admin_id)
+
+
+async def sadel_admin_window_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    admin_id = int(query.data[len("sadel_admin_win_menu_"):])
+    await safe_edit_message_text(query,
+        "⏱️ بازهٔ زمانیِ اختصاصیِ این ادمین رو انتخاب کنید:",
+        reply_markup=kb.kb_suspicious_admin_window(admin_id))
+
+
+async def sadel_admin_set_window(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    rest = query.data[len("sadel_admin_win_set_"):]
+    admin_id_str, value = rest.rsplit("_", 1)
+    admin_id = int(admin_id_str)
+    import anomaly_alerts
+    if value == "def":
+        await anomaly_alerts.set_admin_override(admin_id, "window", None)
+        msg = "↩️ بازه به پیروی از کلی برگشت"
+    else:
+        await anomaly_alerts.set_admin_override(admin_id, "window", value)
+        msg = f"✅ بازهٔ اختصاصی به {value} دقیقه تغییر یافت"
+    await db.log_action(PISHVA_ID, "toggle_setting", f"sadel_admin_window_{admin_id} -> {value}")
+    await query.answer(msg, show_alert=True)
+    await _render_sadel_admin_panel(query, admin_id)
+
 # ─── کارهای زمان‌بندی‌شدهٔ دستیار هوشمند ───────────────────────
 async def pishva_ai_scheduled(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

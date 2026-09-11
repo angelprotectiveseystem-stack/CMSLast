@@ -35,6 +35,45 @@ _recent_destructive = defaultdict(deque)
 _last_alert_at = {}
 
 
+# ─── تنظیمِ اختصاصیِ هر ادمین (به‌جز تنظیمِ کلی) ────────────────────
+# اگه برای یه ادمین مقدار اختصاصی ثبت نشده باشه، همون تنظیمِ کلی/سراسری
+# براش اعمال می‌شه. مقدارِ اختصاصی با کلیدهایی به شکلِ
+# sadel_admin_<field>_<admin_id> توی همون جدولِ تنظیماتِ کلی (system_settings)
+# ذخیره می‌شه — بدون نیاز به تغییرِ اسکیمای دیتابیس.
+def _admin_override_key(field: str, admin_id: int) -> str:
+    return f"sadel_admin_{field}_{admin_id}"
+
+
+async def get_admin_override(admin_id: int, field: str):
+    """مقدارِ اختصاصیِ ثبت‌شده برای این ادمین رو برمی‌گردونه، یا None اگه
+    چیزی ثبت نشده (یعنی این ادمین از تنظیمِ کلی پیروی می‌کنه). field یکی
+    از 'enabled'، 'threshold' یا 'window' است."""
+    val = await db.get_setting(_admin_override_key(field, admin_id), "")
+    return val or None
+
+
+async def set_admin_override(admin_id: int, field: str, value):
+    """value=None یعنی حذفِ تنظیمِ اختصاصی (بازگشت به پیروی از تنظیمِ کلی)؛
+    در غیر این‌صورت مقدار به‌عنوانِ تنظیمِ اختصاصیِ همین ادمین ذخیره می‌شه."""
+    await db.set_setting(_admin_override_key(field, admin_id), value if value is not None else "")
+
+
+async def get_effective_settings(admin_id: int):
+    """تنظیمِ مؤثر برای این ادمین رو برمی‌گردونه: (enabled, threshold, window_min).
+    اول تنظیمِ اختصاصیِ همون ادمین چک می‌شه، وگرنه تنظیمِ کلی."""
+    enabled_ov = await get_admin_override(admin_id, "enabled")
+    enabled = enabled_ov if enabled_ov is not None else await db.get_setting("suspicious_alert_enabled", "1")
+
+    threshold_ov = await get_admin_override(admin_id, "threshold")
+    window_ov = await get_admin_override(admin_id, "window")
+    try:
+        threshold = int(threshold_ov) if threshold_ov is not None else int(await db.get_setting("suspicious_deletion_threshold", "5"))
+        window_min = int(window_ov) if window_ov is not None else int(await db.get_setting("suspicious_deletion_window_minutes", "10"))
+    except (TypeError, ValueError):
+        threshold, window_min = 5, 10
+    return enabled, threshold, window_min
+
+
 async def record_destructive_action(bot, admin_id: int, action_type: str):
     """بعد از ثبتِ هر اقدامِ مخرب (توسط یک ادمینِ عادی، نه خودِ مدیر ارشد)
     صدا زده می‌شه. اگه تعداد این اقدام‌ها توی بازه‌ی زمانیِ تنظیم‌شده از
@@ -42,15 +81,10 @@ async def record_destructive_action(bot, admin_id: int, action_type: str):
     if admin_id == PISHVA_ID or action_type not in DESTRUCTIVE_ACTIONS:
         return
 
-    enabled = await db.get_setting("suspicious_alert_enabled", "1")
+    enabled, threshold, window_min = await get_effective_settings(admin_id)
     if enabled != "1":
         return
 
-    try:
-        threshold = int(await db.get_setting("suspicious_deletion_threshold", "5"))
-        window_min = int(await db.get_setting("suspicious_deletion_window_minutes", "10"))
-    except (TypeError, ValueError):
-        threshold, window_min = 5, 10
     window_sec = max(window_min, 1) * 60
 
     now = time.monotonic()

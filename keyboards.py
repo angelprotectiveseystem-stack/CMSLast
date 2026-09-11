@@ -432,7 +432,70 @@ def kb_suspicious_settings(enabled, threshold, window):
         [InlineKeyboardButton(f"🚨 هشدار حذف مشکوک {e_icon}", callback_data="sadel_toggle", style="primary")],
         [InlineKeyboardButton(f"🔢 آستانه: {threshold} حذف", callback_data="sadel_threshold_menu", style="primary"),
         InlineKeyboardButton(f"⏱️ بازه: {window} دقیقه", callback_data="sadel_window_menu", style="primary")],
+        [InlineKeyboardButton("👤 تنظیمِ جداگانه برای هر ادمین", callback_data="sadel_admins_p0", style="primary")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_settings", style="danger")],
+    ])
+
+
+# ─── تنظیمِ اختصاصیِ هشدار حذف مشکوک برای هر ادمین ──────────────
+def kb_suspicious_admin_list(admins, page, total_pages, has_override):
+    rows = []
+    for a in admins:
+        aid = a["telegram_id"]
+        name = a["display_name"] or a["full_name"] or str(aid)
+        icon = "⚙️ " if aid in has_override else "▫️ "
+        rows.append([InlineKeyboardButton(f"{icon}{name}", callback_data=f"sadel_admin_{aid}", style="primary")])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"sadel_admins_p{page - 1}", style="primary"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"sadel_admins_p{page + 1}", style="primary"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="sadel_panel", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+
+def kb_suspicious_admin_panel(admin_id, enabled_ov, threshold_ov, window_ov):
+    if enabled_ov is None:
+        e_label = "🚨 وضعیت: ↩️ پیروی از تنظیمِ کلی"
+    elif enabled_ov == "1":
+        e_label = "🚨 وضعیت: 🟢 روشن (اختصاصی)"
+    else:
+        e_label = "🚨 وضعیت: 🔴 خاموش (اختصاصی)"
+    thr_label = f"🔢 آستانه: {threshold_ov} حذف (اختصاصی)" if threshold_ov else "🔢 آستانه: ↩️ پیروی از کلی"
+    win_label = f"⏱️ بازه: {window_ov} دقیقه (اختصاصی)" if window_ov else "⏱️ بازه: ↩️ پیروی از کلی"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(e_label, callback_data=f"sadel_admin_toggle_{admin_id}", style="primary")],
+        [InlineKeyboardButton(thr_label, callback_data=f"sadel_admin_thr_menu_{admin_id}", style="primary")],
+        [InlineKeyboardButton(win_label, callback_data=f"sadel_admin_win_menu_{admin_id}", style="primary")],
+        [InlineKeyboardButton("♻️ حذفِ تنظیمِ اختصاصی (بازگشت به کلی)",
+            callback_data=f"sadel_admin_reset_{admin_id}", style="danger")],
+        [InlineKeyboardButton("🔙 بازگشت به لیستِ ادمین‌ها", callback_data="sadel_admins_p0", style="danger")],
+    ])
+
+
+def kb_suspicious_admin_threshold(admin_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔢 ۳ حذف", callback_data=f"sadel_admin_thr_set_{admin_id}_3", style="primary"),
+        InlineKeyboardButton("🔢 ۵ حذف", callback_data=f"sadel_admin_thr_set_{admin_id}_5", style="primary")],
+        [InlineKeyboardButton("🔢 ۷ حذف", callback_data=f"sadel_admin_thr_set_{admin_id}_7", style="primary"),
+        InlineKeyboardButton("🔢 ۱۰ حذف", callback_data=f"sadel_admin_thr_set_{admin_id}_10", style="primary")],
+        [InlineKeyboardButton("↩️ پیروی از تنظیمِ کلی",
+            callback_data=f"sadel_admin_thr_set_{admin_id}_def", style="danger")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"sadel_admin_{admin_id}", style="danger")],
+    ])
+
+
+def kb_suspicious_admin_window(admin_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏱️ ۵ دقیقه", callback_data=f"sadel_admin_win_set_{admin_id}_5", style="primary"),
+        InlineKeyboardButton("⏱️ ۱۰ دقیقه", callback_data=f"sadel_admin_win_set_{admin_id}_10", style="primary")],
+        [InlineKeyboardButton("⏱️ ۱۵ دقیقه", callback_data=f"sadel_admin_win_set_{admin_id}_15", style="primary"),
+        InlineKeyboardButton("⏱️ ۳۰ دقیقه", callback_data=f"sadel_admin_win_set_{admin_id}_30", style="primary")],
+        [InlineKeyboardButton("↩️ پیروی از تنظیمِ کلی",
+            callback_data=f"sadel_admin_win_set_{admin_id}_def", style="danger")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"sadel_admin_{admin_id}", style="danger")],
     ])
 
 
