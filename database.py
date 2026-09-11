@@ -505,6 +505,37 @@ async def get_setting(key: str, default="") -> str:
             return value
 
 
+async def get_settings_bulk(keys, default="1") -> dict:
+    """مثلِ get_setting ولی برای چند کلید با هم. FIX (کندیِ پنلِ تنظیمات):
+    قبلاً هرکدوم از این کلیدها با asyncio.gather «هم‌زمان» صدا زده می‌شدن، ولی
+    چون Turso دور و کندِ‌رفت‌وبرگشته، هم‌زمانیِ سطحِ پایتون به معنیِ یک
+    رفت‌وبرگشتِ شبکه‌ی واحد نبود — چند موجِ رفت‌وبرگشتِ جدا پشتِ‌سرِهم پیش
+    می‌اومد. این تابع فقط کلیدهایی که در کش نیستن رو با یک کوئریِ
+    IN(...) (یک رفت‌وبرگشتِ شبکه‌ی واحد، نه یکی به‌ازای هر کلید) می‌گیره."""
+    result = {}
+    missing = []
+    for k in keys:
+        cached = _cache_get(_setting_cache, k)
+        if cached is not _CACHE_MISS:
+            result[k] = cached
+        else:
+            missing.append(k)
+    if missing:
+        placeholders = ",".join("?" for _ in missing)
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                f"SELECT key, value FROM system_settings WHERE key IN ({placeholders})",
+                missing,
+            ) as cur:
+                rows = await cur.fetchall()
+        found = {row["key"]: row["value"] for row in rows}
+        for k in missing:
+            value = found.get(k, default)
+            _cache_set(_setting_cache, k, value)
+            result[k] = value
+    return result
+
+
 async def set_setting(key: str, value: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(

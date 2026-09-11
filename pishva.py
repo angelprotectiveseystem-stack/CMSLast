@@ -90,14 +90,13 @@ async def pishva_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
         "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
         "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled"]
-    # FIX: قبلاً این ۱۳ تا db.get_setting یکی‌یکی و پشتِ‌سرِهم صدا زده می‌شدن —
-    # یعنی با کشِ سرد (که با هر ری‌استارت یا بعد از ۴۵ ثانیه بی‌تحرکی پیش
-    # می‌اومد)، باز کردنِ همین یک صفحه تا ۱۳ رفت‌وبرگشتِ شبکه‌ایِ کامل به
-    # دیتابیس (Turso) پشتِ‌سرِهم طول می‌کشید. با asyncio.gather همه‌شون
-    # هم‌زمان اجرا می‌شن، یعنی زمانِ کل تقریباً برابرِ کندترینِ تک‌کوئری می‌شه،
-    # نه مجموعِ همه‌شون.
-    values = await asyncio.gather(*(db.get_setting(k, "1") for k in keys))
-    settings = dict(zip(keys, values))
+    # FIX: قبلاً این ۱۵ تا db.get_setting با asyncio.gather «هم‌زمان» صدا زده
+    # می‌شدن، ولی چون Turso دور و کندِ‌رفت‌وبرگشته، هم‌زمانیِ سطحِ پایتون به
+    # یک رفت‌وبرگشتِ شبکه‌ی واحد ختم نمی‌شد — چند موجِ رفت‌وبرگشتِ جدا
+    # پشتِ‌سرِهم پیش می‌اومد (دقیقاً همون چیزی که کندیِ /start رو هم باعث
+    # می‌شد). حالا با get_settings_bulk، کلیدهایی که در کش نیستن با یک
+    # کوئریِ IN(...) واحد گرفته می‌شن.
+    settings = await db.get_settings_bulk(keys, "1")
     await safe_edit_message_text(query, 
         f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",
         reply_markup=kb.kb_pishva_settings_simple(settings),
@@ -141,14 +140,12 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
         "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled"]
     # FIX (کندیِ وحشتناکِ هر دکمه‌ی تنظیمات): این‌جا قبلاً، بعد از هر تاگل،
-    # ۱۵ تا db.get_setting توی یک دیکشنری‌کامپریهنشن پشتِ‌سرِهم (نه موازی)
-    # صدا زده می‌شدن — یعنی هر کلیک روی هر کدوم از دکمه‌های این صفحه،
-    # حتی جدا از خودِ خواندن/نوشتنِ تنظیمِ تاگل‌شده، ۱۵ رفت‌وبرگشتِ شبکه‌ایِ
-    # اضافه به Turso داشت. با asyncio.gather همه‌شون هم‌زمان خونده می‌شن،
-    # و چون مقدارِ تنظیمِ تازه‌تاگل‌شده رو همین بالا داریم، دیگه لازم نیست
-    # دوباره از دیتابیس بخونیمش.
-    values = await asyncio.gather(*(db.get_setting(k, "1") for k in keys))
-    settings = dict(zip(keys, values))
+    # ۱۵ تا db.get_setting جداگانه صدا زده می‌شدن. حتی با asyncio.gather،
+    # چون Turso دور و کندِ‌رفت‌وبرگشته، هم‌زمانیِ سطحِ پایتون به یک
+    # رفت‌وبرگشتِ شبکه‌ی واحد ختم نمی‌شد. حالا با get_settings_bulk یک
+    # کوئریِ IN(...) واحد می‌گیرتشون، و چون مقدارِ تنظیمِ تازه‌تاگل‌شده رو
+    # همین بالا داریم، دیگه لازم نیست دوباره از دیتابیس بخونیمش.
+    settings = await db.get_settings_bulk(keys, "1")
     if key:
         settings[key] = new_val
     await safe_edit_message_text(query, 
@@ -1365,15 +1362,15 @@ async def pishva_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     # FIX: قبلاً برای هر کدوم از موارد BROADCAST_ITEMS، دو تا db.get_setting
-    # پشتِ‌سرِهم صدا زده می‌شد (یعنی برای ۵ مورد فعلی، ۱۰ رفت‌وبرگشتِ شبکه‌ایِ
-    # کاملاً پشتِ‌سرِهم). حالا همه‌ی این خواندن‌ها هم‌زمان با asyncio.gather
-    # انجام می‌شن.
+    # جداگانه صدا زده می‌شد (برای ۵ مورد فعلی، ۱۰ رفت‌وبرگشتِ شبکه‌ای). حتی
+    # با asyncio.gather هم چون Turso دور و کندِ‌رفت‌وبرگشته، هم‌زمانیِ سطحِ
+    # پایتون یک رفت‌وبرگشتِ واحد نمی‌شد. حالا get_settings_bulk با یک
+    # کوئریِ IN(...) واحد همه‌شون رو می‌گیره.
     all_keys = []
     for _, _, group_key, channel_key in BROADCAST_ITEMS:
         all_keys.append(group_key)
         all_keys.append(channel_key)
-    values = await asyncio.gather(*(db.get_setting(k, "1") for k in all_keys))
-    flags = dict(zip(all_keys, values))
+    flags = await db.get_settings_bulk(all_keys, "1")
     items = []
     for key, label, group_key, channel_key in BROADCAST_ITEMS:
         g_on = flags[group_key] == "1"
