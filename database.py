@@ -1235,6 +1235,52 @@ async def get_match(mid: int):
             return await cur.fetchone()
 
 
+async def get_fresh_pishva_panel_data():
+    """FIX (کندیِ /start): pending_requests + pending_matches + all_tasks عمداً
+    کش نمی‌شن (باید همیشه تازه باشن، وگرنه مثلاً دو ادمین می‌تونن هم‌زمان
+    سراغِ یک مسابقه‌ی claim‌شده برن). مشکل این بود که همین سه‌تا، هرکدوم یک
+    رفت‌وبرگشتِ جداگانه به Turso می‌زدن؛ چون Turso روی ap-northeast-1 (توکیو)ست،
+    هر رفت‌وبرگشت ~۶۰۰-۷۰۰ میلی‌ثانیه طول می‌کشه، پس این سه‌تا با هم ~۲ ثانیه
+    اضافه می‌کردن. این تابع هر سه رو با یک درخواستِ شبکه‌ی واحد می‌گیره —
+    هیچ‌کدوم کش نمی‌شن (همون تازگیِ قبلی حفظ می‌شه)، فقط یک بار به شبکه می‌ریم."""
+    reqs_cur, matches_cur, tasks_cur = await aiosqlite.execute_pipeline([
+        ("SELECT * FROM access_requests WHERE status='pending' ORDER BY requested_at DESC", []),
+        (
+            """SELECT m.*,
+               wp.full_name as white_name, bp.full_name as black_name,
+               COALESCE(a.display_name, a.full_name) as claimed_by_name
+               FROM matches m
+               LEFT JOIN players wp ON m.white_player_id=wp.id
+               LEFT JOIN players bp ON m.black_player_id=bp.id
+               LEFT JOIN admins a ON m.claimed_by=a.telegram_id
+               WHERE m.result IS NULL ORDER BY m.created_at DESC""",
+            [],
+        ),
+        ("SELECT * FROM tasks ORDER BY assigned_at DESC", []),
+    ])
+    return await reqs_cur.fetchall(), await matches_cur.fetchall(), await tasks_cur.fetchall()
+
+
+async def get_fresh_admin_panel_data(admin_id: int):
+    """همون FIX بالا، برای پنلِ ادمین: pending_matches + tasks_for(admin_id)
+    با یک رفت‌وبرگشتِ شبکه‌ی واحد به‌جای دوتای جدا."""
+    matches_cur, tasks_cur = await aiosqlite.execute_pipeline([
+        (
+            """SELECT m.*,
+               wp.full_name as white_name, bp.full_name as black_name,
+               COALESCE(a.display_name, a.full_name) as claimed_by_name
+               FROM matches m
+               LEFT JOIN players wp ON m.white_player_id=wp.id
+               LEFT JOIN players bp ON m.black_player_id=bp.id
+               LEFT JOIN admins a ON m.claimed_by=a.telegram_id
+               WHERE m.result IS NULL ORDER BY m.created_at DESC""",
+            [],
+        ),
+        ("SELECT * FROM tasks WHERE assigned_to=? ORDER BY assigned_at DESC", [admin_id]),
+    ])
+    return await matches_cur.fetchall(), await tasks_cur.fetchall()
+
+
 async def get_pending_matches():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row

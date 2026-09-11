@@ -405,13 +405,11 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # بیماریِ داشبورد) — همینه که پنل خوش‌آمدگویی چند ثانیه طول می‌کشید.
     # الان همه با هم (asyncio.gather) اجرا می‌شن، و آب‌وهوا هم دیگه هرگز
     # پنل رو معطلِ شبکه نگه نمی‌داره.
-    pname, weather, admins, pending, pending_matches, all_tasks, status, wh, db_stat, ai_on = await asyncio.gather(
+    pname, weather, admins, (pending, pending_matches, all_tasks), status, wh, db_stat, ai_on = await asyncio.gather(
         pishva_display(),
         get_weather_line_nowait(),
         db.get_active_admins(),
-        db.get_pending_requests(),
-        db.get_pending_matches(),
-        db.get_all_tasks(),
+        db.get_fresh_pishva_panel_data(),  # FIX: pending+matches+tasks با یک رفت‌وبرگشتِ شبکه به‌جای سه‌تا
         db.get_setting("system_status", "normal"),
         db.get_setting("working_hours_active", "0"),
         db.get_setting("db_manual_status", "1"),
@@ -455,10 +453,9 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
     greeting = time_greeting(_aname)
 
     # همون فیکس: همه‌ی کوئری‌های مستقل با هم، نه یکی‌یکی.
-    weather, pending_matches, admin_tasks, all_players, status, wh, ai_on = await asyncio.gather(
+    weather, (pending_matches, admin_tasks), all_players, status, wh, ai_on = await asyncio.gather(
         get_weather_line_nowait(),
-        db.get_pending_matches(),
-        db.get_tasks_for(admin["telegram_id"]),
+        db.get_fresh_admin_panel_data(admin["telegram_id"]),  # FIX: matches+tasks با یک رفت‌وبرگشت به‌جای دوتا
         db.get_all_players(),
         db.get_setting("system_status", "normal"),
         db.get_setting("working_hours_active", "0"),

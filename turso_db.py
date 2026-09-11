@@ -85,6 +85,31 @@ class _TursoHttpClient:
             )
         return _to_exec_result(result)
 
+    async def execute_pipeline(self, statements):
+        """مثلِ batch() ولی برخلافش نتیجه‌ی هرکدوم از کوئری‌ها رو هم برمی‌گردونه
+        (batch() فقط برای نوشتن‌هاست و نتیجه رو دور می‌ریزه). همه‌ی statements
+        با یک درخواستِ شبکه‌ی واحد اجرا می‌شن — یعنی N تا کوئری = ۱ رفت‌وبرگشت،
+        نه N تا. برای صفحاتی مثل خوش‌آمدگویی که چند تا SELECT مستقل و «حتماً
+        تازه» (بدون کش) لازم دارن، همین یکی‌کردنِ درخواست‌ها منشأِ اصلیِ کندیه."""
+        requests = [
+            {"type": "execute", "stmt": {"sql": sql, "args": [_encode_value(a) for a in (args or [])]}}
+            for sql, args in statements
+        ]
+        requests.append({"type": "close"})
+        data = await self._pipeline(requests)
+        results = data.get("results") or []
+        out = []
+        for (sql, args), entry in zip(statements, results):
+            self._check_pipeline_error(entry, sql, args)
+            response = entry.get("response") or {}
+            result = response.get("result")
+            if result is None:
+                raise RuntimeError(
+                    f"Turso: unexpected response shape | sql={sql!r} args={args!r} | raw={entry!r}"
+                )
+            out.append(_to_exec_result(result))
+        return out
+
     async def batch(self, statements):
         """statements: list of (sql, args) tuples، همه با یک درخواست شبکه اجرا می‌شن."""
         requests = [
@@ -362,6 +387,15 @@ class _ConnectCM:
 
     async def __aexit__(self, *exc):
         return False
+
+
+async def execute_pipeline(statements):
+    """statements: لیستی از تاپل‌های (sql, args). همه با یک درخواستِ شبکه‌ی
+    واحد به Turso اجرا می‌شن و لیستی از _Cursor (به همون شکلی که db.execute()
+    عادی برمی‌گردونه) پس داده می‌شه — همون ترتیبِ ورودی."""
+    client = _get_client()
+    results = await client.execute_pipeline(statements)
+    return [_Cursor(r) for r in results]
 
 
 def connect(path=None):
