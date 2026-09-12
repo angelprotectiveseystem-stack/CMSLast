@@ -582,6 +582,64 @@
     state.timer = setInterval(poll, POLL_MS);
   }
 
+  // ── نشانگر موس سفارشی (فقط دسکتاپ با موس واقعی) ────────
+  // pointer:fine یعنی وسیله‌ی اشاره‌گر دقیقه (موس)، hover:hover یعنی
+  // می‌تونه واقعاً هاور کنه (نه لمسی). فقط این ترکیب رو فعال می‌کنیم
+  // تا روی گوشی/تبلت هیچ چیزی عوض نشه و لمس با انگشت دست نخوره.
+  function initCustomCursor() {
+    if (!window.matchMedia || !window.matchMedia("(pointer: fine) and (hover: hover)").matches) return;
+    var dot = document.getElementById("cursor-dot");
+    var ring = document.getElementById("cursor-ring");
+    if (!dot || !ring) return;
+
+    var html = document.documentElement;
+    html.classList.add("custom-cursor");
+
+    var mouseX = 0, mouseY = 0;   // موقعیت واقعی موس
+    var ringX = 0, ringY = 0;     // موقعیت حلقه، با یه تاخیر نرم دنبال موس میاد
+    var ringScale = 1;            // فشردگی لحظه‌ی کلیک
+    var ringScaleTarget = 1;
+    var started = false;
+
+    function paintDot() {
+      dot.style.transform = "translate(" + mouseX + "px," + mouseY + "px) translate(-50%,-50%)";
+    }
+    function loop() {
+      // انیمیشن روون: هر فریم فقط بخشی از فاصله رو طی می‌کنه (lerp)
+      ringX += (mouseX - ringX) * 0.22;
+      ringY += (mouseY - ringY) * 0.22;
+      ringScale += (ringScaleTarget - ringScale) * 0.3;
+      ring.style.transform = "translate(" + ringX + "px," + ringY + "px) translate(-50%,-50%) scale(" + ringScale + ")";
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    document.addEventListener("mousemove", function (e) {
+      mouseX = e.clientX; mouseY = e.clientY;
+      if (!started) { started = true; ringX = mouseX; ringY = mouseY; }
+      paintDot();
+      html.classList.remove("cursor-hidden");
+    });
+    document.addEventListener("mouseleave", function () { html.classList.add("cursor-hidden"); });
+    document.addEventListener("mouseenter", function () { html.classList.remove("cursor-hidden"); });
+    document.addEventListener("mousedown", function () { ringScaleTarget = .82; });
+    document.addEventListener("mouseup", function () { ringScaleTarget = 1; });
+
+    // روی چه چیزهایی شکل نشانگر عوض می‌شه:
+    var POINTER_SEL = 'a, button, [role="button"], .nav-item, .bn-item, .tab-btn, label, input[type="checkbox"], input[type="radio"]';
+    var TEXT_SEL = 'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]), textarea';
+    document.addEventListener("mouseover", function (e) {
+      if (e.target.closest && e.target.closest(POINTER_SEL)) {
+        html.classList.add("cursor-pointer"); html.classList.remove("cursor-text");
+      } else if (e.target.closest && e.target.closest(TEXT_SEL)) {
+        html.classList.add("cursor-text"); html.classList.remove("cursor-pointer");
+      } else {
+        html.classList.remove("cursor-pointer", "cursor-text");
+      }
+    });
+  }
+  initCustomCursor();
+
   // ── Init ──────────────────────────────────────────────
   if (localStorage.getItem(TOKEN_KEY)) {
     startApp();

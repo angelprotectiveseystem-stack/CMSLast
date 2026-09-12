@@ -526,6 +526,66 @@ body.no-scroll { overflow: hidden; }
   .bottom-nav { display: none !important; }
 }
 
+/* ── نشانگر موس سفارشی ──────────────────────────────────
+   فقط وقتی فعال می‌شه که app.js تشخیص بده دستگاه موس واقعی
+   داره (pointer: fine و hover: hover) — روی گوشی/تبلت هیچ
+   اثری نداره و کلاس‌ها اصلاً اضافه نمی‌شن.
+   دو تکه: یه نقطه‌ی کوچیک که دقیقاً روی موسه، و یه حلقه که
+   با یه تاخیر نرم (lerp در app.js) دنبالش میاد. روی دکمه/لینک
+   حلقه بزرگ و پر می‌شه، روی ورودی متن به یه خط باریک شبیه
+   مکان‌نما تبدیل می‌شه. */
+html.custom-cursor,
+html.custom-cursor * {
+  cursor: none !important;
+}
+.cursor-dot, .cursor-ring {
+  position: fixed; top: 0; left: 0;
+  pointer-events: none; z-index: 9999;
+  border-radius: 50%;
+  transform: translate(-100px, -100px);
+}
+.cursor-dot {
+  width: 7px; height: 7px;
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(201,154,70,.7);
+  opacity: 0;
+  transition: opacity .15s ease, transform .12s cubic-bezier(.2,.8,.2,1);
+}
+.cursor-ring {
+  width: 34px; height: 34px;
+  border: 1.5px solid var(--amber);
+  opacity: 0;
+  transition: width .18s cubic-bezier(.2,.8,.2,1), height .18s cubic-bezier(.2,.8,.2,1),
+              opacity .18s ease, background-color .18s ease, border-color .18s ease,
+              border-radius .18s ease;
+}
+html.custom-cursor .cursor-dot,
+html.custom-cursor .cursor-ring { opacity: .6; }
+html.custom-cursor .cursor-dot { opacity: 1; }
+
+html.custom-cursor.cursor-hidden .cursor-dot,
+html.custom-cursor.cursor-hidden .cursor-ring { opacity: 0 !important; }
+
+/* روی دکمه، لینک، آیتم‌های ناوبری… */
+html.custom-cursor.cursor-pointer .cursor-ring {
+  width: 52px; height: 52px;
+  background: rgba(201,154,70,.12);
+  opacity: 1;
+}
+html.custom-cursor.cursor-pointer .cursor-dot { opacity: 0; }
+
+/* روی ورودی متن / textarea */
+html.custom-cursor.cursor-text .cursor-ring {
+  width: 2px; height: 22px; border-radius: 2px;
+  border-color: transparent; background: var(--amber); opacity: .8;
+}
+html.custom-cursor.cursor-text .cursor-dot { opacity: 0; }
+
+/* لحظه‌ی کلیک: فشردگی کوچیک حلقه — با app.js روی transform اعمال می‌شه
+   (نه اینجا)، چون موقعیت حلقه هم با transform تنظیم می‌شه و نباید
+   رونویسی بشه. */
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+  .cursor-dot, .cursor-ring { display: none !important; }
 }
