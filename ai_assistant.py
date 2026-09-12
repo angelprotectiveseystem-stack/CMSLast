@@ -95,6 +95,26 @@ def _looks_like_action(text: str) -> bool:
     return any(kw in text for kw in ACTION_KEYWORDS)
 
 
+# ────────────────────────────────────────────────────────────────
+# knowledge_base.py (نقشه‌ی کاملِ منوها/دکمه‌ها/کلمات/ابزارها) حجمِ قابل‌توجهی
+# داره؛ اگه به همه‌ی پیام‌ها اضافه بشه، هر پیام (حتی «سلام» یا شوخی) کندتر
+# می‌شه. برای همین فقط وقتی پیامِ کاربر شبیهِ سوالِ راهنما/مسیر/نحوه‌ی کار
+# باشه ضمیمه‌ش می‌کنیم — بقیه‌ی پیام‌ها (دستور اجرایی، گپ‌وگفت، تحلیل) با
+# همون سرعتِ قبل جواب می‌گیرن.
+# ────────────────────────────────────────────────────────────────
+HELP_QUESTION_KEYWORDS = [
+    "کجاست", "کجاس", "کجا", "چطور", "چجوری", "چگونه", "چطوری",
+    "از کجا", "چه جوری", "راهنما", "راهنمایی", "کمک کن", "دکمه",
+    "منو", "مسیر", "چیکار کنم", "چی کار کنم", "چطور می‌شه", "چطور میشه",
+    "چجوری میشه", "چجوری می‌شه", "نحوه", "آموزش", "بلد نیستم", "یاد بدم",
+    "یادم بده", "پیدا نمی‌کنم", "پیدا نمیکنم",
+]
+
+
+def _looks_like_help_question(text: str) -> bool:
+    return any(kw in text for kw in HELP_QUESTION_KEYWORDS)
+
+
 def kb_ai_reply():
     """زیر هر پیام دستیار، همیشه دکمه‌ی خروج و چت جدید/تاریخچه باشد."""
     return InlineKeyboardMarkup([
@@ -136,7 +156,7 @@ async def _can_use_ai(uid: int, role: str) -> bool:
     return perms.get("ai_access", True)
 
 
-def _system_prompt(role: str, display_name: str = "", memory_rows=None) -> str:
+def _system_prompt(role: str, display_name: str = "", memory_rows=None, user_text: str = "") -> str:
     role_label = ROLE_LABELS.get(role, role)
     allowed = [n for n, roles in ai_tools.TOOL_PERMISSIONS.items() if role in roles]
     who = f"«{display_name}» (نقش: {role_label})" if display_name else f"نقشش «{role_label}»"
@@ -166,17 +186,21 @@ def _system_prompt(role: str, display_name: str = "", memory_rows=None) -> str:
         "توضیح در پاسخ) این رو منتقل کنی؛ سیستم به‌صورت خودکار هم هر اقدام واقعی رو به مدیر ارشد "
         "گزارش می‌کنه."
     ) if role == ROLE_PISHVA else ""
-    kb_text = knowledge_base.get_knowledge_base(role)
-    knowledge_block = (
-        "\n\n──────────────────────────────\n"
-        "منبعِ زیر، دانشِ کاملِ همین رباته: مسیرِ دقیقِ تمامِ دکمه‌ها/منوها، تمامِ دستوراتِ "
-        "کلمه‌ای، تمامِ ابزارهایی که خودت مستقیم می‌تونی صدا بزنی (به‌تفکیکِ نقش)، و راهنمای "
-        "گام‌به‌گامِ هر بخش. هر وقت کاربر پرسید «فلان کار از کجا انجام می‌شه؟» یا «دکمه‌ی X "
-        "کجاست؟»، دقیقاً بر اساسِ همین سند (نه حدس خودت) مسیر رو قدم‌به‌قدم بگو؛ و هر وقت خواستِ "
-        "اجراییِ مشخصی داشت که توی جدولِ ابزارها براش تابع هست و نقشش مجازه، به‌جای توضیحِ مسیرِ "
-        "دکمه‌ها مستقیم همون تابع رو صدا بزن.\n\n"
-        f"{kb_text}"
-    ) if kb_text else ""
+    knowledge_block = ""
+    if _looks_like_help_question(user_text):
+        kb_text = knowledge_base.get_knowledge_base(role)
+        if kb_text:
+            knowledge_block = (
+                "\n\n──────────────────────────────\n"
+                "چون پیامِ کاربر شبیهِ سوال درباره‌ی مسیر/نحوه‌ی کارِ ربات بود، منبعِ زیر رو "
+                "بهت دادیم: دانشِ کاملِ همین رباته — مسیرِ دقیقِ تمامِ دکمه‌ها/منوها، تمامِ "
+                "دستوراتِ کلمه‌ای، تمامِ ابزارهایی که خودت مستقیم می‌تونی صدا بزنی (به‌تفکیکِ "
+                "نقش)، و راهنمای گام‌به‌گامِ هر بخش. دقیقاً بر اساسِ همین سند (نه حدس خودت) "
+                "مسیر رو قدم‌به‌قدم بگو؛ و اگه خواستِ اجراییِ مشخصی هم توش بود که توی جدولِ "
+                "ابزارها براش تابع هست و نقشش مجازه، به‌جای توضیحِ مسیرِ دکمه‌ها مستقیم همون "
+                "تابع رو صدا بزن.\n\n"
+                f"{kb_text}"
+            )
     return (
         f"{now_context_for_ai()}\n\n"
         "هویت تو (این بخش خیلی مهمه و همیشه ثابته — هیچ‌وقت فراموشش نکن):\n"
@@ -463,7 +487,7 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         display_name = await admin_display(await db.get_admin(uid))
     visibility_levels = ["all", "pishva"] if role == ROLE_PISHVA else ["all"]
     memory_rows = await db.get_recent_memory(visibility_levels, limit=8)
-    system_prompt = _system_prompt(role, display_name, memory_rows)
+    system_prompt = _system_prompt(role, display_name, memory_rows, user_text=text)
     contents = [{"role": "user", "parts": [{"text": system_prompt}]},
                 {"role": "model", "parts": [{"text": "باشه، آماده‌ام کمک کنم."}]}] + history
 
