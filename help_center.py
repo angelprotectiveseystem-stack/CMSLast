@@ -1055,6 +1055,7 @@ def kb_help_main(role: str = "admin"):
         [InlineKeyboardButton("⚙️ تنظیمات", callback_data="htut_settings_0"),
         InlineKeyboardButton("🛡️ امنیت و اورژانسی", callback_data="htut_security_aps_0")],
         [InlineKeyboardButton("🆘 عیب‌یابی", callback_data="htut_troubleshoot_0")],
+        [InlineKeyboardButton("🤖 پرسیدن از دستیار هوشمند", callback_data="ai_assistant_open")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")],
     ]
     return InlineKeyboardMarkup(rows)
@@ -1068,6 +1069,7 @@ def kb_tutorial_nav(section: str, step: int, total: int):
         nav.append(InlineKeyboardButton("▶️ بعدی", callback_data=f"htut_{section}_{step+1}"))
     if nav:
         rows.append(nav)
+    rows.append([InlineKeyboardButton("🤖 پرسیدن از دستیار هوشمند", callback_data="ai_assistant_open")])
     rows.append([
         InlineKeyboardButton("🏠 فهرست راهنما", callback_data="menu_help"),
         InlineKeyboardButton("🔙 بازگشت", callback_data="back_main"),
