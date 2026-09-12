@@ -211,6 +211,13 @@ html,body{
 .square.last-from::before, .square.last-to::before{
   background: rgba(240,185,63,.28); opacity:1;
 }
+/* هدف زیرِ انگشت/موس هنگامِ درگ‌کردنِ مهره (نه هنگامِ تپ‌کردن) —
+   جدا از .selected چون هردو می‌توانند هم‌زمان روی صفحه باشند (خانه‌ی
+   مبدأ انتخاب‌شده + خانه‌ی مقصدِ زیرِ انگشت). */
+.square.drop-hover::before{
+  background: transparent; opacity:1; transform: scale(1);
+  box-shadow: inset 0 0 0 3px var(--accent);
+}
 .square.check::before{
   background: radial-gradient(circle, rgba(240,84,110,.65) 0%, rgba(240,84,110,0) 72%); opacity:1;
   animation: checkpulse 1s ease-in-out infinite;

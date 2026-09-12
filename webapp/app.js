@@ -288,6 +288,122 @@ function buildBoard(){
   }
 }
 
+// ─── گرفتن و کشیدنِ مهره‌ها (Drag & Drop) ───────────────────
+// قبلاً فقط تپ‌کردن (انتخاب خانه → انتخاب مقصد) کار می‌کرد؛ کلاسِ
+// .piece.dragging در CSS از قبل تعریف شده بود ولی هیچ‌جای app.js
+// اضافه نمی‌شد — یعنی مهره اصلاً «بلند» نمی‌شد و کشیدنش برای حرکت‌دادن
+// ممکن نبود. اینجا با pointerdown/move/up یک «شبح» از مهره ساخته
+// می‌شود که با انگشت/موس دنبال می‌کند؛ خودِ مهره‌ی اصلی تا لحظه‌ی رهاشدن
+// در خانه‌اش می‌ماند — چون .square دارای contain:paint است و اگر خودِ
+// مهره را با transform به بیرون از خانه‌اش می‌بردیم، همان‌جا بریده/محو
+// می‌شد. اگر رهاکردن روی یک مقصدِ مجاز باشد، همان doMove موجود صدا زده
+// می‌شود، پس تمامِ موتورِ انیمیشن/صدا/هماهنگی‌باسرور که برای تپ نوشته
+// شده، بدونِ تکرار، برای درگ هم استفاده می‌شود.
+(function initPieceDrag(){
+  var DRAG_THRESHOLD = 6; // پیکسل — کمتر از این یعنی تپِ ساده، نه درگ
+  var drag = null; // { fromSq, pieceEl, ghost, startX, startY, rect, pointerId, moved }
+
+  function squareFromPoint(x, y){
+    var el = document.elementFromPoint(x, y);
+    var sqEl = el && el.closest ? el.closest(".square") : null;
+    return sqEl ? sqEl.dataset.square : null;
+  }
+
+  function makeGhost(pieceEl, rect){
+    var g = pieceEl.cloneNode(true);
+    g.classList.add("dragging");
+    g.style.position = "fixed";
+    g.style.right = "auto";
+    g.style.bottom = "auto";
+    g.style.margin = "0";
+    g.style.left = rect.left + "px";
+    g.style.top = rect.top + "px";
+    g.style.width = rect.width + "px";
+    g.style.height = rect.height + "px";
+    g.style.pointerEvents = "none";
+    g.style.zIndex = "999";
+    document.body.appendChild(g);
+    return g;
+  }
+
+  function clearDropHover(){
+    Object.keys(state.boardEls).forEach(function(s){
+      state.boardEls[s].classList.remove("drop-hover");
+    });
+  }
+
+  $("board").addEventListener("pointerdown", function(e){
+    if(drag) return;
+    var pieceEl = e.target.closest ? e.target.closest(".piece") : null;
+    if(!pieceEl) return;
+    var sqEl = pieceEl.closest(".square");
+    if(!sqEl) return;
+    var sq = sqEl.dataset.square;
+    if(state.isSpectator || !myTurn()) return;
+    var piece = chess.get(sq);
+    if(!piece || piece.color !== state.myColor) return;
+
+    // همان انتخابِ حالتِ تپ: خانه انتخاب و نقطه‌های مقصد نشان داده
+    // می‌شوند، حتی پیش از این‌که معلوم شود کاربر واقعاً می‌خواهد درگ کند.
+    state.selected = sq;
+    state.legalTargets = chess.moves({ square: sq, verbose:true });
+    paintHighlights();
+
+    drag = {
+      fromSq: sq, pieceEl: pieceEl, ghost: null,
+      startX: e.clientX, startY: e.clientY, rect: pieceEl.getBoundingClientRect(),
+      pointerId: e.pointerId, moved: false
+    };
+  });
+
+  document.addEventListener("pointermove", function(e){
+    if(!drag || e.pointerId !== drag.pointerId) return;
+    var dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+    if(!drag.moved){
+      if(Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+      drag.moved = true;
+      drag.pieceEl.style.opacity = "0"; // مهره‌ی واقعی موقتاً مخفی؛ شبح جایش دنبالِ انگشت می‌رود
+      drag.ghost = makeGhost(drag.pieceEl, drag.rect);
+    }
+    drag.ghost.style.transform = "translate(" + dx + "px," + dy + "px)";
+    var overSq = squareFromPoint(e.clientX, e.clientY);
+    Object.keys(state.boardEls).forEach(function(s){
+      state.boardEls[s].classList.toggle("drop-hover", s === overSq && s !== drag.fromSq);
+    });
+  });
+
+  function endDrag(e){
+    if(!drag || e.pointerId !== drag.pointerId) return;
+    var d = drag; drag = null;
+    clearDropHover();
+
+    if(!d.moved) return; // تپِ ساده بوده؛ کلیکِ طبیعیِ بعدی طبقِ روالِ قبلی onSquareClick را صدا می‌زند
+
+    d.pieceEl.style.opacity = "";
+    if(d.ghost && d.ghost.parentNode) d.ghost.parentNode.removeChild(d.ghost);
+    state.suppressNextClick = true; // کلیکِ سنتتیکِ بعد از این pointerup نباید دوباره پردازش شود
+
+    var dropSq = squareFromPoint(e.clientX, e.clientY);
+    var move = dropSq && state.legalTargets.find(function(m){ return m.to === dropSq; });
+    if(move){
+      if(move.flags.indexOf("p") >= 0){
+        askPromotion(function(promo){ doMove(d.fromSq, dropSq, promo); });
+      } else {
+        doMove(d.fromSq, dropSq);
+      }
+    } else {
+      // رهاکردن روی خانه‌ی نامعتبر (یا بیرونِ تخته): چون مهره‌ی واقعی
+      // اصلاً جابه‌جا نشده بود (فقط شبح مخفی/حذف شد)، خودش سرِ جایش
+      // می‌ماند؛ فقط انتخاب پاک می‌شود.
+      state.selected = null;
+      state.legalTargets = [];
+      paintHighlights();
+    }
+  }
+  document.addEventListener("pointerup", endDrag);
+  document.addEventListener("pointercancel", endDrag);
+})();
+
 // ─── Piece movement / animation engine (rewritten from scratch) ─────
 //
 // این پیاده‌سازی قبلی جهت جابه‌جایی را از روی «اندیس ستون/ردیف در DOM»
@@ -697,6 +813,10 @@ function myTurn(){
 }
 
 function onSquareClick(sq){
+  // بعد از یک درگِ واقعی (نه یک تپِ ساده)، خودِ pointerup حرکت را انجام
+  // داده؛ کلیکِ سنتتیکی که مرورگر بعدش می‌فرستد نباید دوباره پردازش شود
+  // (وگرنه انتخاب/حرکت دوبار اجرا می‌شد).
+  if(state.suppressNextClick){ state.suppressNextClick = false; return; }
   if(state.isSpectator) return;
   if(!myTurn()) return;
   var piece = chess.get(sq);
