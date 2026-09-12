@@ -18,6 +18,7 @@ asyncio.to_thread اجرا کند تا event loop اصلی را بلاک نکن�
 """
 
 import math
+import time
 import zlib
 
 import chess as pychess
@@ -27,10 +28,28 @@ from chess_ai import PIECE_VALUES, search_moves
 # ─── عمقِ جست‌وجو ────────────────────────────────────────────────
 # برای بازی‌های خیلی طولانی عمق را کم می‌کنیم تا کلِ تحلیل در زمانِ
 # معقولی (چند ثانیه تا حدودِ نیم‌دقیقه) روی سرورِ Railway تمام شود.
+# FIX «دکمه‌ی تحلیل برای بازی‌های طولانی کار نمی‌کند»: قبلاً فقط دو حالت
+# وجود داشت (۳۰≤ → عمق ۳، بقیه → عمق ۲) و هیچ سقفی برای بازی‌های *خیلی*
+# طولانی (۱۰۰-۲۰۰+ نیم‌حرکت) نبود؛ چون زمانِ کل با تعدادِ نیم‌حرکت‌ها خطی
+# رشد می‌کرد، این بازی‌ها آن‌قدر طول می‌کشید که یا پراکسی/سرور درخواست را
+# قطع می‌کرد یا کاربر با خطای «اتصال برقرار نشد» مواجه می‌شد — یعنی از
+# دیدِ کاربر، دکمه‌ی تحلیل «کار نمی‌کرد». حالا یک سومین سطح (عمقِ ۱) هم
+# داریم، به‌علاوه‌ی یک بودجه‌ی زمانیِ کلی در analyze_game که در صورتِ لزوم
+# باز هم عمق را کاهش می‌دهد تا تحلیل تضمین‌شده در زمانِ محدود تمام شود.
 def _search_depth(n_plies: int) -> int:
     if n_plies <= 30:
         return 3
-    return 2
+    if n_plies <= 80:
+        return 2
+    return 1
+
+
+# سقفِ زمانیِ کلِ محاسبه (نه هر نیم‌حرکت): اگر تا این‌جا رسیدیم و هنوز
+# نیم‌حرکتِ باقی‌مانده داریم، برای بقیه‌ی بازی به سریع‌ترین عمق (۱) سقوط
+# می‌کنیم — همان الگویی که موتورهای واقعی هم زیرِ فشارِ زمان استفاده
+# می‌کنند («کیفیتِ کمتر ولی حتماً تمام‌شو»، به‌جای «دقیقِ کامل ولی هیچ‌وقت
+# تمام‌نشو»).
+_TIME_BUDGET_SECONDS = 18
 
 
 # اولین چند نیم‌حرکتِ هر بازی («کتابی»/تئوری) با جست‌وجوی سبک‌تری بررسی
@@ -204,6 +223,8 @@ def analyze_game(moves_san, depth: int = None):
     board = pychess.Board()
     n = len(moves_san)
     base_depth = depth or _search_depth(n)
+    start_time = time.monotonic()
+    time_degraded = False
 
     plies = []
     losses = {"w": [], "b": []}
@@ -219,7 +240,12 @@ def analyze_game(moves_san, depth: int = None):
             break
 
         is_book = i < _BOOK_PLIES
-        search_depth = _BOOK_DEPTH if is_book else base_depth
+        if is_book:
+            search_depth = _BOOK_DEPTH
+        else:
+            if not time_degraded and time.monotonic() - start_time > _TIME_BUDGET_SECONDS:
+                time_degraded = True
+            search_depth = 1 if time_degraded else base_depth
         values = search_moves(board, search_depth)
         if not values:
             break
