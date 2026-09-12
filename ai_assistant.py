@@ -25,6 +25,7 @@ import database as db
 from helpers import safe_edit_message_text, get_user_role, pishva_display, admin_display, now_context_for_ai
 from config import PISHVA_ID, ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
 import ai_tools
+import knowledge_base
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,17 @@ def _system_prompt(role: str, display_name: str = "", memory_rows=None) -> str:
         "توضیح در پاسخ) این رو منتقل کنی؛ سیستم به‌صورت خودکار هم هر اقدام واقعی رو به مدیر ارشد "
         "گزارش می‌کنه."
     ) if role == ROLE_PISHVA else ""
+    kb_text = knowledge_base.get_knowledge_base(role)
+    knowledge_block = (
+        "\n\n──────────────────────────────\n"
+        "منبعِ زیر، دانشِ کاملِ همین رباته: مسیرِ دقیقِ تمامِ دکمه‌ها/منوها، تمامِ دستوراتِ "
+        "کلمه‌ای، تمامِ ابزارهایی که خودت مستقیم می‌تونی صدا بزنی (به‌تفکیکِ نقش)، و راهنمای "
+        "گام‌به‌گامِ هر بخش. هر وقت کاربر پرسید «فلان کار از کجا انجام می‌شه؟» یا «دکمه‌ی X "
+        "کجاست؟»، دقیقاً بر اساسِ همین سند (نه حدس خودت) مسیر رو قدم‌به‌قدم بگو؛ و هر وقت خواستِ "
+        "اجراییِ مشخصی داشت که توی جدولِ ابزارها براش تابع هست و نقشش مجازه، به‌جای توضیحِ مسیرِ "
+        "دکمه‌ها مستقیم همون تابع رو صدا بزن.\n\n"
+        f"{kb_text}"
+    ) if kb_text else ""
     return (
         f"{now_context_for_ai()}\n\n"
         "هویت تو (این بخش خیلی مهمه و همیشه ثابته — هیچ‌وقت فراموشش نکن):\n"
@@ -258,6 +270,7 @@ def _system_prompt(role: str, display_name: str = "", memory_rows=None) -> str:
         "توی همون گفتگو صدا بزن تا کل کار تموم بشه."
         + delegate_block
         + memory_block
+        + knowledge_block
     )
 
 
