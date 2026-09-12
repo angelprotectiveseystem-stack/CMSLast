@@ -253,6 +253,15 @@ html,body{
      می‌افتد) خودش یک فریمِ افتاده تولید می‌کند. */
   transform: translateZ(0);
   backface-visibility: hidden;
+  /* بدونِ این، قانونِ سراسریِ `* { touch-action: manipulation }` روی
+     خودِ مهره هم اثر می‌کند. manipulation یعنی مرورگر همچنان اجازه‌ی
+     پن/اسکرول را برای خودش نگه می‌دارد؛ همین باعث می‌شود در نیمه‌راهِ
+     pointermove (به‌خصوص در WebViewِ تلگرام) مرورگر ژست را «اسکرول»
+     تشخیص بدهد و با یک pointercancel درگِ ما را قطع کند — دقیقاً همان
+     چیزی که باعث می‌شد شبح اصلاً دنبالِ انگشت نرود یا نیمه‌کاره بماند.
+     touch-action:none این تصمیم‌گیریِ مرورگر را کاملاً از مهره حذف
+     می‌کند و pointerdown/move/up را صددرصد دستِ جاوااسکریپت می‌گذارد. */
+  touch-action: none;
 }
 .piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }
 .piece.black-p{ color: var(--piece-black); -webkit-text-stroke: .5px var(--piece-black-stroke); }

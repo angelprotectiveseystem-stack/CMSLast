@@ -343,6 +343,11 @@ function buildBoard(){
     var piece = chess.get(sq);
     if(!piece || piece.color !== state.myColor) return;
 
+    // جلوگیریِ دفاعیِ اضافه از دست‌درازیِ مرورگر (اسکرول/زوم) روی این
+    // ژست، مکمّلِ touch-action:none در CSS — بعضی WebViewهای قدیمی‌تر
+    // فقط با preventDefault هم قانع می‌شوند، نه فقط با CSS.
+    if(e.cancelable) e.preventDefault();
+
     // همان انتخابِ حالتِ تپ: خانه انتخاب و نقطه‌های مقصد نشان داده
     // می‌شوند، حتی پیش از این‌که معلوم شود کاربر واقعاً می‌خواهد درگ کند.
     state.selected = sq;
@@ -358,6 +363,7 @@ function buildBoard(){
 
   document.addEventListener("pointermove", function(e){
     if(!drag || e.pointerId !== drag.pointerId) return;
+    if(e.cancelable) e.preventDefault();
     var dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
     if(!drag.moved){
       if(Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
@@ -365,7 +371,10 @@ function buildBoard(){
       drag.pieceEl.style.opacity = "0"; // مهره‌ی واقعی موقتاً مخفی؛ شبح جایش دنبالِ انگشت می‌رود
       drag.ghost = makeGhost(drag.pieceEl, drag.rect);
     }
-    drag.ghost.style.transform = "translate(" + dx + "px," + dy + "px)";
+    // scale(1.18) اینجا هم باید تکرار شود، وگرنه این style اینلاین
+    // (که همیشه از کلاسِ .dragging جلوتر می‌ایستد) آن را از بین می‌برد
+    // و مهره‌ی درگ‌شونده بدونِ حسِ «بلندشدن» صرفاً جابه‌جا به‌نظر می‌رسد.
+    drag.ghost.style.transform = "translate(" + dx + "px," + dy + "px) scale(1.18)";
     var overSq = squareFromPoint(e.clientX, e.clientY);
     Object.keys(state.boardEls).forEach(function(s){
       state.boardEls[s].classList.toggle("drop-hover", s === overSq && s !== drag.fromSq);
