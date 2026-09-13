@@ -65,12 +65,23 @@ SIMPLE_KEYWORDS = {
     "اخطارها": "warnings_list",    # لیست بازیکنان با اخطار
     "بازی": "live_chess",          # باز کردن منوی شطرنج زنده
     "شطرنج": "live_chess",         # مترادف بازی
+    # ─── تقویم مدرسه ───
+    # توجه: «ساعت» قبلاً مستقیم به منوی «ساعت کاری» می‌رفت؛ طبق درخواستِ
+    # جدید حالا «ساعت» و «وقت» تقویم (با ساعتِ الان توی متنش) رو باز می‌کنن.
+    # برای باز کردنِ منوی ساعتِ کاری همچنان از عبارتِ «ساعت کاری» یا کلمه‌ی
+    # «کاری»/«زمان» استفاده کن (دستِ‌نخورده مونده‌ن، پایین‌تر همین دیکشنری).
+    "تقویم": "calendar",
+    "تاریخ": "calendar",
+    "ساعت": "calendar",
+    "وقت": "calendar",
+    "امروز": "calendar_today",       # نزدیک‌ترین تاکید روی تاریخِ امروز
+    "ایونت": "calendar_next_event",  # نزدیک‌ترین ایونتِ ثبت‌شده‌ی آینده
+    "تعطیلی": "calendar_next_holiday",  # نزدیک‌ترین تعطیلیِ ثبت‌شده‌ی آینده
     # ─── ساعت کاری (فقط مدیر ارشد) ───
     # توجه: «آغاز»/«اغاز» و «پایان»/«تموم» اینجا map نمی‌شن، چون خودشون
     # به‌صورت جداگانه به‌عنوان entry_point به workhours_conv در bot.py
     # اضافه شدن (چون workhour_start ممکنه یک state از مدیر ارشد بخواد
     # و باید داخل خودِ ConversationHandler بمونه، نه اینجا).
-    "ساعت": "workhours_menu",       # باز کردن منوی ساعت کاری
     "ساعت کاری": "workhours_menu",  # مترادف
     "کاری": "workhours_menu",       # مترادف
     "زمان": "workhours_menu",       # مترادف
@@ -266,6 +277,10 @@ def _action_label(action: str) -> str:
         "reminders": "یادآورها",
         "help": "راهنما",
         "restart": "خوش‌آمدگویی",
+        "calendar": "تقویم",
+        "calendar_today": "امروز",
+        "calendar_next_event": "ایونت بعدی",
+        "calendar_next_holiday": "تعطیلی بعدی",
     }
     return labels.get(action, action)
 
@@ -346,6 +361,22 @@ async def _panel_content(action: str, uid: int, is_pishva: bool, admin):
             kb.kb_lottery_scope(),
             None,
         )
+
+    if action == "calendar":
+        from calendar_panel import content_default
+        return await content_default()
+
+    if action == "calendar_today":
+        from calendar_panel import content_today
+        return await content_today()
+
+    if action == "calendar_next_event":
+        from calendar_panel import content_next_event
+        return await content_next_event()
+
+    if action == "calendar_next_holiday":
+        from calendar_panel import content_next_holiday
+        return await content_next_holiday()
 
     return None, None, "❗ این پنل پشتیبانی نمی‌شود."
 
@@ -948,6 +979,20 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             reply_markup=kb.kb_workhours(autoend_on, reminder_on, reminder_minutes),
             parse_mode="Markdown"
         )
+        raise ApplicationHandlerStop()
+
+    # ─── تقویم مدرسه (کلمات «تقویم»/«تاریخ»/«ساعت»/«وقت»/«امروز»/«ایونت»/«تعطیلی») ───
+    if action in ("calendar", "calendar_today", "calendar_next_event", "calendar_next_holiday"):
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, action)
+        else:
+            text, markup, err = await _panel_content(action, uid, is_pishva, admin)
+            if text is None:
+                await update.message.reply_text(err or "❗ خطا در باز کردن تقویم.")
+                raise ApplicationHandlerStop()
+            sent = await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+            await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── فیدبک / انتقاد ───

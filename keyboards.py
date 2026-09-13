@@ -1171,13 +1171,17 @@ def kb_calendar(year: int, month: int, days_map: dict, today_ymd: tuple):
     for day in range(1, days_in_month + 1):
         jdate = f"{year:04d}/{month:02d}/{day:02d}"
         info = days_map.get(day)
+        weekday_pos = (offset + day - 1) % 7  # ش=۰ ... ج=۶
+        is_weekend = weekday_pos in (5, 6)     # پنجشنبه، جمعه
         kwargs = {"callback_data": f"cal_day_{jdate}"}
         if (year, month, day) == today_ymd:
             kwargs["style"] = "primary"
-        elif info and info.get("day_type") == "holiday":
-            kwargs["style"] = "danger"
         elif info and info.get("day_type") == "event":
             kwargs["style"] = "success"
+        elif info and info.get("day_type") == "holiday":
+            kwargs["style"] = "danger"
+        elif is_weekend:
+            kwargs["style"] = "danger"
         cells.append(InlineKeyboardButton(str(day), **kwargs))
 
     while len(cells) % 7 != 0:

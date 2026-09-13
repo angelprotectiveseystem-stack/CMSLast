@@ -57,27 +57,95 @@ def jalali_first_weekday_pos(year: int, month: int) -> int:
     return _WEEKDAY_POS[g.weekday()]
 
 
+PERSIAN_WEEKDAY_NAMES = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
+
+
+def _weekday_name(jdate: str) -> str:
+    """اسم روز هفته (فارسی) برای یک تاریخ شمسیِ دلخواه، نه فقط امروز."""
+    y, m, d = map(int, jdate.split("/"))
+    g = jdatetime.date(y, m, d).togregorian()
+    return PERSIAN_WEEKDAY_NAMES[_WEEKDAY_POS[g.weekday()]]
+
+
 def _today_ymd():
     now = datetime.now(TEHRAN_TZ)
     jd = jdatetime.datetime.fromgregorian(datetime=now)
     return (jd.year, jd.month, jd.day)
 
 
+def _clock_str() -> str:
+    return datetime.now(TEHRAN_TZ).strftime("%H:%M")
+
+
 # ─── نمایش تقویم ─────────────────────────────────────────────────
-async def _render(update, ctx, year: int = None, month: int = None):
-    query = update.callback_query
+def _month_header_text(extra_line: str = "") -> str:
+    text = box('📅 تقویم مدرسه') + "\n\n"
+    text += f"🕒 ساعت الان: {_clock_str()}\n\n"
+    if extra_line:
+        text += extra_line + "\n\n"
+    text += (
+        "🔵 امروز   🟢 ایونت   🔴 تعطیل/جمعه‌پنجشنبه\n"
+        "روی هر روز بزنید تا جزئیاتش را ببینید."
+    )
+    return text
+
+
+async def build_calendar_content(year: int = None, month: int = None, extra_line: str = ""):
+    """(text, markup) یک ماهِ تقویم رو برمی‌گردونه — هم مسیرِ دکمه (callback query)
+    و هم مسیرِ کلیدواژه (پیام متنی مثل «تقویم»/«امروز»/«ایونت»/«تعطیلی») از همین
+    یه‌جا محتوا می‌گیرن تا دقیقاً یک چیز نشون داده بشه."""
     ty, tm, td = _today_ymd()
     year = year or ty
     month = month or tm
     days_map = await db.get_calendar_month(year, month)
-    await safe_edit_message_text(
-        query,
-        f"{box('📅 تقویم مدرسه')}\n\n"
-        "🔵 امروز   🟢 ایونت   🔴 تعطیل\n"
-        "روی هر روز بزنید تا جزئیاتش را ببینید.",
-        reply_markup=kb.kb_calendar(year, month, days_map, (ty, tm, td)),
-        parse_mode="Markdown",
-    )
+    text = _month_header_text(extra_line)
+    markup = kb.kb_calendar(year, month, days_map, (ty, tm, td))
+    return text, markup
+
+
+async def content_default():
+    """کلمات «تقویم»/«تاریخ»/«ساعت»/«وقت» → همین تقویمِ ماهِ جاری، با ساعتِ الان."""
+    text, markup = await build_calendar_content()
+    return text, markup, None
+
+
+async def content_today():
+    """کلمه‌ی «امروز» → همون تقویم، با یه خط تاکیدشده‌ی بالا برای امروز."""
+    ty, tm, td = _today_ymd()
+    jdate = f"{ty:04d}/{tm:02d}/{td:02d}"
+    extra = f"📌 امروز: {_weekday_name(jdate)} {jdate}"
+    text, markup = await build_calendar_content(ty, tm, extra)
+    return text, markup, None
+
+
+async def _content_next(day_type: str, label: str, noun: str):
+    ty, tm, td = _today_ymd()
+    today_jdate = f"{ty:04d}/{tm:02d}/{td:02d}"
+    row = await db.get_next_calendar_day(day_type, today_jdate)
+    if not row:
+        extra = f"{label} — {noun} بعدی‌ای ثبت نشده."
+        text, markup = await build_calendar_content(ty, tm, extra)
+        return text, markup, None
+    y, m, _d = map(int, row["jdate"].split("/"))
+    extra = f"{label} بعدی: {_weekday_name(row['jdate'])} {row['jdate']} — {row['title']}"
+    text, markup = await build_calendar_content(y, m, extra)
+    return text, markup, None
+
+
+async def content_next_event():
+    """کلمه‌ی «ایونت» → نزدیک‌ترین ایونتِ ثبت‌شده‌ی آینده (یا امروز)."""
+    return await _content_next("event", "🟢 ایونت", "ایونت")
+
+
+async def content_next_holiday():
+    """کلمه‌ی «تعطیلی» → نزدیک‌ترین تعطیلیِ ثبت‌شده‌ی آینده (یا امروز)."""
+    return await _content_next("holiday", "🔴 تعطیل", "تعطیلی")
+
+
+async def _render(update, ctx, year: int = None, month: int = None, extra_line: str = ""):
+    query = update.callback_query
+    text, markup = await build_calendar_content(year, month, extra_line)
+    await safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
 
 
 async def calendar_open(update, ctx):

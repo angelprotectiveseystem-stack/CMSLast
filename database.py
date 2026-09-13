@@ -2226,6 +2226,20 @@ async def delete_calendar_day(jdate: str):
         await db.commit()
 
 
+async def get_next_calendar_day(day_type: str, from_jdate: str):
+    """اولین روزِ از نوع day_type ('event' یا 'holiday') که jdate آن >= from_jdate باشد.
+    چون jdate به‌صورت YYYY/MM/DD با صفرِ ابتدایی ذخیره می‌شود، مقایسه‌ی رشته‌ای
+    همان ترتیب زمانی درست را می‌دهد."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT jdate, day_type, title FROM calendar_days WHERE day_type=? AND jdate>=? "
+            "ORDER BY jdate ASC LIMIT 1",
+            (day_type, from_jdate)
+        ) as cur:
+            return await cur.fetchone()
+
+
 # ─── Backups ──────────────────────────────────────────────────
 async def save_backup_record(label: str, period: str, fmt: str, file_data: str):
     now = datetime.now().isoformat()
