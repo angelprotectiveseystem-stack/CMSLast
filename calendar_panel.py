@@ -7,6 +7,7 @@
   ویرایش یا حذف کند.
 """
 import jdatetime
+import json
 from datetime import datetime
 from telegram.ext import ConversationHandler
 
@@ -14,6 +15,21 @@ import database as db
 import keyboards as kb
 from config import PISHVA_ID, ST_CALENDAR_TITLE
 from helpers import safe_edit_message_text, box, TEHRAN_TZ
+
+
+async def _can_edit_calendar(uid: int) -> bool:
+    """مدیر ارشد همیشه دسترسی داره؛ سایر مدیرها فقط اگه مدیر ارشد از پنل
+    دسترسی‌های مدیر، مجوز 'calendar_edit' رو براشون فعال کرده باشه."""
+    if uid == PISHVA_ID:
+        return True
+    admin = await db.get_admin(uid)
+    if not admin or not admin["is_active"]:
+        return False
+    try:
+        perms = json.loads(admin["permissions"])
+    except Exception:
+        perms = {}
+    return bool(perms.get("calendar_edit", False))
 
 
 # ─── محاسبات تقویم شمسی ─────────────────────────────────────────
@@ -88,8 +104,8 @@ async def calendar_day_tap(update, ctx):
     uid = query.from_user.id
     day_info = await db.get_calendar_day(jdate)
 
-    if uid != PISHVA_ID:
-        # سایر نقش‌ها فقط می‌بینند، نمی‌توانند تغییر بدهند.
+    if not await _can_edit_calendar(uid):
+        # بدون مجوز ویرایش: فقط می‌بینه، نمی‌تونه تغییر بده.
         if day_info:
             label = "🔴 تعطیل" if day_info["day_type"] == "holiday" else "🟢 ایونت"
             await query.answer(f"{jdate}\n{label}\n\n{day_info['title']}", show_alert=True)
@@ -114,8 +130,8 @@ async def calendar_day_tap(update, ctx):
 # ─── ثبت ایونت/تعطیلی (مدیر ارشد) ────────────────────────────────
 async def calendar_set_start(update, ctx):
     query = update.callback_query
-    if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ این کار فقط برای مدیر ارشد است.", show_alert=True)
+    if not await _can_edit_calendar(query.from_user.id):
+        await query.answer("⛔ شما اجازه‌ی ویرایش تقویم را ندارید.", show_alert=True)
         return
     await query.answer()
     day_type = "event" if query.data == "calset_event" else "holiday"
@@ -148,8 +164,8 @@ async def calendar_title_save(update, ctx):
 
 async def calendar_clear(update, ctx):
     query = update.callback_query
-    if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔ این کار فقط برای مدیر ارشد است.", show_alert=True)
+    if not await _can_edit_calendar(query.from_user.id):
+        await query.answer("⛔ شما اجازه‌ی ویرایش تقویم را ندارید.", show_alert=True)
         return
     await query.answer()
     jdate = ctx.user_data.get("cal_jdate")
