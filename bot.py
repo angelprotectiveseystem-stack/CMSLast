@@ -108,6 +108,7 @@ from pishva import (
     pishva_auto_backup, auto_backup_toggle, auto_backup_interval_menu,
     auto_backup_set_interval, auto_backup_fmt_toggle, auto_backup_period_toggle,
     pishva_restore_start, restore_file_received, restore_confirm_apply, restore_cancel,
+    restore_show_details, restore_show_summary,
     pishva_ai_scheduled, ai_scheduled_cancel,
     pishva_suspicious_settings, sadel_toggle, sadel_threshold_menu, sadel_set_threshold,
     sadel_window_menu, sadel_set_window,
@@ -754,6 +755,8 @@ def build_application():
             ST_RESTORE_FILE: [
                 CallbackQueryHandler(restore_confirm_apply, pattern="^restore_apply$"),
                 CallbackQueryHandler(restore_cancel, pattern="^restore_cancel$"),
+                CallbackQueryHandler(restore_show_details, pattern="^restore_details$"),
+                CallbackQueryHandler(restore_show_summary, pattern="^restore_summary$"),
                 MessageHandler(filters.Document.ALL, restore_file_received),
             ],
         },

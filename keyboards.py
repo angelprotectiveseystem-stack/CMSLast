@@ -568,8 +568,17 @@ def kb_backup_format():
         [InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_backup", style="danger")],
     ])
 
-def kb_restore_confirm():
+def kb_restore_confirm(has_details: bool = True):
+    rows = []
+    if has_details:
+        rows.append([InlineKeyboardButton("🔍 جزئیات کامل تغییرات", callback_data="restore_details", style="primary")])
+    rows.append([InlineKeyboardButton("✅ تایید و اعمال", callback_data="restore_apply", style="success"),
+        InlineKeyboardButton("❌ انصراف", callback_data="restore_cancel", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+def kb_restore_details():
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 بازگشت به خلاصه", callback_data="restore_summary", style="primary")],
         [InlineKeyboardButton("✅ تایید و اعمال", callback_data="restore_apply", style="success"),
         InlineKeyboardButton("❌ انصراف", callback_data="restore_cancel", style="danger")],
     ])

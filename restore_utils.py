@@ -307,6 +307,223 @@ async def _resolve_player(name: str, cache: dict):
     return pid
 
 
+# ──────────────────────────────────────────────────────────────
+# پیش‌نمایش تغییرات (قبل از اعمال) — کاملاً فقط‌خواندنی، هیچ نوشتنی
+# در دیتابیس انجام نمی‌ده. منطقش موازیِ apply_restore است، با این تفاوت
+# که به‌جای درج/آپدیت، فقط وضعیت فعلیِ دیتابیس رو با محتوای فایل مقایسه
+# می‌کنه تا مشخص بشه هر ردیف «جدید»، «تغییر می‌کنه» یا «بدون تغییر»ه.
+# ──────────────────────────────────────────────────────────────
+PREVIEW_SAMPLE_LIMIT = 8    # چند نمونه‌نام در خلاصه‌ی کوتاه
+DETAIL_LIST_LIMIT = 40      # سقفِ هر فهرست در «جزئیات کامل» (برای رعایتِ محدودیتِ طولِ پیامِ تلگرام)
+
+STATUS_EN_TO_FA = {v: k for k, v in STATUS_FA_TO_EN.items()}
+
+
+def _yesno_fa(v) -> str:
+    return "بله" if v else "خیر"
+
+
+def _fmt_sample(names: list, limit: int = PREVIEW_SAMPLE_LIMIT) -> str:
+    if not names:
+        return ""
+    shown = names[:limit]
+    text = "، ".join(shown)
+    remaining = len(names) - len(shown)
+    if remaining > 0:
+        text += f" و {remaining} مورد دیگر"
+    return text
+
+
+async def _diff_player(existing_row, incoming: dict) -> list:
+    """فیلدهایی که مقدارِ داخلِ فایل با مقدارِ فعلیِ دیتابیس فرق دارن رو برمی‌گردونه
+    (هر آیتم یه رشته‌ی «مقدار فعلی ← مقدار جدید» خوانا برای نمایش به مدیر ارشد)."""
+    diffs = []
+
+    current_class_name = ""
+    if existing_row["class_id"]:
+        crow = await db.get_class(existing_row["class_id"])
+        current_class_name = crow["name"] if crow else ""
+    incoming_class_name = (incoming.get("class_name") or "").strip()
+    if incoming_class_name and incoming_class_name != current_class_name:
+        diffs.append(f"کلاس: «{current_class_name or '—'}» ← «{incoming_class_name}»")
+
+    current_status = existing_row["status"]
+    incoming_status = incoming.get("status") or current_status
+    if incoming_status != current_status:
+        diffs.append(
+            f"وضعیت: «{STATUS_EN_TO_FA.get(current_status, current_status)}» ← "
+            f"«{STATUS_EN_TO_FA.get(incoming_status, incoming_status)}»"
+        )
+
+    for key, label in (("wins", "برد"), ("draws", "تساوی"), ("losses", "باخت"), ("warnings", "اخطار")):
+        cur_v = existing_row[key] or 0
+        new_v = incoming.get(key, 0) or 0
+        if cur_v != new_v:
+            diffs.append(f"{label}: {cur_v} ← {new_v}")
+
+    for key, label in (("is_elite", "برتر"), ("is_special", "ویژه")):
+        cur_v = existing_row[key] or 0
+        new_v = incoming.get(key, 0) or 0
+        if bool(cur_v) != bool(new_v):
+            diffs.append(f"{label}: {_yesno_fa(cur_v)} ← {_yesno_fa(new_v)}")
+
+    return diffs
+
+
+async def build_diff_preview(data: dict) -> dict:
+    """خروجی رو به سه دسته برای هر نوع موجودیت تقسیم می‌کنه: جدید / تغییر می‌کنه / بدون تغییر.
+    برای مسابقات هم بازیکنانی که فقط داخل جدول مسابقات دیده شدن (نه در شیت
+    بازیکنان و نه از قبل در دیتابیس) رو جدا مشخص می‌کنه — چون این‌ها با یک
+    ردیفِ خالی (بدون کلاس/سابقه) ساخته می‌شن و مدیر ارشد باید از قبل بدونه."""
+    preview = {
+        "classes": {"new": [], "existing": []},
+        "players": {"new": [], "updated": [], "unchanged": []},
+        "tournaments": {"new": [], "updated": [], "unchanged": []},
+        "matches": {"total": len(data.get("matches", [])), "implicit_players": []},
+    }
+
+    known_player_names = {
+        p["full_name"].strip().lower() for p in data.get("players", []) if p.get("full_name")
+    }
+
+    for c in data.get("classes", []):
+        name = (c.get("name") or "").strip()
+        if not name:
+            continue
+        existing = await db.get_class_by_name(name)
+        (preview["classes"]["existing"] if existing else preview["classes"]["new"]).append(name)
+
+    for p in data.get("players", []):
+        name = (p.get("full_name") or "").strip()
+        if not name:
+            continue
+        existing = await db.get_player_by_name(name)
+        if not existing:
+            preview["players"]["new"].append(name)
+            continue
+        diffs = await _diff_player(existing, p)
+        if diffs:
+            preview["players"]["updated"].append((name, diffs))
+        else:
+            preview["players"]["unchanged"].append(name)
+
+    for t in data.get("tournaments", []):
+        name = (t.get("name") or "").strip()
+        if not name:
+            continue
+        existing = await db.get_tournament_by_name(name)
+        if not existing:
+            preview["tournaments"]["new"].append(name)
+            continue
+        diffs = []
+        incoming_status = t.get("status") or existing["status"]
+        if incoming_status != existing["status"]:
+            diffs.append(f"وضعیت: «{existing['status']}» ← «{incoming_status}»")
+        if bool(t.get("is_default")) and not bool(existing["is_default"]):
+            diffs.append("پیش‌فرض: خیر ← بله")
+        if diffs:
+            preview["tournaments"]["updated"].append((name, diffs))
+        else:
+            preview["tournaments"]["unchanged"].append(name)
+
+    seen_implicit = set()
+    for m in data.get("matches", []):
+        for side in ("white_name", "black_name"):
+            name = (m.get(side) or "").strip()
+            if not name:
+                continue
+            key = name.strip().lower()
+            if key in known_player_names or key in seen_implicit:
+                continue
+            existing = await db.get_player_by_name(name)
+            if not existing:
+                seen_implicit.add(key)
+                preview["matches"]["implicit_players"].append(name)
+
+    return preview
+
+
+def build_preview_summary_text(preview: dict) -> str:
+    """خلاصه‌ی کوتاه — همون‌چیزی که بلافاصله بعد از آپلود فایل نشون داده می‌شه."""
+    p_new, p_upd, p_unch = preview["players"]["new"], preview["players"]["updated"], preview["players"]["unchanged"]
+    c_new, c_exist = preview["classes"]["new"], preview["classes"]["existing"]
+    t_new, t_upd, t_unch = preview["tournaments"]["new"], preview["tournaments"]["updated"], preview["tournaments"]["unchanged"]
+    matches = preview["matches"]
+
+    lines = [
+        f"🏷️ کلاس‌ها: {len(c_new)} جدید، {len(c_exist)} از قبل موجود",
+        f"👤 بازیکنان: {len(p_new)} جدید، {len(p_upd)} تغییر می‌کنند، {len(p_unch)} بدون تغییر",
+    ]
+    if p_new:
+        lines.append(f"   ➕ {_fmt_sample(p_new)}")
+    if p_upd:
+        lines.append(f"   ✏️ {_fmt_sample([n for n, _ in p_upd])}")
+
+    lines.append(f"🏆 تورنمنت‌ها: {len(t_new)} جدید، {len(t_upd)} تغییر می‌کنند، {len(t_unch)} بدون تغییر")
+    if t_new:
+        lines.append(f"   ➕ {_fmt_sample(t_new)}")
+
+    lines.append(f"♟️ مسابقات: {matches['total']} ردیف برای درج")
+    if matches["implicit_players"]:
+        lines.append(
+            f"   ⚠️ {len(matches['implicit_players'])} بازیکن فقط در جدول مسابقات دیده شدن و "
+            f"بدون کلاس/سابقه ساخته می‌شن: {_fmt_sample(matches['implicit_players'])}"
+        )
+
+    return "\n".join(lines)
+
+
+def build_preview_detail_text(preview: dict) -> str:
+    """جزئیات کامل — فقط مواردی که «جدید» یا «در حال تغییر»ن رو تک‌به‌تک لیست می‌کنه
+    (بدون‌تغییرها حذف می‌شن چون چیزی برای تصمیم‌گیری بهشون اضافه نمی‌کنن)."""
+    lines = []
+
+    c_new = preview["classes"]["new"]
+    if c_new:
+        lines.append(f"🏷️ کلاس‌های جدید ({len(c_new)}):")
+        lines.append("  " + "، ".join(c_new[:DETAIL_LIST_LIMIT]))
+        if len(c_new) > DETAIL_LIST_LIMIT:
+            lines.append(f"  … و {len(c_new) - DETAIL_LIST_LIMIT} مورد دیگر")
+
+    p_new = preview["players"]["new"]
+    if p_new:
+        lines.append(f"\n👤 بازیکنان جدید ({len(p_new)}):")
+        lines.append("  " + "، ".join(p_new[:DETAIL_LIST_LIMIT]))
+        if len(p_new) > DETAIL_LIST_LIMIT:
+            lines.append(f"  … و {len(p_new) - DETAIL_LIST_LIMIT} مورد دیگر")
+
+    p_upd = preview["players"]["updated"]
+    if p_upd:
+        lines.append(f"\n✏️ بازیکنانی که تغییر می‌کنند ({len(p_upd)}):")
+        for name, diffs in p_upd[:DETAIL_LIST_LIMIT]:
+            lines.append(f"  • {name}: " + " | ".join(diffs))
+        if len(p_upd) > DETAIL_LIST_LIMIT:
+            lines.append(f"  … و {len(p_upd) - DETAIL_LIST_LIMIT} بازیکن دیگر")
+
+    t_new = preview["tournaments"]["new"]
+    if t_new:
+        lines.append(f"\n🏆 تورنمنت‌های جدید ({len(t_new)}):")
+        lines.append("  " + "، ".join(t_new[:DETAIL_LIST_LIMIT]))
+
+    t_upd = preview["tournaments"]["updated"]
+    if t_upd:
+        lines.append(f"\n🏆 تورنمنت‌هایی که تغییر می‌کنند ({len(t_upd)}):")
+        for name, diffs in t_upd[:DETAIL_LIST_LIMIT]:
+            lines.append(f"  • {name}: " + " | ".join(diffs))
+
+    ip = preview["matches"]["implicit_players"]
+    if ip:
+        lines.append(f"\n⚠️ فقط در مسابقات دیده شدن، بدون کلاس/سابقه ساخته می‌شن ({len(ip)}):")
+        lines.append("  " + "، ".join(ip[:DETAIL_LIST_LIMIT]))
+        if len(ip) > DETAIL_LIST_LIMIT:
+            lines.append(f"  … و {len(ip) - DETAIL_LIST_LIMIT} مورد دیگر")
+
+    if not lines:
+        lines.append("هیچ تغییری نسبت به وضعیت فعلیِ دیتابیس شناسایی نشد — همه‌چیز از قبل همینه.")
+
+    return "\n".join(lines)
+
+
 def build_summary_text(counts: dict) -> str:
     lines = [
         f"🏷️ کلاس‌های جدید: {counts['classes_new']}",

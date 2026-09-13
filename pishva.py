@@ -915,6 +915,7 @@ async def pishva_restore_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     await query.answer()
     ctx.user_data.pop("restore_data", None)
+    ctx.user_data.pop("restore_preview", None)
     await safe_edit_message_text(query, 
         f"{box('📥 بازگردانی بکاپ')}\n\n"
         f"📎 فایل بکاپ (Excel یا Word) را که قبلاً از همین ربات دریافت کرده‌اید ارسال کنید.\n"
@@ -933,7 +934,7 @@ async def restore_file_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❗ لطفاً فایل بکاپ (xlsx یا docx) را به‌صورت سند ارسال کنید.")
         return ST_RESTORE_FILE
 
-    from restore_utils import detect_format, parse_excel_backup, parse_word_backup
+    from restore_utils import detect_format, parse_excel_backup, parse_word_backup, build_diff_preview
     fmt = detect_format(doc.file_name)
     if fmt is None:
         await update.message.reply_text("❌ فرمت فایل شناسایی نشد. فقط فایل‌های xlsx یا docx پشتیبانی می‌شوند.")
@@ -956,14 +957,62 @@ async def restore_file_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return ST_RESTORE_FILE
 
+    await msg.edit_text("⏳ در حال مقایسه با اطلاعات فعلی سیستم، لطفاً صبر کنید...")
+    try:
+        preview = await build_diff_preview(data)
+    except Exception as e:
+        await msg.edit_text(f"❌ خطا در تحلیل تغییرات:\n`{str(e)}`", parse_mode="Markdown")
+        return ST_RESTORE_FILE
+
     ctx.user_data["restore_data"] = data
+    ctx.user_data["restore_preview"] = preview
+    from restore_utils import build_preview_summary_text
     await msg.edit_text(
         f"{box('📋 پیش‌نمایش بازگردانی')}\n\n"
-        f"🏷️ کلاس‌ها: {len(data['classes'])}\n"
-        f"👤 بازیکنان: {len(data['players'])}\n"
-        f"🏆 تورنمنت‌ها: {len(data['tournaments'])}\n"
-        f"♟️ مسابقات: {len(data['matches'])}\n\n"
-        f"⚠️ با تایید، این داده‌ها در سیستم فعلی درج/به‌روزرسانی می‌شوند. آیا ادامه می‌دهید؟",
+        f"{build_preview_summary_text(preview)}\n\n"
+        f"⚠️ با تایید، موارد بالا در سیستم فعلی درج/به‌روزرسانی می‌شوند. برای دیدنِ دقیقِ تک‌تکِ "
+        f"تغییرات، «جزئیات کامل تغییرات» را بزنید. آیا ادامه می‌دهید؟",
+        reply_markup=kb.kb_restore_confirm(),
+        parse_mode="Markdown"
+    )
+    return ST_RESTORE_FILE
+
+
+async def restore_show_details(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return ST_RESTORE_FILE
+    await query.answer()
+    preview = ctx.user_data.get("restore_preview")
+    if not preview:
+        await safe_edit_message_text(query, "❗ داده‌ای برای نمایش یافت نشد. دوباره فایل را ارسال کنید.")
+        return ST_RESTORE_FILE
+    from restore_utils import build_preview_detail_text
+    await safe_edit_message_text(query,
+        f"{box('🔍 جزئیات کامل تغییرات')}\n\n{build_preview_detail_text(preview)}",
+        reply_markup=kb.kb_restore_details(),
+        parse_mode="Markdown"
+    )
+    return ST_RESTORE_FILE
+
+
+async def restore_show_summary(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return ST_RESTORE_FILE
+    await query.answer()
+    preview = ctx.user_data.get("restore_preview")
+    if not preview:
+        await safe_edit_message_text(query, "❗ داده‌ای برای نمایش یافت نشد. دوباره فایل را ارسال کنید.")
+        return ST_RESTORE_FILE
+    from restore_utils import build_preview_summary_text
+    await safe_edit_message_text(query,
+        f"{box('📋 پیش‌نمایش بازگردانی')}\n\n"
+        f"{build_preview_summary_text(preview)}\n\n"
+        f"⚠️ با تایید، موارد بالا در سیستم فعلی درج/به‌روزرسانی می‌شوند. برای دیدنِ دقیقِ تک‌تکِ "
+        f"تغییرات، «جزئیات کامل تغییرات» را بزنید. آیا ادامه می‌دهید؟",
         reply_markup=kb.kb_restore_confirm(),
         parse_mode="Markdown"
     )
@@ -996,12 +1045,14 @@ async def restore_confirm_apply(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     ctx.user_data.pop("restore_data", None)
+    ctx.user_data.pop("restore_preview", None)
     return ConversationHandler.END
 
 async def restore_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     ctx.user_data.pop("restore_data", None)
+    ctx.user_data.pop("restore_preview", None)
     await safe_edit_message_text(query, "❌ بازگردانی لغو شد.", reply_markup=kb.kb_back("pishva_backup"))
     return ConversationHandler.END
 
