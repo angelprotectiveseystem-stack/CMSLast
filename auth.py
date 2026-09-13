@@ -444,9 +444,13 @@ async def show_pishva_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             text += "\n" + weather
 
     if update.message:
-        await update.message.reply_text(text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
+        sent = await update.message.reply_text(text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
+        from keyword_commands import register_panel_owner
+        await register_panel_owner(update, ctx, sent.message_id)
     else:
         await safe_edit_message_text(update.callback_query, text, reply_markup=kb.kb_pishva_main(), parse_mode="Markdown")
+        from keyword_commands import register_panel_owner
+        await register_panel_owner(update, ctx, update.callback_query.message.message_id)
     return ConversationHandler.END
 
 
@@ -492,9 +496,13 @@ async def show_admin_welcome(update: Update, ctx: ContextTypes.DEFAULT_TYPE, adm
 
     markup = kb.kb_tournament_manager_main() if admin["role"] == ROLE_TOURNAMENT_MANAGER else kb.kb_security_manager_main()
     if update.message:
-        await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+        sent = await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+        from keyword_commands import register_panel_owner
+        await register_panel_owner(update, ctx, sent.message_id)
     else:
         await safe_edit_message_text(update.callback_query, text, reply_markup=markup, parse_mode="Markdown")
+        from keyword_commands import register_panel_owner
+        await register_panel_owner(update, ctx, update.callback_query.message.message_id)
     return ConversationHandler.END
 
 
