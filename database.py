@@ -329,6 +329,14 @@ async def init_db():
             result TEXT,
             FOREIGN KEY(team_match_id) REFERENCES team_matches(id)
         );
+        CREATE TABLE IF NOT EXISTS calendar_days (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            jdate TEXT UNIQUE,
+            day_type TEXT,
+            title TEXT,
+            created_by INTEGER,
+            created_at TEXT
+        );
         CREATE TABLE IF NOT EXISTS backups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             label TEXT,
@@ -2170,6 +2178,54 @@ async def get_team_stats(team_id: int):
             return {"wins": row[0] or 0, "losses": row[1] or 0, "draws": row[2] or 0}
 
 
+# ─── Calendar (تقویم مدرسه) ────────────────────────────────────
+async def get_calendar_month(jyear: int, jmonth: int):
+    """برمی‌گرداند: {روز: {'day_type': 'event'|'holiday', 'title': str}} برای یک ماه شمسی."""
+    prefix = f"{jyear:04d}/{jmonth:02d}/"
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT jdate, day_type, title FROM calendar_days WHERE jdate LIKE ?",
+            (prefix + "%",)
+        ) as cur:
+            rows = await cur.fetchall()
+    result = {}
+    for r in rows:
+        try:
+            day = int(r["jdate"].split("/")[-1])
+        except (ValueError, IndexError):
+            continue
+        result[day] = {"day_type": r["day_type"], "title": r["title"]}
+    return result
+
+
+async def get_calendar_day(jdate: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT jdate, day_type, title, created_by, created_at FROM calendar_days WHERE jdate=?",
+            (jdate,)
+        ) as cur:
+            return await cur.fetchone()
+
+
+async def set_calendar_day(jdate: str, day_type: str, title: str, created_by: int):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO calendar_days(jdate,day_type,title,created_by,created_at) "
+            "VALUES (?,?,?,?,?)",
+            (jdate, day_type, title, created_by, now)
+        )
+        await db.commit()
+
+
+async def delete_calendar_day(jdate: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM calendar_days WHERE jdate=?", (jdate,))
+        await db.commit()
+
+
 # ─── Backups ──────────────────────────────────────────────────
 async def save_backup_record(label: str, period: str, fmt: str, file_data: str):
     now = datetime.now().isoformat()
@@ -2200,14 +2256,14 @@ async def reset_active_data():
     """Archive and clear all active data"""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript("""
-        DELETE FROM team_match_boards;
-        DELETE FROM team_matches;
-        DELETE FROM team_members;
-        DELETE FROM matches;
-        DELETE FROM warnings_log;
-        DELETE FROM teams;
         DELETE FROM players;
         DELETE FROM classes;
+        DELETE FROM matches;
+        DELETE FROM teams;
+        DELETE FROM team_members;
+        DELETE FROM team_matches;
+        DELETE FROM team_match_boards;
+        DELETE FROM warnings_log;
         UPDATE tournaments SET status='archived';
         """)
         await db.commit()

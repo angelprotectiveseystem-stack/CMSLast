@@ -41,7 +41,8 @@ def kb_pishva_main():
         [InlineKeyboardButton("📊 داشبورد مدیر ارشد", callback_data="dashboard_pishva"),
         InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
         [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],
-        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
+        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu"),
+        InlineKeyboardButton("📅 تقویم", callback_data="menu_calendar")],
         [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open"),
         InlineKeyboardButton("🧑‍💻 مدیریت دستیار", callback_data="ai_manage_menu_main")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
@@ -56,7 +57,8 @@ def kb_tournament_manager_main():
         InlineKeyboardButton("📡 مخابرات", callback_data="menu_comms")],
         [InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks"),
         InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
-        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
+        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu"),
+        InlineKeyboardButton("📅 تقویم", callback_data="menu_calendar")],
         [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
@@ -70,7 +72,8 @@ def kb_security_manager_main():
         InlineKeyboardButton("📋 وظایف", callback_data="menu_tasks")],
         [InlineKeyboardButton("❓ راهنما", callback_data="menu_help"),
         InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
-        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu")],
+        [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu"),
+        InlineKeyboardButton("📅 تقویم", callback_data="menu_calendar")],
         [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
     ])
 
@@ -1131,3 +1134,68 @@ def kb_adv_lottery_scope():
         [InlineKeyboardButton("🌐 از همه کلاس‌ها (آزاد)", callback_data="adv_scope_open", style="primary")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_matches", style="danger")],
     ])
+
+# ─── تقویم مدرسه ────────────────────────────────────────────────
+PERSIAN_MONTH_NAMES = [
+    "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+    "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
+]
+CALENDAR_WEEKDAY_HEADER = ["ش", "ی", "د", "س", "چ", "پ", "ج"]
+
+def kb_calendar(year: int, month: int, days_map: dict, today_ymd: tuple):
+    """
+    تقویم یک ماه شمسی به‌صورت گرید ۷ ستونی.
+    days_map: {روز: {'day_type': 'event'|'holiday', 'title': str}}
+    today_ymd: (سال, ماه, روز) شمسیِ امروز — برای رنگ آبی
+    """
+    # ایمپورت داخل تابع تا از circular import با calendar_panel جلوگیری بشه
+    from calendar_panel import jalali_days_in_month, jalali_first_weekday_pos
+
+    prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
+    next_month, next_year = (1, year + 1) if month == 12 else (month + 1, year)
+
+    rows = [
+        [
+            InlineKeyboardButton("◀️", callback_data=f"cal_nav_{prev_year}_{prev_month}"),
+            InlineKeyboardButton(f"📅 {PERSIAN_MONTH_NAMES[month - 1]} {year}", callback_data="cal_noop"),
+            InlineKeyboardButton("▶️", callback_data=f"cal_nav_{next_year}_{next_month}"),
+        ],
+        [InlineKeyboardButton(d, callback_data="cal_noop") for d in CALENDAR_WEEKDAY_HEADER],
+    ]
+
+    days_in_month = jalali_days_in_month(year, month)
+    offset = jalali_first_weekday_pos(year, month)
+
+    cells = [InlineKeyboardButton(" ", callback_data="cal_noop") for _ in range(offset)]
+    for day in range(1, days_in_month + 1):
+        jdate = f"{year:04d}/{month:02d}/{day:02d}"
+        info = days_map.get(day)
+        kwargs = {"callback_data": f"cal_day_{jdate}"}
+        if (year, month, day) == today_ymd:
+            kwargs["style"] = "primary"
+        elif info and info.get("day_type") == "holiday":
+            kwargs["style"] = "danger"
+        elif info and info.get("day_type") == "event":
+            kwargs["style"] = "success"
+        cells.append(InlineKeyboardButton(str(day), **kwargs))
+
+    while len(cells) % 7 != 0:
+        cells.append(InlineKeyboardButton(" ", callback_data="cal_noop"))
+
+    for i in range(0, len(cells), 7):
+        rows.append(cells[i:i + 7])
+
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_main", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+
+def kb_calendar_day_actions(jdate: str, has_entry: bool):
+    rows = [
+        [InlineKeyboardButton("🟢 ثبت ایونت", callback_data="calset_event", style="success")],
+        [InlineKeyboardButton("🔴 ثبت تعطیلی", callback_data="calset_holiday", style="danger")],
+    ]
+    if has_entry:
+        rows.append([InlineKeyboardButton("🗑️ حذف", callback_data="calset_clear", style="danger")])
+    year, month, _ = jdate.split("/")
+    rows.append([InlineKeyboardButton("🔙 بازگشت به تقویم", callback_data=f"cal_nav_{year}_{int(month)}")])
+    return InlineKeyboardMarkup(rows)

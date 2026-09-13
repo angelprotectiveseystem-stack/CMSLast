@@ -41,6 +41,7 @@ from config import (
     ST_WORKHOURS_AUTOEND_MINUTES, ST_WORKHOURS_REMINDER_MINUTES,
     ST_CHESS_AI_BROADCAST_TEXT,
     ST_LOGS_SEARCH_TERM, ST_LOGS_SEARCH_RANGE,
+    ST_CALENDAR_TITLE,
 )
 
 from auth import (
@@ -161,6 +162,10 @@ from bulk_register import (
 from reminders import (
     reminder_job, pishva_reminders, reminder_toggle,
     reminder_interval_menu, reminder_set_interval
+)
+from calendar_panel import (
+    calendar_open, calendar_nav, calendar_noop, calendar_day_tap,
+    calendar_set_start, calendar_title_save, calendar_clear
 )
 from keyword_commands import handle_keyword_command, kw_announce_start, kw_news_start, panel_ownership_guard, open_panel_here, stranger_info_callback
 from chess_challenge import chess_menu, chess_pick_time, chess_pick_color, chess_send_request, chess_accept, chess_decline, chess_elo_board, chess_ai_menu, chess_ai_pick_time, chess_ai_pick_color, chess_ai_start, chess_active_games
@@ -547,6 +552,20 @@ def build_application():
         **CONV_KWARGS
     )
 
+    # Calendar — ثبت متن ایونت/تعطیلی (فقط مدیر ارشد وارد این مکالمه می‌شود)
+    calendar_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(calendar_set_start, pattern="^calset_(event|holiday)$"),
+        ],
+        states={
+            ST_CALENDAR_TITLE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, calendar_title_save)
+            ],
+        },
+        fallbacks=[CallbackQueryHandler(calendar_open, pattern="^menu_calendar$")],
+        **CONV_KWARGS
+    )
+
     # Match — مهم‌ترین
     match_conv = ConversationHandler(
         entry_points=[
@@ -820,7 +839,7 @@ def build_application():
     # ─── Add all ConversationHandlers first ───────────────────
     for conv in [auth_conv, tourn_conv, player_conv, match_conv,
                  comms_conv, task_conv, feedback_conv, pishva_conv, restore_conv, team_conv,
-                 workhours_conv]:
+                 workhours_conv, calendar_conv]:
         app.add_handler(conv)
 
     # ══════════════════════════════════════════
@@ -1005,6 +1024,13 @@ def build_application():
     app.add_handler(CallbackQueryHandler(reminder_toggle, pattern="^reminder_toggle_"))
     app.add_handler(CallbackQueryHandler(reminder_interval_menu, pattern="^reminder_interval_"))
     app.add_handler(CallbackQueryHandler(reminder_set_interval, pattern="^reminder_set_"))
+
+    # Calendar (تقویم مدرسه)
+    app.add_handler(CallbackQueryHandler(calendar_open, pattern="^menu_calendar$"))
+    app.add_handler(CallbackQueryHandler(calendar_nav, pattern="^cal_nav_"))
+    app.add_handler(CallbackQueryHandler(calendar_noop, pattern="^cal_noop$"))
+    app.add_handler(CallbackQueryHandler(calendar_day_tap, pattern="^cal_day_"))
+    app.add_handler(CallbackQueryHandler(calendar_clear, pattern="^calset_clear$"))
     app.add_handler(CallbackQueryHandler(pishva_broadcast, pattern="^pishva_broadcast$"))
     app.add_handler(CallbackQueryHandler(broadcast_toggle, pattern="^broadcast_toggle_"))
     app.add_handler(CallbackQueryHandler(_noop_callback, pattern="^noop_label$"))
