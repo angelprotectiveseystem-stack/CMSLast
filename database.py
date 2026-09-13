@@ -2200,14 +2200,14 @@ async def reset_active_data():
     """Archive and clear all active data"""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript("""
+        DELETE FROM team_match_boards;
+        DELETE FROM team_matches;
+        DELETE FROM team_members;
+        DELETE FROM matches;
+        DELETE FROM warnings_log;
+        DELETE FROM teams;
         DELETE FROM players;
         DELETE FROM classes;
-        DELETE FROM matches;
-        DELETE FROM teams;
-        DELETE FROM team_members;
-        DELETE FROM team_matches;
-        DELETE FROM team_match_boards;
-        DELETE FROM warnings_log;
         UPDATE tournaments SET status='archived';
         """)
         await db.commit()
