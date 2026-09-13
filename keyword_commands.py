@@ -59,7 +59,7 @@ SIMPLE_KEYWORDS = {
     "الان": "online_admins",       # مترادف آنلاین
     "ادمین‌ها": "admin_list",      # لیست همه ادمین‌ها
     "ادمینا": "admin_list",
-    "مدیران": "admin_list",
+    "مدیران": "admin_manage_panel",  # باز کردن پنل «مدیریت مدیران»
     "آمار": "quick_stats",         # آمار سریع بازیکنان و مسابقات
     "نتایج": "recent_results",     # آخرین نتایج مسابقات
     "اخطارها": "warnings_list",    # لیست بازیکنان با اخطار
@@ -95,7 +95,7 @@ WORKHOURS_END_KEYWORDS = {"پایان", "تموم"}
 
 PISHVA_ONLY_ACTIONS = {
     "security", "status", "backup", "requests", "logs", "reminders", "settings",
-    "pishva_panel", "online_admins", "ai_manage_panel",
+    "pishva_panel", "online_admins", "ai_manage_panel", "admin_manage_panel",
     "workhours_menu", "workhours_start", "workhours_end",
 }
 
@@ -108,8 +108,7 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     FIX 1: اگه owner_id ثبت نشده (None)، در گروه دکمه‌ها رو بلاک می‌کنه
             (قبلاً با None بود pass می‌شد — یعنی هر کسی می‌تونست بزنه).
-    FIX 2: اگه مدیر ارشد روی پنل «مدیریت مدیران» بزنه، اخطار امنیتی می‌گیره.
-            (مدیر ارشد نباید توی گروه به پنل مدیران دست بزنه.)
+    (مدیریتِ مدیران هم مثلِ بقیه‌ی پنل‌ها در گروه مجازه؛ فقط مالکیتِ پنل چک می‌شه.)
     """
     from telegram.ext import ApplicationHandlerStop
     query = update.callback_query
@@ -127,21 +126,9 @@ async def panel_ownership_guard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     requester_id = query.from_user.id
     callback_data = query.data or ""
 
-    # ── FIX 2: مدیر ارشد روی پنل مدیران در گروه → اخطار امنیتی ──────────
-    ADMIN_MGMT_PATTERNS = (
-        "menu_admins", "admin_view_", "admin_perms_",
-        "admin_warn_", "admin_kick_", "perm_toggle_",
-    )
+    # مدیر ارشد: مدیریتِ مدیران هم حالا در گروه مجازه — فقط بررسیِ
+    # مالکیتِ پنل (مثلِ بقیه‌ی پنل‌ها) انجام می‌شه.
     if requester_id == PISHVA_ID:
-        if any(callback_data.startswith(p) for p in ADMIN_MGMT_PATTERNS):
-            await query.answer(
-                "🚨 هشدار امنیتی!\n"
-                "مدیریت مدیران در فضای گروه مجاز نیست.\n"
-                "لطفاً این عملیات را در پیوی انجام دهید.",
-                show_alert=True
-            )
-            raise ApplicationHandlerStop()
-        # مدیر ارشد روی بقیه‌ی پنل‌ها آزاده — اگه صاحب پنل باشه
         msg_key = f"panel_owner_{msg.message_id}"
         owner_id = ctx.chat_data.get(msg_key) if ctx.chat_data is not None else None
         if owner_id is not None and requester_id != owner_id:
@@ -269,6 +256,7 @@ def _action_label(action: str) -> str:
         "pishva_panel": "پنل مدیر ارشد",
         "quick_panel": "پنل",
         "ai_manage_panel": "مدیریت دستیار",
+        "admin_manage_panel": "مدیریت مدیران",
         "security": "امنیت",
         "backup": "بکاپ",
         "requests": "درخواست‌ها",
@@ -318,6 +306,22 @@ async def _panel_content(action: str, uid: int, is_pishva: bool, admin):
         return (
             f"{box('🧑\u200d💻 مدیریت دستیار')}\n\n📌 یک گزینه را انتخاب کنید:",
             kb.kb_ai_manage_menu(ai_online, "menu_pishva"),
+            None,
+        )
+
+    if action == "admin_manage_panel":
+        if not is_pishva:
+            return None, None, "⛔ فقط مدیر ارشد می‌تواند مدیران را مدیریت کند."
+        admins = await db.get_all_admins()
+        if not admins:
+            return (
+                f"{box('👥 مدیریت مدیران')}\n\n❗ هیچ مدیری ثبت نشده است.",
+                kb.kb_back("main"),
+                None,
+            )
+        return (
+            f"{box('👥 مدیریت مدیران')}\n\nیک مدیر انتخاب کنید:",
+            kb.kb_admin_list(admins),
             None,
         )
 
@@ -539,6 +543,20 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
                 reply_markup=kb.kb_ai_manage_menu(ai_online, "menu_pishva"),
                 parse_mode="Markdown"
             )
+            await register_panel_owner(update, ctx, sent.message_id)
+        raise ApplicationHandlerStop()
+
+    # ─── مدیریت مدیران (کلمه «مدیران») ───
+    if action == "admin_manage_panel":
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "admin_manage_panel")
+        else:
+            text, markup, err = await _panel_content("admin_manage_panel", uid, is_pishva, admin)
+            if text is None:
+                await update.message.reply_text(err or "⛔ شما مجوز باز کردن این پنل را ندارید.")
+                raise ApplicationHandlerStop()
+            sent = await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
             await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 

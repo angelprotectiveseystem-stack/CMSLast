@@ -148,7 +148,7 @@ from workhours import (
 )
 from help_center import help_main, help_tutorial
 from dashboard import dashboard_pishva, dashboard_admin
-from features import (show_elo_leaderboard, show_elo_info, show_player_elo_panel,
+from features import (show_elo_leaderboard, show_elo_info, show_player_elo_panel, show_elo_history_picker,
     show_prediction_select, show_prediction, show_champions, show_bracket)
 from teams_add import (
     teams_add_start, team_name_received, team_skip_slogan, team_slogan_received,
@@ -409,6 +409,7 @@ def _register_back_targets():
         "teams_list": teams_list,
         "match_history": match_history,
         "ai_manage_return": ai_manage_menu,
+        "elo_leaderboard": show_elo_leaderboard,
     })
 
 
@@ -1074,6 +1075,7 @@ def build_application():
     app.add_handler(CallbackQueryHandler(show_elo_leaderboard, pattern="^elo_leaderboard$"))
     app.add_handler(CallbackQueryHandler(show_elo_info, pattern="^elo_info$"))
     app.add_handler(CallbackQueryHandler(show_player_elo_panel, pattern="^elo_player_"))
+    app.add_handler(CallbackQueryHandler(show_elo_history_picker, pattern="^elo_my_history$"))
     app.add_handler(CallbackQueryHandler(show_prediction_select, pattern="^predict_select_"))
     app.add_handler(CallbackQueryHandler(show_prediction, pattern="^predict_[0-9]+_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(show_champions, pattern="^champions$"))

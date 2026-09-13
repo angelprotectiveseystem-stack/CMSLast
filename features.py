@@ -9,6 +9,7 @@ features.py — قابلیت‌های جدید:
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import database as db
+import keyboards as kb
 from helpers import box, separator, now_shamsi, today_shamsi, progress_bar, notify_pishva
 from config import PISHVA_ID
 import logging
@@ -54,12 +55,41 @@ async def show_elo_leaderboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         text,
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📈 تاریخچه Elo من", callback_data="elo_my_history"),
+            [InlineKeyboardButton("📈 تاریخچه Elo بازیکن", callback_data="elo_my_history"),
             InlineKeyboardButton("❓ سیستم Elo چیست؟", callback_data="elo_info")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")],
         ]),
         parse_mode="Markdown"
     )
+
+async def show_elo_history_picker(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """دکمه‌ی «📈 تاریخچه Elo بازیکن» توی جدول رتبه‌بندی — قبلاً به هیچ
+    هندلری وصل نبود (فقط دکمه‌اش ساخته شده بود) و با زدنش هیچ اتفاقی
+    نمی‌افتاد. اینجا لیستِ بازیکنان (بر اساس امتیاز) نشون داده می‌شه تا
+    یکی انتخاب بشه و پنلِ Elo همون بازیکن (show_player_elo_panel) باز شه."""
+    query = update.callback_query
+    await query.answer()
+    from elo import get_elo_leaderboard
+    rows = await get_elo_leaderboard(30)
+    if not rows:
+        await query.edit_message_text(
+            f"{box('📈 تاریخچه Elo')}\n\n❗ هنوز هیچ بازیکنی امتیاز Elo ندارد.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 بازگشت", callback_data="elo_leaderboard")]
+            ]),
+            parse_mode="Markdown"
+        )
+        return
+    players = [
+        {"id": r["player_id"], "full_name": r["full_name"], "class_name": r["class_name"]}
+        for r in rows
+    ]
+    await query.edit_message_text(
+        f"{box('📈 تاریخچه Elo')}\n\n📌 بازیکن موردنظر را انتخاب کنید:",
+        reply_markup=kb.kb_player_select(players, prefix="elo_player", back="elo_leaderboard"),
+        parse_mode="Markdown"
+    )
+
 
 async def show_elo_info(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
