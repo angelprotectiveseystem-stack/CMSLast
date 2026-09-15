@@ -19,6 +19,7 @@ ai_tools.py — تعریف «ابزارهای» دستیار هوشمند + ما
 """
 import logging
 import json
+import html
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -1000,7 +1001,10 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
 
         # ── ارتباطات ──
         elif name == "send_announcement":
-            await comms._send_announcement(ctx.bot, args["text"], "", "", via_assistant=True)
+            # متن دستیار هوشمند خامه (نه از entity‌های تلگرام)، پس برخلاف
+            # مسیر پنل که با text_html میاد، اینجا باید خودمون برای حالت
+            # HTML امن‌ش کنیم (وگرنه یه < یا & توی متن می‌تونه پارس رو بشکنه).
+            await comms._send_announcement(ctx.bot, html.escape(args["text"]), "", "", via_assistant=True)
             await db.create_announcement(args["text"], "", "")
             await db.add_memory_note("عمومی", f"بیانیه: {args['text']}", visibility="all", created_by=caller_id)
             return "📢 بیانیه برای همه‌ی مدیران ارسال شد (با علامت اینکه از طریق دستیار فرستاده شده)."

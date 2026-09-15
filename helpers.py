@@ -291,6 +291,62 @@ async def safe_send_message(bot, chat_id, text: str, reply_markup=None, parse_mo
             return await bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
         raise
 
+# حداکثر طول کپشنِ مجاز روی عکس/فایل/ویدیو/صوت در تلگرام (برخلاف متن پیام
+# ساده که تا ۴۰۹۶ کاراکتر جواب می‌ده، کپشن رسانه فقط تا ۱۰۲۴ کاراکتره).
+TELEGRAM_CAPTION_LIMIT = 1024
+
+async def safe_send_media(bot, chat_id, file_type: str, file_id: str, caption: str,
+                           parse_mode="HTML", reply_markup=None):
+    """جایگزین امن ارسال عکس/فایل/ویدیو/صوت با کپشن.
+
+    قبلاً این مسیر مستقیم bot.send_photo/... رو صدا می‌زد و هر خطایی
+    (مثل «Can't parse entities» به خاطر یه کاراکتر خاص توی متن، یا کپشنِ
+    بلندتر از ۱۰۲۴ کاراکتر) با یه except خالی قورت داده می‌شد — یعنی نه
+    فایل می‌رفت، نه متن، و هیچ خطایی هم لاگ نمی‌شد. این تابع سه‌تا مشکل رو
+    حل می‌کنه:
+    ۱) اگه پارس فرمت (HTML/Markdown) خطا بده → بدون parse_mode دوباره
+       امتحان می‌کنه (متن خام، ولی حداقل می‌ره).
+    ۲) اگه کپشن از سقف ۱۰۲۴ کاراکتر تلگرام بلندتر باشه → رسانه رو بدون
+       کپشن می‌فرسته و متن کامل رو به‌عنوان یه پیام جدا بعدش می‌فرسته،
+       به‌جای اینکه کلاً ارسال شکست بخوره.
+    ۳) خطاهای واقعی رو لاگ می‌کنه به‌جای اینکه بی‌صدا نادیده بگیره.
+    """
+    senders = {
+        "photo": bot.send_photo,
+        "document": bot.send_document,
+        "video": bot.send_video,
+        "audio": bot.send_audio,
+    }
+    send = senders.get(file_type)
+    if not send:
+        return await safe_send_message(bot, chat_id, caption, reply_markup=reply_markup, parse_mode=parse_mode)
+
+    media_kwarg = {"photo": "photo", "document": "document", "video": "video", "audio": "audio"}[file_type]
+    long_caption = len(caption) > TELEGRAM_CAPTION_LIMIT
+
+    try:
+        if long_caption:
+            await send(chat_id=chat_id, **{media_kwarg: file_id})
+            return await safe_send_message(bot, chat_id, caption, reply_markup=reply_markup, parse_mode=parse_mode)
+        return await send(chat_id=chat_id, **{media_kwarg: file_id}, caption=caption,
+                           parse_mode=parse_mode, reply_markup=reply_markup)
+    except BadRequest as e:
+        if parse_mode and _is_entity_parse_error(e):
+            logger.warning(f"Parse failed sending {file_type} to {chat_id}, resending without parse_mode: {e}")
+            try:
+                if long_caption:
+                    return await safe_send_message(bot, chat_id, caption, reply_markup=reply_markup, parse_mode=None)
+                return await send(chat_id=chat_id, **{media_kwarg: file_id}, caption=caption,
+                                   reply_markup=reply_markup)
+            except Exception as e2:
+                logger.warning(f"Retry without parse_mode also failed sending {file_type} to {chat_id}: {e2}")
+                return None
+        logger.warning(f"Failed to send {file_type} to {chat_id}: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"Unexpected error sending {file_type} to {chat_id}: {e}")
+        return None
+
 async def safe_reply_text(message, text: str, reply_markup=None, parse_mode="Markdown"):
     """جایگزین امن message.reply_text."""
     try:
@@ -364,7 +420,7 @@ async def send_notification(bot, user_id: int, text: str, reply_markup=None):
     except Exception as e:
         logger.warning(f"Failed to notify {user_id}: {e}")
 
-async def broadcast_to_admins(bot, text: str, exclude_id: int = None, reply_markup=None):
+async def broadcast_to_admins(bot, text: str, exclude_id: int = None, reply_markup=None, parse_mode="Markdown"):
     notif_on = await db.get_setting("notifications_enabled", "1")
     if notif_on != "1":
         return
@@ -382,7 +438,7 @@ async def broadcast_to_admins(bot, text: str, exclude_id: int = None, reply_mark
         except Exception:
             pass
         try:
-            await safe_send_message(bot, tid, text, reply_markup=reply_markup)
+            await safe_send_message(bot, tid, text, reply_markup=reply_markup, parse_mode=parse_mode)
         except Exception as e:
             logger.warning(f"Broadcast failed for {tid}: {e}")
 

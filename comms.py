@@ -3,7 +3,12 @@ from telegram.ext import ContextTypes, ConversationHandler
 import database as db
 import keyboards as kb
 from helpers import (box, separator, now_shamsi, broadcast_to_admins,
-    notify_pishva, pishva_display, send_notification, safe_edit_message_text)
+    notify_pishva, pishva_display, send_notification, safe_edit_message_text,
+    safe_send_media, safe_send_message)
+import html
+import logging
+
+logger = logging.getLogger(__name__)
 from config import (PISHVA_ID, ST_SEND_MSG_SELECT_ADMIN, ST_SEND_MSG_TEXT,
     ST_ANNOUNCEMENT_TEXT, ST_ANNOUNCEMENT_FILE, ST_NEWS_TEXT)
 
@@ -154,7 +159,11 @@ async def comms_announce_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ST_ANNOUNCEMENT_TEXT
 
 async def comms_announce_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+    # update.message.text خامه و فرمت‌بندی (بولد/ایتالیک و...) که کاربر با
+    # دکمه‌های خودِ تلگرام روی متن اعمال کرده رو حذف می‌کنه، چون اون فرمت‌ها
+    # به‌صورت entity جدا ذخیره می‌شن نه کاراکتر توی خودِ متن. text_html همون
+    # entity ها رو به تگ HTML تبدیل می‌کنه تا موقع ارسال دوباره حفظ بشن.
+    text = (update.message.text_html or update.message.text or "").strip()
     ctx.user_data["announce_text"] = text
     await update.message.reply_text(
         "آیا فایلی برای پیوست دارید؟",
@@ -201,13 +210,17 @@ async def _send_announcement(bot, text: str, file_id: str, file_type: str, via_a
     ann_id = await db.create_announcement(text, file_id, file_type)
     pname = await db.get_setting("pishva_display_name", "مدیر ارشد")
     ts = now_shamsi()
-    footer = f"⏱️ `{ts}`\n👑 {pname}"
+    footer = f"⏱️ <code>{html.escape(ts)}</code>\n👑 {html.escape(pname)}"
     if via_assistant:
         # وقتی بیانیه از طریق دستیار هوشمند (نه مستقیم از پنل) فرستاده می‌شه،
         # صراحتاً بگو که ارسالش کار دستیار بوده — نه اینکه انگار خودِ مدیر
         # ارشد لحظه‌به‌لحظه پشت پنل نشسته و تایپ کرده.
         footer += "\n🤖 ارسال‌شده توسط دستیار هوشمند"
-    full_text = f"📢 *بیانیه رسمی*\n\n{text}\n\n{footer}"
+    # از HTML به‌جای Markdown استفاده می‌کنیم: هم فرمت بولد/ایتالیکی که کاربر
+    # توی تلگرام روی متن اعمال کرده (تبدیل‌شده به تگ توسط text_html) درست
+    # نمایش داده می‌شه، هم دیگه یه کاراکتر معمولی مثل «_» یا «*» توی متنِ
+    # بیانیه باعث خطای «Can't parse entities» و ارسال‌نشدنِ کامل پیام نمی‌شه.
+    full_text = f"📢 <b>بیانیه رسمی</b>\n\n{text}\n\n{footer}"
     notif_on = await db.get_setting("notifications_enabled", "1")
     if notif_on != "1":
         return
@@ -222,20 +235,13 @@ async def _send_announcement(bot, text: str, file_id: str, file_type: str, via_a
     if channel_id and channel_broadcast_on == "1":
         targets.append(int(channel_id))
     for tid in targets:
-        try:
-            if file_id:
-                if file_type == "photo":
-                    await bot.send_photo(chat_id=tid, photo=file_id, caption=full_text, parse_mode="Markdown")
-                elif file_type == "document":
-                    await bot.send_document(chat_id=tid, document=file_id, caption=full_text, parse_mode="Markdown")
-                elif file_type == "video":
-                    await bot.send_video(chat_id=tid, video=file_id, caption=full_text, parse_mode="Markdown")
-                elif file_type == "audio":
-                    await bot.send_audio(chat_id=tid, audio=file_id, caption=full_text, parse_mode="Markdown")
-            else:
-                await bot.send_message(chat_id=tid, text=full_text, parse_mode="Markdown")
-        except Exception:
-            pass
+        if file_id:
+            await safe_send_media(bot, tid, file_type, file_id, full_text, parse_mode="HTML")
+        else:
+            try:
+                await safe_send_message(bot, tid, full_text, parse_mode="HTML")
+            except Exception as e:
+                logger.warning(f"Failed to send announcement to {tid}: {e}")
 
 async def comms_ann_history(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -273,10 +279,10 @@ async def ann_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         rows.append([InlineKeyboardButton("🗑️ حذف بیانیه", callback_data=f"ann_delete_{ann_id}")])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="comms_ann_history")])
     await safe_edit_message_text(query, 
-        f"📢 *بیانیه*\n\n{ann['text']}\n\n⏱️ `{str(ann['sent_at'])[:19]}`\n"
+        f"📢 <b>بیانیه</b>\n\n{ann['text']}\n\n⏱️ <code>{html.escape(str(ann['sent_at'])[:19])}</code>\n"
         f"{'📎 دارای پیوست' if ann['file_id'] else ''}",
         reply_markup=InlineKeyboardMarkup(rows),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 async def ann_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -300,12 +306,14 @@ async def comms_news_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ST_NEWS_TEXT
 
 async def comms_news_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+    # همون دلیل بیانیه: text_html فرمت بولد/ایتالیکِ اعمال‌شده توسط کاربر رو
+    # حفظ می‌کنه، برخلاف .text خام.
+    text = (update.message.text_html or update.message.text or "").strip()
     ts = now_shamsi()
     pname = await pishva_display()
-    news_text = f"✨ *خبر فوری از سیستم✨*\n\n{text}\n\n⏱️ `{ts}`"
+    news_text = f"✨ <b>خبر فوری از سیستم</b>✨\n\n{text}\n\n⏱️ <code>{html.escape(ts)}</code>"
     await db.create_news(text)
-    await broadcast_to_admins(ctx.bot, news_text)
+    await broadcast_to_admins(ctx.bot, news_text, parse_mode="HTML")
     await update.message.reply_text("✅ خبر فوری برای همه ارسال شد.")
     return ConversationHandler.END
 
@@ -316,11 +324,11 @@ async def comms_news_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not news:
         await safe_edit_message_text(query, "📭 هیچ خبری ثبت نشده.", reply_markup=kb.kb_back("comms"))
         return
-    lines = [f"📰 `{str(n['sent_at'])[:10]}` — {n['text'][:80]}" for n in news[:20]]
+    lines = [f"📰 <code>{html.escape(str(n['sent_at'])[:10])}</code> — {n['text'][:80]}" for n in news[:20]]
     await safe_edit_message_text(query, 
         f"{box('📰 اخبار')}\n\n" + "\n\n".join(lines),
         reply_markup=kb.kb_back("comms"),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 async def comms_notifs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -331,11 +339,12 @@ async def comms_notifs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     combined = [(n["sent_at"], "📰 خبر", n["text"]) for n in msgs[:5]]
     combined += [(a["sent_at"], "📢 بیانیه", a["text"]) for a in anns[:5]]
     combined.sort(key=lambda x: x[0], reverse=True)
-    lines = [f"{t} `{str(d)[:10]}`: {txt[:60]}" for d, t, txt in combined[:15]]
+    lines = [f"{t} <code>{html.escape(str(d)[:10])}</code>: {txt[:60]}" for d, t, txt in combined[:15]]
     await safe_edit_message_text(
         query,
         f"{box('🔔 اعلانات اخیر')}\n\n" + ("\n\n".join(lines) or "❗ اعلانی وجود ندارد."),
-        reply_markup=kb.kb_back("comms")
+        reply_markup=kb.kb_back("comms"),
+        parse_mode="HTML"
     )
 
 async def comms_reports(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
