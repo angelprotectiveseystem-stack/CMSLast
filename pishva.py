@@ -89,7 +89,8 @@ async def pishva_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
         "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
-        "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled"]
+        "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled",
+        "admin_direct_kick_enabled"]
     # FIX: قبلاً این ۱۵ تا db.get_setting با asyncio.gather «هم‌زمان» صدا زده
     # می‌شدن، ولی چون Turso دور و کندِ‌رفت‌وبرگشته، هم‌زمانیِ سطحِ پایتون به
     # یک رفت‌وبرگشتِ شبکه‌ی واحد ختم نمی‌شد — چند موجِ رفت‌وبرگشتِ جدا
@@ -125,6 +126,7 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "setting_bug_report": "bug_report_to_pishva_enabled",
         "setting_principal_panel": "principal_panel_enabled",
         "setting_admin_webpanel": "admin_webpanel_enabled",
+        "setting_admin_direct_kick": "admin_direct_kick_enabled",
     }
     key = key_map.get(query.data)
     if key:
@@ -138,7 +140,8 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
         "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
-        "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled"]
+        "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled",
+        "admin_direct_kick_enabled"]
     # FIX (کندیِ وحشتناکِ هر دکمه‌ی تنظیمات): این‌جا قبلاً، بعد از هر تاگل،
     # ۱۵ تا db.get_setting جداگانه صدا زده می‌شدن. حتی با asyncio.gather،
     # چون Turso دور و کندِ‌رفت‌وبرگشته، هم‌زمانیِ سطحِ پایتون به یک
@@ -161,25 +164,68 @@ async def pishva_suspicious_settings(update: Update, ctx: ContextTypes.DEFAULT_T
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    # FIX: این سه‌تا await قبلاً پشتِ‌سرِهم بودن؛ حالا موازی خونده می‌شن.
-    enabled, threshold, window = await asyncio.gather(
+    # FIX: این await ها قبلاً پشتِ‌سرِهم بودن؛ حالا موازی خونده می‌شن.
+    enabled, threshold, window, auto_enabled, auto_action = await asyncio.gather(
         db.get_setting("suspicious_alert_enabled", "1"),
         db.get_setting("suspicious_deletion_threshold", "5"),
         db.get_setting("suspicious_deletion_window_minutes", "10"),
+        db.get_setting("suspicious_auto_enabled", "0"),
+        db.get_setting("suspicious_auto_action", "notify_only"),
     )
     status = "🟢 فعال" if enabled == "1" else "🔴 غیرفعال"
+    import anomaly_alerts
+    auto_status = "🟢 فعال" if auto_enabled == "1" else "🔴 غیرفعال"
+    auto_action_label = anomaly_alerts.AUTO_ACTION_LABELS.get(auto_action, auto_action)
     text = (
         f"{box('🚨 هشدار حذف مشکوک')}\n\n"
         f"📊 وضعیت: {status}\n"
         f"🔢 آستانه: `{threshold}` حذف\n"
         f"⏱️ بازه: `{window}` دقیقه\n\n"
-        f"💡 اگه یک ادمین توی این بازه به تعداد این آستانه یا بیشتر "
+        f"🤖 تصمیم‌گیری خودکار: {auto_status}\n"
+        + (f"⚙️ اقدامِ خودکار: {auto_action_label}\n\n" if auto_enabled == "1" else "\n")
+        + f"💡 اگه یک ادمین توی این بازه به تعداد این آستانه یا بیشتر "
         f"عملیات مخرب (اخراج/تعلیق/حذف بازیکن، حذف مسابقه، حذف تیم، "
-        f"حذف تورنمنت) انجام بده، فوراً به شما هشدار داده می‌شه."
+        f"حذف تورنمنت) انجام بده، فوراً به شما هشدار داده می‌شه — مگر "
+        f"اینکه تصمیم‌گیریِ خودکار فعال باشه، که در اون صورت اقدامِ "
+        f"انتخابی‌تون خودش انجام می‌شه و فقط بهتون اطلاع داده می‌شه."
     )
     await safe_edit_message_text(query, text,
-        reply_markup=kb.kb_suspicious_settings(enabled, threshold, window),
+        reply_markup=kb.kb_suspicious_settings(enabled, threshold, window, auto_enabled, auto_action),
         parse_mode="Markdown")
+
+async def sadel_auto_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    current = await db.get_setting("suspicious_auto_enabled", "0")
+    new_val = "0" if current == "1" else "1"
+    await db.set_setting("suspicious_auto_enabled", new_val)
+    await db.log_action(PISHVA_ID, "toggle_setting", f"suspicious_auto_enabled -> {new_val}")
+    await pishva_suspicious_settings(update, ctx)
+
+async def sadel_auto_action_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    current = await db.get_setting("suspicious_auto_action", "notify_only")
+    await safe_edit_message_text(query,
+        "⚙️ اقدامی که به‌صورت خودکار انجام شود را انتخاب کنید:",
+        reply_markup=kb.kb_suspicious_auto_action(current))
+
+async def sadel_auto_action_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    action = query.data[len("sadel_auto_set_"):]
+    await db.set_setting("suspicious_auto_action", action)
+    await db.log_action(PISHVA_ID, "toggle_setting", f"suspicious_auto_action -> {action}")
+    await query.answer("✅ ثبت شد", show_alert=True)
+    await pishva_suspicious_settings(update, ctx)
 
 async def sadel_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

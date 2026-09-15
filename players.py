@@ -377,22 +377,161 @@ async def player_warn_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def player_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """FIX: قبلاً این تابع فقط permission «request_ban» رو چک می‌کرد و
+    همیشه بازیکن رو مستقیم اخراج می‌کرد — یعنی permission «اخراج مستقیم»
+    (direct_ban) و کلیدِ کلیِ «اخراجِ مستقیمِ مدیران» هیچ‌وقت واقعاً چک
+    نمی‌شدن؛ حتی وقتی این‌ها خاموش بودن، ادمین بازم می‌تونست مستقیم اخراج
+    کنه. حالا: اگه هم permission اختصاصیِ همین ادمین («اخراج مستقیم») روشنه
+    و هم کلیدِ کلی روشنه، اخراج مثل قبل فوری انجام می‌شه؛ وگرنه به‌جای
+    اخراجِ فوری، یک درخواست برای مدیر ارشد ساخته می‌شه و لیستِ درخواست‌های
+    اخراج (توی پنل مدیر ارشد) به‌روز می‌شه."""
     query = update.callback_query
     if await check_status_gate(query, "ban_player"):
         return
     if await check_perm(query, "request_ban"):
         return
-    await query.answer()
+    uid = query.from_user.id
     pid = int(query.data.split("_")[-1])
     p = await db.get_player(pid)
-    if p["is_elite"] or p["is_special"]:
-        icon = "🌟" if p["is_elite"] else "⚡"
-        await query.answer(f"⚠️ این بازیکن {icon} است! برای تأیید دوباره بزنید.", show_alert=True)
-    await db.update_player(pid, status="kicked")
-    await db.log_action(query.from_user.id, "kick_player", f"اخراج: {p['full_name']}", pid)
-    await record_destructive_action(ctx.bot, query.from_user.id, "kick_player")
-    await safe_edit_message_text(query, f"🚫 *{p['full_name']}* اخراج شد.",
-                                   reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
+    if not p:
+        await query.answer("بازیکن یافت نشد.", show_alert=True)
+        return
+
+    admin = await db.get_admin(uid)
+    import json as _json
+    try:
+        perms = _json.loads(admin["permissions"]) if admin else {}
+    except Exception:
+        perms = {}
+    direct_allowed = bool(perms.get("direct_ban", False))
+    global_allowed = (await db.get_setting("admin_direct_kick_enabled", "1")) == "1"
+
+    if direct_allowed and global_allowed:
+        await query.answer()
+        if p["is_elite"] or p["is_special"]:
+            icon = "🌟" if p["is_elite"] else "⚡"
+            await query.answer(f"⚠️ این بازیکن {icon} است! برای تأیید دوباره بزنید.", show_alert=True)
+        await db.update_player(pid, status="kicked")
+        await db.log_action(uid, "kick_player", f"اخراج: {p['full_name']}", pid)
+        await record_destructive_action(ctx.bot, uid, "kick_player")
+        await safe_edit_message_text(query, f"🚫 *{p['full_name']}* اخراج شد.",
+                                       reply_markup=kb.kb_back("player_list"), parse_mode="Markdown")
+        return
+
+    # ─── دسترسیِ اخراجِ مستقیم خاموشه — به‌جای اخراج، درخواست بساز ───
+    await query.answer("⏳ اخراجِ مستقیم برای شما غیرفعاله؛ درخواست برای مدیر ارشد ارسال شد.", show_alert=True)
+    req_id = await db.create_kick_request(uid, pid)
+    admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(uid)
+    await notify_pishva(
+        ctx.bot,
+        f"{box('🚫 درخواست اخراج بازیکن')}\n\n"
+        f"👤 ادمینِ درخواست‌دهنده: *{admin_name}*\n"
+        f"♟️ بازیکن: *{p['full_name']}*\n"
+        f"⏱️ `{now_shamsi()}`\n\n"
+        f"📌 تایید یا رد کنید:",
+        reply_markup=kb.kb_kick_request(req_id)
+    )
+    await db.log_action(uid, "request_kick_player", f"درخواست اخراج: {p['full_name']}", pid)
+    await safe_edit_message_text(
+        query,
+        f"⏳ درخواستِ اخراجِ *{p['full_name']}* برای تاییدِ مدیر ارشد ارسال شد.",
+        reply_markup=kb.kb_back("player_list"), parse_mode="Markdown"
+    )
+
+
+async def pishva_kick_requests(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
+        return
+    await query.answer()
+    reqs = await db.get_pending_kick_requests()
+    await safe_edit_message_text(
+        query,
+        f"{box('🚫 درخواست‌های اخراج')}\n\n📌 درخواست‌های در انتظارِ تایید:",
+        reply_markup=kb.kb_kick_requests_list(reqs),
+        parse_mode="Markdown"
+    )
+
+
+async def kick_request_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
+        return
+    await query.answer()
+    req_id = int(query.data[len("kickreq_view_"):])
+    r = await db.get_kick_request(req_id)
+    if not r or r["status"] != "pending":
+        await safe_edit_message_text(query, "این درخواست دیگر معتبر نیست.", reply_markup=kb.kb_back("pishva_panel"))
+        return
+    admin = await db.get_admin(r["admin_id"])
+    p = await db.get_player(r["player_id"])
+    admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(r["admin_id"])
+    player_name = p["full_name"] if p else str(r["player_id"])
+    await safe_edit_message_text(
+        query,
+        f"{box('🚫 درخواست اخراج بازیکن')}\n\n"
+        f"👤 ادمینِ درخواست‌دهنده: *{admin_name}*\n"
+        f"♟️ بازیکن: *{player_name}*\n"
+        f"⏱️ `{str(r['requested_at'])[:16]}`\n\n"
+        f"📌 تایید یا رد کنید:",
+        reply_markup=kb.kb_kick_request(req_id),
+        parse_mode="Markdown"
+    )
+
+
+async def kick_request_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
+        return
+    await query.answer("✅ اخراج شد.")
+    req_id = int(query.data[len("kickreq_approve_"):])
+    r = await db.get_kick_request(req_id)
+    if not r or r["status"] != "pending":
+        await safe_edit_message_text(query, "این درخواست دیگر معتبر نیست.", reply_markup=kb.kb_back("pishva_panel"))
+        return
+    p = await db.get_player(r["player_id"])
+    await db.update_kick_request(req_id, "approved")
+    if p:
+        await db.update_player(r["player_id"], status="kicked")
+        await db.log_action(PISHVA_ID, "kick_player",
+                             f"تاییدِ درخواستِ اخراج: {p['full_name']}", r["player_id"])
+        await record_destructive_action(ctx.bot, r["admin_id"], "kick_player")
+    old_text = query.message.text or ""
+    try:
+        await ctx.bot.send_message(chat_id=r["admin_id"],
+            text=f"✅ درخواستِ اخراجِ *{p['full_name'] if p else ''}* توسط مدیر ارشد تایید شد.",
+            parse_mode="Markdown")
+    except Exception:
+        pass
+    await safe_edit_message_text(query, f"{old_text}\n\n✅ *تایید شد و بازیکن اخراج گردید.*",
+                                   reply_markup=kb.kb_back("pishva_panel"))
+
+
+async def kick_request_reject(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
+        return
+    await query.answer("❌ رد شد.")
+    req_id = int(query.data[len("kickreq_reject_"):])
+    r = await db.get_kick_request(req_id)
+    if not r or r["status"] != "pending":
+        await safe_edit_message_text(query, "این درخواست دیگر معتبر نیست.", reply_markup=kb.kb_back("pishva_panel"))
+        return
+    p = await db.get_player(r["player_id"])
+    await db.update_kick_request(req_id, "rejected")
+    try:
+        await ctx.bot.send_message(chat_id=r["admin_id"],
+            text=f"❌ درخواستِ اخراجِ *{p['full_name'] if p else ''}* توسط مدیر ارشد رد شد.",
+            parse_mode="Markdown")
+    except Exception:
+        pass
+    old_text = query.message.text or ""
+    await safe_edit_message_text(query, f"{old_text}\n\n❌ *درخواست رد شد.*",
+                                   reply_markup=kb.kb_back("pishva_panel"))
 
 async def player_suspend(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

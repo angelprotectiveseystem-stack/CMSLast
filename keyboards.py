@@ -311,30 +311,54 @@ def kb_match_item_actions(mid):
     ])
 
 # ─── پنل مدیر ارشد ────────────────────────────────────────────────
-def kb_pishva_panel():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚦 مدیریت وضعیت", callback_data="pishva_status"),
-        InlineKeyboardButton("⚙️ تنظیمات ربات", callback_data="pishva_settings")],
-        [InlineKeyboardButton("🔍 پیگیری اقدامات", callback_data="pishva_logs"),
-        InlineKeyboardButton("📥 درخواست‌های دسترسی", callback_data="pishva_requests")],
-        [InlineKeyboardButton("♟️ بازی‌های مدیران", callback_data="pishva_chess_games"),
-        InlineKeyboardButton("💾 دریافت بکاپ", callback_data="pishva_backup")],
-        [InlineKeyboardButton("🕐 ساعت کاری", callback_data="pishva_workhours"),
-        InlineKeyboardButton("🔧 حالت تعمیر", callback_data="pishva_repair")],
-        [InlineKeyboardButton("🏦 خزانه مدیر ارشد", callback_data="pishva_vault"),
-        InlineKeyboardButton("🪪 تغییر هویت", callback_data="pishva_identity")],
-        [InlineKeyboardButton("🎓 سال تحصیلی جدید", callback_data="pishva_newyear"),
-        InlineKeyboardButton("🔄 آپدیت ربات", callback_data="pishva_update")],
-        [InlineKeyboardButton("📡 گروه اعلانات", callback_data="pishva_group"),
-        InlineKeyboardButton("📢 افزودن به کانال", url=f"https://t.me/{BOT_USERNAME}?startchannel&admin=post_messages")],
-        [InlineKeyboardButton("🆔 تنظیم کانال اعلانات", callback_data="pishva_channel"),
-        InlineKeyboardButton("📡 پخش خودکار", callback_data="pishva_broadcast")],
-        [InlineKeyboardButton("🛡️ پنل امنیتی APS", callback_data="security_panel"),
-        InlineKeyboardButton("🧑‍💻 مدیریت دستیار", callback_data="ai_manage_menu")],
-        [InlineKeyboardButton("⏰ یادآورها", callback_data="pishva_reminders"),
-        InlineKeyboardButton("🤖 کارهای دستیار", callback_data="pishva_ai_scheduled")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main", style="danger")],
-    ])
+# ─── پنل مدیر ارشد — سه صفحه ─────────────────────────────────────
+# FIX: این پنل قبلاً توی یک صفحه‌ی طولانی جمع شده بود و بعد کوتاهش کرده
+# بودن (کلی دکمه از دسترسِ سریع خارج شده بود). حالا روی سه صفحه پخش شده،
+# ولی جابه‌جایی بینِ صفحه‌ها فقط یک تعویضِ کیبورد است — هیچ کوئریِ دیتابیسی
+# یا await ای لازم نداره — پس حسِ فوری/آنی داره، نه کند.
+_PISHVA_PANEL_PAGES = [
+    [
+        [("🚦 مدیریت وضعیت", "pishva_status", None), ("⚙️ تنظیمات ربات", "pishva_settings", None)],
+        [("🔍 پیگیری اقدامات", "pishva_logs", None), ("📥 درخواست‌های دسترسی", "pishva_requests", None)],
+        [("🚫 درخواست‌های اخراج", "pishva_kick_requests", None), ("♟️ بازی‌های مدیران", "pishva_chess_games", None)],
+        [("💾 دریافت بکاپ", "pishva_backup", None), ("🕐 ساعت کاری", "pishva_workhours", None)],
+    ],
+    [
+        [("🔧 حالت تعمیر", "pishva_repair", None), ("🏦 خزانه مدیر ارشد", "pishva_vault", None)],
+        [("🪪 تغییر هویت", "pishva_identity", None), ("🎓 سال تحصیلی جدید", "pishva_newyear", None)],
+        [("🔄 آپدیت ربات", "pishva_update", None), ("📡 گروه اعلانات", "pishva_group", None)],
+        [("🆔 تنظیم کانال اعلانات", "pishva_channel", None), ("📡 پخش خودکار", "pishva_broadcast", None)],
+    ],
+    [
+        [("📢 افزودن به کانال", None, f"https://t.me/{BOT_USERNAME}?startchannel&admin=post_messages"),
+         ("🛡️ پنل امنیتی APS", "security_panel", None)],
+        [("🧑‍💻 مدیریت دستیار", "ai_manage_menu", None), ("⏰ یادآورها", "pishva_reminders", None)],
+        [("🤖 کارهای دستیار", "pishva_ai_scheduled", None)],
+    ],
+]
+
+
+def kb_pishva_panel(page: int = 0):
+    total = len(_PISHVA_PANEL_PAGES)
+    page = max(0, min(page, total - 1))
+    rows = []
+    for row_def in _PISHVA_PANEL_PAGES[page]:
+        row = []
+        for label, cb, url in row_def:
+            if url:
+                row.append(InlineKeyboardButton(label, url=url))
+            else:
+                row.append(InlineKeyboardButton(label, callback_data=cb, style="primary"))
+        rows.append(row)
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"pishva_panel_p{page - 1}", style="primary"))
+    nav.append(InlineKeyboardButton(f"صفحه {page + 1}/{total}", callback_data="noop_label", style="primary"))
+    if page < total - 1:
+        nav.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"pishva_panel_p{page + 1}", style="primary"))
+    rows.append(nav)
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_main", style="danger")])
+    return InlineKeyboardMarkup(rows)
 
 # ─── کارهای زمان‌بندی‌شدهٔ دستیار هوشمند ───────────────────────────
 def kb_ai_scheduled_list(rows):
@@ -360,7 +384,7 @@ def kb_ai_manage_menu(ai_online: str = "1", back_target: str = "menu_pishva"):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🗂️ سوابق چت‌های دستیار", callback_data="ai_admlog_menu", style="primary")],
         [InlineKeyboardButton("🛠️ اختیارات دستیار", callback_data="ai_perms_menu", style="primary")],
-        [InlineKeyboardButton(f"🔌 هوش مصنوعی {tog}", callback_data="ai_manage_toggle_online", style="primary")],
+        [InlineKeyboardButton(f"🔌 هوش مصنوعی {tog}", callback_data="ai_manage_toggle_online", style=_onoff_style(ai_online == "1"))],
         [InlineKeyboardButton("🔕 خاموشی برای ادمین خاص", callback_data="ai_admtg_menu", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data=back_target, style="danger")],
     ])
@@ -371,8 +395,9 @@ def kb_ai_perms_menu(states: dict):
     from ai_tools import AI_PERMISSION_CATEGORIES
     rows = []
     for key, label, _tools in AI_PERMISSION_CATEGORIES:
-        icon = "✅" if states.get(key, "1") == "1" else "❌"
-        rows.append([InlineKeyboardButton(f"{icon} {label}", callback_data=f"aiperm_toggle_{key}", style="primary")])
+        is_on = states.get(key, "1") == "1"
+        icon = "✅" if is_on else "❌"
+        rows.append([InlineKeyboardButton(f"{icon} {label}", callback_data=f"aiperm_toggle_{key}", style=_onoff_style(is_on))])
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="ai_manage_menu_return", style="danger")])
     return InlineKeyboardMarkup(rows)
 
@@ -393,7 +418,7 @@ def kb_ai_admin_toggle_list(admins):
             icon = "🟢" if on else "🔴"
             row.append(InlineKeyboardButton(
                 f"{icon} {a['display_name'] or a['full_name']}",
-                callback_data=f"ai_admtg_pick_{a['telegram_id']}", style="primary"))
+                callback_data=f"ai_admtg_pick_{a['telegram_id']}", style=_onoff_style(on)))
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="ai_manage_menu_return", style="danger")])
     return InlineKeyboardMarkup(rows)
@@ -428,15 +453,54 @@ def kb_suspicious_alert(admin_id, date_compact):
     ])
 
 
+# ─── رنگِ دکمه‌های روشن/خاموش ────────────────────────────────────
+# FIX: قبلاً استایلِ خیلی از دکمه‌های روشن/خاموش (توی این فایل) یک مقدارِ
+# ثابت بود (معمولاً "primary")، بدون توجه به اینکه اون تنظیم/دسترسی الان
+# روشنه یا خاموش — یعنی وقتی چیزی خاموش می‌شد، دکمه هیچ‌وقت قرمز نمی‌شد.
+# این تابع رنگِ درست (سبز=روشن / قرمز=خاموش) رو برمی‌گردونه تا همه‌جا
+# یکدست استفاده بشه.
+def _onoff_style(is_on) -> str:
+    return "success" if is_on else "danger"
+
+
 # ─── پنل تنظیمِ آستانه‌ی هشدار حذف مشکوک ────────────────────────
-def kb_suspicious_settings(enabled, threshold, window):
+def kb_suspicious_settings(enabled, threshold, window, auto_enabled="0", auto_action="notify_only"):
     e_icon = "✅" if enabled == "1" else "❌"
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🚨 هشدار حذف مشکوک {e_icon}", callback_data="sadel_toggle", style="primary")],
+    a_icon = "✅" if auto_enabled == "1" else "❌"
+    rows = [
+        [InlineKeyboardButton(f"🚨 هشدار حذف مشکوک {e_icon}", callback_data="sadel_toggle",
+            style=_onoff_style(enabled == "1"))],
         [InlineKeyboardButton(f"🔢 آستانه: {threshold} حذف", callback_data="sadel_threshold_menu", style="primary"),
         InlineKeyboardButton(f"⏱️ بازه: {window} دقیقه", callback_data="sadel_window_menu", style="primary")],
-        [InlineKeyboardButton("👤 تنظیمِ جداگانه برای هر ادمین", callback_data="sadel_admins_p0", style="primary")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_settings", style="danger")],
+        [InlineKeyboardButton(f"🤖 تصمیم‌گیری خودکار {a_icon}", callback_data="sadel_auto_toggle",
+            style=_onoff_style(auto_enabled == "1"))],
+    ]
+    if auto_enabled == "1":
+        from anomaly_alerts import AUTO_ACTION_LABELS
+        rows.append([InlineKeyboardButton(
+            f"⚙️ اقدام خودکار: {AUTO_ACTION_LABELS.get(auto_action, auto_action)}",
+            callback_data="sadel_auto_action_menu", style="primary")])
+    rows.append([InlineKeyboardButton("👤 تنظیمِ جداگانه برای هر ادمین", callback_data="sadel_admins_p0", style="primary")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="pishva_settings", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+
+def kb_suspicious_auto_action(current):
+    from anomaly_alerts import (AUTO_ACTION_DISABLE_NOTIFY, AUTO_ACTION_DISABLE_UNDO_NOTIFY,
+        AUTO_ACTION_UNDO_NOTIFY, AUTO_ACTION_NOTIFY_ONLY, AUTO_ACTION_LABELS)
+
+    def row(action):
+        mark = "✅ " if current == action else "▫️ "
+        style = "success" if current == action else "primary"
+        return [InlineKeyboardButton(f"{mark}{AUTO_ACTION_LABELS[action]}",
+            callback_data=f"sadel_auto_set_{action}", style=style)]
+
+    return InlineKeyboardMarkup([
+        row(AUTO_ACTION_DISABLE_NOTIFY),
+        row(AUTO_ACTION_DISABLE_UNDO_NOTIFY),
+        row(AUTO_ACTION_UNDO_NOTIFY),
+        row(AUTO_ACTION_NOTIFY_ONLY),
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="sadel_panel", style="danger")],
     ])
 
 
@@ -523,23 +587,26 @@ def kb_suspicious_window():
 
 
 def kb_pishva_settings_simple(settings):
-    def tog(k): return "✅" if settings.get(k) == "1" else "❌"
+    def on(k): return settings.get(k) == "1"
+    def tog(k): return "✅" if on(k) else "❌"
+    def st(k): return _onoff_style(on(k))
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🔔 اعلانات {tog('notifications_enabled')}", callback_data="setting_notifications", style="primary"),
-        InlineKeyboardButton(f"📡 مخابرات {tog('communications_enabled')}", callback_data="setting_communications", style="primary")],
-        [InlineKeyboardButton(f"❓ راهنما {tog('help_enabled')}", callback_data="setting_help", style="primary"),
-        InlineKeyboardButton(f"♟️ ثبت مسابقه {tog('match_registration_enabled')}", callback_data="setting_match_reg", style="success")],
-        [InlineKeyboardButton(f"🚪 ورود ادمین {tog('admin_login_enabled')}", callback_data="setting_admin_login", style="primary"),
-        InlineKeyboardButton(f"💤 خاموش برای ادمین‌ها {tog('bot_active_for_admins')}", callback_data="setting_bot_active", style="danger")],
-        [InlineKeyboardButton(f"🏆 حالت تیمی {tog('team_mode_enabled')}", callback_data="setting_team_mode", style="primary"),
-        InlineKeyboardButton(f"📝 ثبت‌نام با تیم {tog('team_registration_enabled')}", callback_data="setting_team_reg", style="success")],
-        [InlineKeyboardButton(f"👤 مدیران سازنده تیم {tog('managers_can_create_teams')}", callback_data="setting_mgr_team", style="primary")],
-        [InlineKeyboardButton(f"📊 داشبورد ادمین‌ها {tog('admin_dashboard_enabled')}", callback_data="setting_admin_dashboard", style="primary")],
-        [InlineKeyboardButton(f"🤖 هوش مصنوعی {tog('ai_online')}", callback_data="setting_ai_online", style="primary")],
-        [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('live_chess_enabled')}", callback_data="setting_live_chess", style="primary")],
-        [InlineKeyboardButton(f"🚨 گزارش باگ به مدیر ارشد {tog('bug_report_to_pishva_enabled')}", callback_data="setting_bug_report", style="primary")],
-        [InlineKeyboardButton(f"🏫 پنل وب مدیر مدرسه {tog('principal_panel_enabled')}", callback_data="setting_principal_panel", style="primary"),
-        InlineKeyboardButton(f"🌐 پنل وب ادمین‌ها {tog('admin_webpanel_enabled')}", callback_data="setting_admin_webpanel", style="primary")],
+        [InlineKeyboardButton(f"🔔 اعلانات {tog('notifications_enabled')}", callback_data="setting_notifications", style=st('notifications_enabled')),
+        InlineKeyboardButton(f"📡 مخابرات {tog('communications_enabled')}", callback_data="setting_communications", style=st('communications_enabled'))],
+        [InlineKeyboardButton(f"❓ راهنما {tog('help_enabled')}", callback_data="setting_help", style=st('help_enabled')),
+        InlineKeyboardButton(f"♟️ ثبت مسابقه {tog('match_registration_enabled')}", callback_data="setting_match_reg", style=st('match_registration_enabled'))],
+        [InlineKeyboardButton(f"🚪 ورود ادمین {tog('admin_login_enabled')}", callback_data="setting_admin_login", style=st('admin_login_enabled')),
+        InlineKeyboardButton(f"💤 خاموش برای ادمین‌ها {tog('bot_active_for_admins')}", callback_data="setting_bot_active", style=st('bot_active_for_admins'))],
+        [InlineKeyboardButton(f"🏆 حالت تیمی {tog('team_mode_enabled')}", callback_data="setting_team_mode", style=st('team_mode_enabled')),
+        InlineKeyboardButton(f"📝 ثبت‌نام با تیم {tog('team_registration_enabled')}", callback_data="setting_team_reg", style=st('team_registration_enabled'))],
+        [InlineKeyboardButton(f"👤 مدیران سازنده تیم {tog('managers_can_create_teams')}", callback_data="setting_mgr_team", style=st('managers_can_create_teams'))],
+        [InlineKeyboardButton(f"📊 داشبورد ادمین‌ها {tog('admin_dashboard_enabled')}", callback_data="setting_admin_dashboard", style=st('admin_dashboard_enabled'))],
+        [InlineKeyboardButton(f"🤖 هوش مصنوعی {tog('ai_online')}", callback_data="setting_ai_online", style=st('ai_online'))],
+        [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('live_chess_enabled')}", callback_data="setting_live_chess", style=st('live_chess_enabled'))],
+        [InlineKeyboardButton(f"🚨 گزارش باگ به مدیر ارشد {tog('bug_report_to_pishva_enabled')}", callback_data="setting_bug_report", style=st('bug_report_to_pishva_enabled'))],
+        [InlineKeyboardButton(f"🏫 پنل وب مدیر مدرسه {tog('principal_panel_enabled')}", callback_data="setting_principal_panel", style=st('principal_panel_enabled')),
+        InlineKeyboardButton(f"🌐 پنل وب ادمین‌ها {tog('admin_webpanel_enabled')}", callback_data="setting_admin_webpanel", style=st('admin_webpanel_enabled'))],
+        [InlineKeyboardButton(f"🚫 اخراجِ مستقیمِ مدیران {tog('admin_direct_kick_enabled')}", callback_data="setting_admin_direct_kick", style=st('admin_direct_kick_enabled'))],
         [InlineKeyboardButton("🚨 هشدار حذف مشکوک ⚙️", callback_data="sadel_panel", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
     ])
@@ -592,12 +659,12 @@ def kb_workhours(autoend_on: bool = False, reminder_on: bool = False, reminder_m
         InlineKeyboardButton("🔴 پایان ساعت کاری", callback_data="wh_end", style="danger")],
         [InlineKeyboardButton(
             f"⏱ پایان خودکار: {'✅ روشن' if autoend_on else '❌ خاموش'}",
-            callback_data="wh_autoend_toggle", style="danger")],
+            callback_data="wh_autoend_toggle", style=_onoff_style(autoend_on))],
     ]
     if not autoend_on:
         rows.append([InlineKeyboardButton(
             f"⏰ یادآور عدم پایان: {'✅ روشن' if reminder_on else '❌ خاموش'}",
-            callback_data="wh_reminder_toggle", style="danger")])
+            callback_data="wh_reminder_toggle", style=_onoff_style(reminder_on))])
         if reminder_on:
             rows.append([InlineKeyboardButton(
                 f"✏️ دقیقهٔ یادآور (فعلی: {reminder_minutes})",
@@ -793,30 +860,47 @@ def kb_admin_actions(tid, is_active=True):
         InlineKeyboardButton("📋 اعطای وظیفه", callback_data=f"admin_task_{tid}", style="primary")],
         [InlineKeyboardButton("🔍 پیگیری اقدامات", callback_data=f"adminlogsmenu_{tid}", style="primary"),
         InlineKeyboardButton("👁️ پروفایل", callback_data=f"admin_profile_{tid}", style="primary")],
+        [InlineKeyboardButton("↩️ لغو اقدامات", callback_data=f"admin_undo_menu_{tid}", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_admins", style="danger")],
     ])
 
 def kb_admin_permissions(tid, perms):
     def tog(k): return "✅" if perms.get(k, False) else "❌"
+    def st(k): return _onoff_style(perms.get(k, False))
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🔔 اعلان {tog('notifications')}", callback_data=f"perm_{tid}_notifications", style="primary"),
-        InlineKeyboardButton(f"📰 اخبار {tog('news')}", callback_data=f"perm_{tid}_news", style="primary")],
-        [InlineKeyboardButton(f"♟️ مسابقات {tog('match_management')}", callback_data=f"perm_{tid}_match_management", style="primary"),
-        InlineKeyboardButton(f"👥 بازیکنان {tog('view_players')}", callback_data=f"perm_{tid}_view_players", style="primary")],
-        [InlineKeyboardButton(f"⚠️ اخطار {tog('issue_warning')}", callback_data=f"perm_{tid}_issue_warning", style="danger"),
-        InlineKeyboardButton(f"🚫 درخواست اخراج {tog('request_ban')}", callback_data=f"perm_{tid}_request_ban", style="danger")],
-        [InlineKeyboardButton(f"❌ اخراج مستقیم {tog('direct_ban')}", callback_data=f"perm_{tid}_direct_ban", style="danger"),
-        InlineKeyboardButton(f"📋 وظیفه {tog('assign_task')}", callback_data=f"perm_{tid}_assign_task", style="primary")],
-        [InlineKeyboardButton(f"🚨 گزارش {tog('report')}", callback_data=f"perm_{tid}_report", style="primary"),
-        InlineKeyboardButton(f"💤 ربات فعال {tog('bot_active')}", callback_data=f"perm_{tid}_bot_active", style="primary")],
-        [InlineKeyboardButton(f"⚙️ تنظیمات {tog('settings_access')}", callback_data=f"perm_{tid}_settings_access", style="primary"),
-        InlineKeyboardButton(f"🌟 ارشد {tog('senior_admin')}", callback_data=f"perm_{tid}_senior_admin", style="primary")],
-        [InlineKeyboardButton(f"✏️ ویرایش مسابقه {tog('edit_delete_match')}", callback_data=f"perm_{tid}_edit_delete_match", style="primary"),
-        InlineKeyboardButton(f"📡 مخابرات {tog('communications')}", callback_data=f"perm_{tid}_communications", style="primary")],
-        [InlineKeyboardButton(f"🤖 دسترسی هوش مصنوعی {tog('ai_access')}", callback_data=f"perm_{tid}_ai_access", style="primary")],
-        [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('chess_access')}", callback_data=f"perm_{tid}_chess_access", style="primary")],
-        [InlineKeyboardButton(f"📅 ویرایش تقویم {tog('calendar_edit')}", callback_data=f"perm_{tid}_calendar_edit", style="primary")],
+        [InlineKeyboardButton(f"🔔 اعلان {tog('notifications')}", callback_data=f"perm_{tid}_notifications", style=st('notifications')),
+        InlineKeyboardButton(f"📰 اخبار {tog('news')}", callback_data=f"perm_{tid}_news", style=st('news'))],
+        [InlineKeyboardButton(f"♟️ مسابقات {tog('match_management')}", callback_data=f"perm_{tid}_match_management", style=st('match_management')),
+        InlineKeyboardButton(f"👥 بازیکنان {tog('view_players')}", callback_data=f"perm_{tid}_view_players", style=st('view_players'))],
+        [InlineKeyboardButton(f"⚠️ اخطار {tog('issue_warning')}", callback_data=f"perm_{tid}_issue_warning", style=st('issue_warning')),
+        InlineKeyboardButton(f"🚫 درخواست اخراج {tog('request_ban')}", callback_data=f"perm_{tid}_request_ban", style=st('request_ban'))],
+        [InlineKeyboardButton(f"❌ اخراج مستقیم {tog('direct_ban')}", callback_data=f"perm_{tid}_direct_ban", style=st('direct_ban')),
+        InlineKeyboardButton(f"📋 وظیفه {tog('assign_task')}", callback_data=f"perm_{tid}_assign_task", style=st('assign_task'))],
+        [InlineKeyboardButton(f"🚨 گزارش {tog('report')}", callback_data=f"perm_{tid}_report", style=st('report')),
+        InlineKeyboardButton(f"💤 ربات فعال {tog('bot_active')}", callback_data=f"perm_{tid}_bot_active", style=st('bot_active'))],
+        [InlineKeyboardButton(f"⚙️ تنظیمات {tog('settings_access')}", callback_data=f"perm_{tid}_settings_access", style=st('settings_access')),
+        InlineKeyboardButton(f"🌟 ارشد {tog('senior_admin')}", callback_data=f"perm_{tid}_senior_admin", style=st('senior_admin'))],
+        [InlineKeyboardButton(f"✏️ ویرایش مسابقه {tog('edit_delete_match')}", callback_data=f"perm_{tid}_edit_delete_match", style=st('edit_delete_match')),
+        InlineKeyboardButton(f"📡 مخابرات {tog('communications')}", callback_data=f"perm_{tid}_communications", style=st('communications'))],
+        [InlineKeyboardButton(f"🤖 دسترسی هوش مصنوعی {tog('ai_access')}", callback_data=f"perm_{tid}_ai_access", style=st('ai_access'))],
+        [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('chess_access')}", callback_data=f"perm_{tid}_chess_access", style=st('chess_access'))],
+        [InlineKeyboardButton(f"📅 ویرایش تقویم {tog('calendar_edit')}", callback_data=f"perm_{tid}_calendar_edit", style=st('calendar_edit'))],
         [InlineKeyboardButton("✅ ذخیره و بازگشت", callback_data=f"admin_view_{tid}", style="danger")],
+    ])
+
+
+# ─── لغو اقدامات یک مدیرِ خاص (از پنل مدیریتِ همون مدیر) ────────
+# FIX: نسخه‌ای که توی هشدارِ فعالیتِ مشکوک بود فقط «امروز» رو پشتیبانی
+# می‌کرد؛ این‌جا مدیر ارشد می‌تونه بازه‌ی ساعتی هم مشخص کنه.
+def kb_admin_undo_menu(tid):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("↩️ کل امروز", callback_data=f"admin_undo_go_{tid}_0_23", style="danger")],
+        [InlineKeyboardButton("⏱ ۱ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_1", style="primary"),
+        InlineKeyboardButton("⏱ ۳ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_3", style="primary")],
+        [InlineKeyboardButton("⏱ ۶ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_6", style="primary"),
+        InlineKeyboardButton("⏱ ۱۲ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_12", style="primary")],
+        [InlineKeyboardButton("✍️ بازهٔ ساعتِ دلخواه", callback_data=f"admin_undo_custom_{tid}", style="primary")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}", style="danger")],
     ])
 
 # ─── مخابرات ──────────────────────────────────────────────────
@@ -952,6 +1036,24 @@ def kb_access_request(req_id):
         InlineKeyboardButton("🚫 بلاک دائم", callback_data=f"req_blockask_{req_id}", style="danger")],
     ])
 
+# ─── درخواست‌های اخراج (وقتی اخراجِ مستقیمِ یک مدیر خاموش است) ──
+def kb_kick_request(req_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ تأیید اخراج", callback_data=f"kickreq_approve_{req_id}", style="success"),
+        InlineKeyboardButton("❌ رد درخواست", callback_data=f"kickreq_reject_{req_id}", style="danger")],
+    ])
+
+
+def kb_kick_requests_list(requests):
+    rows = []
+    if not requests:
+        rows.append([InlineKeyboardButton("📭 درخواستِ اخراجِ در انتظاری نیست", callback_data="noop_label", style="primary")])
+    for r in requests:
+        rows.append([InlineKeyboardButton(f"👁️ درخواست #{r['id']}", callback_data=f"kickreq_view_{r['id']}", style="primary")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+
 def kb_lottery_scope():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🏫 فقط از یک کلاس", callback_data="lottery_class", style="primary"),
@@ -996,7 +1098,7 @@ def kb_dashboard_admin():
 def kb_auto_backup_settings(enabled, interval, fmt, period):
     e_icon = "✅" if enabled == "1" else "❌"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🔄 بکاپ خودکار {e_icon}", callback_data="abk_toggle", style="primary")],
+        [InlineKeyboardButton(f"🔄 بکاپ خودکار {e_icon}", callback_data="abk_toggle", style=_onoff_style(enabled == "1"))],
         [InlineKeyboardButton(f"⏰ هر {interval} ساعت", callback_data="abk_interval", style="primary"),
         InlineKeyboardButton(f"📁 {fmt}", callback_data="abk_fmt", style="primary")],
         [InlineKeyboardButton(f"📊 بازه: {period}", callback_data="abk_period", style="primary")],
@@ -1068,8 +1170,8 @@ def kb_broadcast_menu(items):
         g_icon = "✅" if g_on else "❌"
         c_icon = "✅" if c_on else "❌"
         rows.append([
-            InlineKeyboardButton(f"{g_icon} گروه", callback_data=f"broadcast_toggle_{group_key}", style="primary"),
-            InlineKeyboardButton(f"{c_icon} کانال", callback_data=f"broadcast_toggle_{channel_key}", style="primary"),
+            InlineKeyboardButton(f"{g_icon} گروه", callback_data=f"broadcast_toggle_{group_key}", style=_onoff_style(g_on)),
+            InlineKeyboardButton(f"{c_icon} کانال", callback_data=f"broadcast_toggle_{channel_key}", style=_onoff_style(c_on)),
         ])
         if key == "chess_ai_defeat":
             rows.append([InlineKeyboardButton("✏️ ویرایش متنِ اعلان", callback_data="pishva_chess_ai_broadcast_text", style="primary")])

@@ -8,13 +8,14 @@ import database as db
 import keyboards as kb
 from helpers import (safe_edit_message_text, box, separator, now_shamsi, broadcast_to_admins,
                      notify_pishva, pishva_display, warning_bar_admin,
-                     power_bar, send_notification, check_perm, check_status_gate)
+                     power_bar, send_notification, check_perm, check_status_gate,
+                     today_gregorian, parse_hour_range)
 from anomaly_alerts import record_destructive_action
 from config import (PISHVA_ID, ST_TASK_SELECT_ADMIN, ST_TASK_TITLE,
                     ST_TASK_DESC, ST_TASK_DONE_REASON, ST_FEEDBACK_TEXT,
                     ST_SUGGESTION_TEXT, ST_FEATURE_TITLE, ST_FEATURE_DESC,
                     ST_PRAISE_TEXT, ST_ADMIN_TASK_SS, ST_ADMIN_WARNING_REASON,
-                    ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER)
+                    ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER, ST_ADMIN_UNDO_RANGE)
 import json
 
 
@@ -334,6 +335,114 @@ async def perm_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=kb.kb_admin_permissions(tid, perms2),
         parse_mode="Markdown"
     )
+
+
+# ─── لغو اقدامات یک مدیرِ خاص، با امکانِ انتخابِ بازه‌ی ساعتی ────────
+# (همون قابلیتی که توی هشدارِ فعالیتِ مشکوک بود، ولی این‌جا از منوی
+# مدیریتِ خودِ مدیر باز می‌شه و اجازه‌ی انتخابِ بازه‌ی ساعتی هم می‌ده،
+# نه فقط «کلِ امروز».)
+async def admin_undo_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    tid = int(query.data[len("admin_undo_menu_"):])
+    admin = await db.get_admin(tid)
+    admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
+    await safe_edit_message_text(
+        query,
+        f"{box('↩️ لغو اقدامات — ' + admin_name)}\n\n"
+        f"📌 بازه‌ی زمانیِ اقدام‌هایی که می‌خواید خنثی بشن (توی امروز) رو انتخاب کنید:",
+        reply_markup=kb.kb_admin_undo_menu(tid),
+        parse_mode="Markdown"
+    )
+
+
+async def _do_admin_undo(query, ctx, tid: int, hour_from, hour_to):
+    admin = await db.get_admin(tid)
+    admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
+    date_str = today_gregorian()
+    reverted, skipped = await db.undo_admin_actions_range(tid, date_str, hour_from, hour_to)
+    range_label = "کل امروز" if (hour_from in (None, 0) and hour_to in (None, 23)) else f"ساعت {hour_from} تا {hour_to}"
+    await db.log_action(PISHVA_ID, "undo_admin_actions",
+                         f"خنثی‌سازیِ اقدامات {admin_name} ({range_label}): {len(reverted)} مورد")
+    await safe_edit_message_text(
+        query,
+        f"{box('↩️ لغو اقدامات — ' + admin_name)}\n\n"
+        f"📌 بازه: {range_label}\n"
+        f"✅ برگردانده‌شده: `{len(reverted)}`\n"
+        f"⏭️ ردشده (بدون امکان بازگشت خودکار): `{len(skipped)}`",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}", style="danger")]]),
+        parse_mode="Markdown"
+    )
+
+
+async def admin_undo_go(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    rest = query.data[len("admin_undo_go_"):]
+    tid_str, hfrom_str, hto_str = rest.split("_")
+    await _do_admin_undo(query, ctx, int(tid_str), int(hfrom_str), int(hto_str))
+
+
+async def admin_undo_last(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    rest = query.data[len("admin_undo_last_"):]
+    tid_str, hours_str = rest.split("_")
+    tid, hours = int(tid_str), int(hours_str)
+    from datetime import datetime
+    current_hour = datetime.now().hour
+    hour_from = max(0, current_hour - hours)
+    await _do_admin_undo(query, ctx, tid, hour_from, current_hour)
+
+
+async def admin_undo_custom(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    tid = int(query.data[len("admin_undo_custom_"):])
+    ctx.user_data["undo_admin_tid"] = tid
+    await safe_edit_message_text(
+        query,
+        "✍️ بازه‌ی ساعتِ موردنظر رو بفرستید (مثلاً «۱۰ تا ۱۴» یا «10-14»؛ برای یک ساعتِ خاص فقط همون عدد رو بفرستید):",
+        reply_markup=kb.kb_cancel(f"admin_undo_menu_{tid}")
+    )
+    return ST_ADMIN_UNDO_RANGE
+
+
+async def admin_undo_range_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    tid = ctx.user_data.get("undo_admin_tid")
+    if not tid:
+        return ConversationHandler.END
+    hour_from, hour_to = parse_hour_range(update.message.text)
+    if hour_from is None:
+        await update.message.reply_text("❌ بازه‌ی نامعتبر. دوباره بفرستید (مثلاً «10-14»):")
+        return ST_ADMIN_UNDO_RANGE
+    admin = await db.get_admin(tid)
+    admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
+    date_str = today_gregorian()
+    reverted, skipped = await db.undo_admin_actions_range(tid, date_str, hour_from, hour_to)
+    await db.log_action(PISHVA_ID, "undo_admin_actions",
+                         f"خنثی‌سازیِ اقدامات {admin_name} (ساعت {hour_from} تا {hour_to}): {len(reverted)} مورد")
+    await update.message.reply_text(
+        f"{box('↩️ لغو اقدامات — ' + admin_name)}\n\n"
+        f"📌 بازه: ساعت {hour_from} تا {hour_to}\n"
+        f"✅ برگردانده‌شده: `{len(reverted)}`\n"
+        f"⏭️ ردشده (بدون امکان بازگشت خودکار): `{len(skipped)}`",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}", style="danger")]]),
+        parse_mode="Markdown"
+    )
+    return ConversationHandler.END
 
 
 async def admin_warn_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

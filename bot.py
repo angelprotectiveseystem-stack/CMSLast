@@ -42,6 +42,7 @@ from config import (
     ST_CHESS_AI_BROADCAST_TEXT,
     ST_LOGS_SEARCH_TERM, ST_LOGS_SEARCH_RANGE,
     ST_CALENDAR_TITLE,
+    ST_ADMIN_UNDO_RANGE,
 )
 
 from auth import (
@@ -49,7 +50,7 @@ from auth import (
     on_admin_fullname, on_access_request_msg, on_approve_request, on_reject_request
 )
 from navigation import (
-    back_main, menu_tournament, menu_players, menu_matches, menu_pishva,
+    back_main, menu_tournament, menu_players, menu_matches, menu_pishva, pishva_panel_page,
     menu_comms, menu_help, menu_admins, menu_tasks, menu_feedback,
     back_tournament, back_players, back_matches, back_class_manage,
     back_player_list, back_teams_menu,
@@ -70,7 +71,8 @@ from players import (
     player_note_start, player_note_save, player_elite_set, player_special_set,
     player_editname_start, player_editname_save, player_editclass_start, player_setclass,
     player_search_start, player_search_run, player_continuing, player_eliminated,
-    player_list_kicked, player_list_elim, player_elite_list, player_special_list
+    player_list_kicked, player_list_elim, player_elite_list, player_special_list,
+    pishva_kick_requests, kick_request_view, kick_request_approve, kick_request_reject
 )
 from matches import (
     match_add_start, match_white_selected, match_black_selected,
@@ -116,6 +118,7 @@ from pishva import (
     sadel_admin_list, sadel_admin_panel, sadel_admin_toggle, sadel_admin_reset,
     sadel_admin_threshold_menu, sadel_admin_set_threshold,
     sadel_admin_window_menu, sadel_admin_set_window,
+    sadel_auto_toggle, sadel_auto_action_menu, sadel_auto_action_set,
 )
 from comms import (
     comms_msg_admin_start, comms_msg_target, comms_msg_send,
@@ -139,6 +142,7 @@ from misc import (
     team_delete, team_warnings_view,
     cmd_panic, cmd_unpanic, cmd_freeze_all, cmd_terminal, cmd_backup_now,
     cmd_override_strike, cmd_help,
+    admin_undo_menu, admin_undo_go, admin_undo_last, admin_undo_custom, admin_undo_range_save,
 )
 from workhours import (
     pishva_workhours, workhour_start, workhour_start_minutes_received,
@@ -718,8 +722,12 @@ def build_application():
             CallbackQueryHandler(admin_msg_start, pattern="^admin_msg_"),
             CallbackQueryHandler(logs_search_start, pattern="^logs_search$"),
             CallbackQueryHandler(admin_logs_search_start, pattern="^adminlogssearch_"),
+            CallbackQueryHandler(admin_undo_custom, pattern="^admin_undo_custom_"),
         ],
         states={
+            ST_ADMIN_UNDO_RANGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_undo_range_save)
+            ],
             ST_LOGS_SEARCH_TERM: [
                 CallbackQueryHandler(logs_search_term_skip, pattern="^logs_search_skip_term$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, logs_search_term_received)
@@ -874,6 +882,7 @@ def build_application():
     app.add_handler(CallbackQueryHandler(menu_players, pattern="^menu_players$"))
     app.add_handler(CallbackQueryHandler(menu_matches, pattern="^menu_matches$"))
     app.add_handler(CallbackQueryHandler(menu_pishva, pattern="^menu_pishva$"))
+    app.add_handler(CallbackQueryHandler(pishva_panel_page, pattern="^pishva_panel_p\\d+$"))
     app.add_handler(CallbackQueryHandler(menu_comms, pattern="^menu_comms$"))
     app.add_handler(CallbackQueryHandler(menu_help, pattern="^menu_help$"))
     app.add_handler(CallbackQueryHandler(menu_admins, pattern="^menu_admins$"))
@@ -1019,6 +1028,9 @@ def build_application():
     app.add_handler(CallbackQueryHandler(sadel_admin_window_menu, pattern="^sadel_admin_win_menu_"))
     app.add_handler(CallbackQueryHandler(sadel_admin_set_window, pattern="^sadel_admin_win_set_"))
     app.add_handler(CallbackQueryHandler(sadel_admin_panel, pattern="^sadel_admin_\\d+$"))
+    app.add_handler(CallbackQueryHandler(sadel_auto_toggle, pattern="^sadel_auto_toggle$"))
+    app.add_handler(CallbackQueryHandler(sadel_auto_action_menu, pattern="^sadel_auto_action_menu$"))
+    app.add_handler(CallbackQueryHandler(sadel_auto_action_set, pattern="^sadel_auto_set_"))
     app.add_handler(CallbackQueryHandler(pishva_ai_scheduled, pattern="^pishva_ai_scheduled$"))
     app.add_handler(CallbackQueryHandler(ai_scheduled_cancel, pattern="^aischedcancel_"))
     app.add_handler(CallbackQueryHandler(pishva_reminders, pattern="^pishva_reminders$"))
@@ -1060,6 +1072,13 @@ def build_application():
     app.add_handler(CallbackQueryHandler(admin_view, pattern="^admin_view_"))
     app.add_handler(CallbackQueryHandler(admin_perms, pattern="^admin_perms_"))
     app.add_handler(CallbackQueryHandler(perm_toggle, pattern="^perm_"))
+    app.add_handler(CallbackQueryHandler(admin_undo_menu, pattern="^admin_undo_menu_"))
+    app.add_handler(CallbackQueryHandler(admin_undo_go, pattern="^admin_undo_go_"))
+    app.add_handler(CallbackQueryHandler(admin_undo_last, pattern="^admin_undo_last_"))
+    app.add_handler(CallbackQueryHandler(pishva_kick_requests, pattern="^pishva_kick_requests$"))
+    app.add_handler(CallbackQueryHandler(kick_request_view, pattern="^kickreq_view_"))
+    app.add_handler(CallbackQueryHandler(kick_request_approve, pattern="^kickreq_approve_"))
+    app.add_handler(CallbackQueryHandler(kick_request_reject, pattern="^kickreq_reject_"))
     app.add_handler(CallbackQueryHandler(admin_kick, pattern="^admin_kick_"))
     app.add_handler(CallbackQueryHandler(admin_revive, pattern="^admin_revive_"))
     app.add_handler(CallbackQueryHandler(admin_clear_warnings, pattern="^admin_clearwarn_"))

@@ -287,6 +287,14 @@ async def init_db():
             status TEXT DEFAULT 'pending',
             requested_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS kick_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id INTEGER,
+            player_id INTEGER,
+            status TEXT DEFAULT 'pending',
+            requested_at TEXT,
+            decided_at TEXT
+        );
         CREATE TABLE IF NOT EXISTS teams (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
@@ -2036,6 +2044,98 @@ async def undo_admin_actions(admin_id: int, date_str: str):
             logger.exception(f"undo_admin_actions failed for log id={r['id']}")
             skipped.append(r)
     return reverted, skipped
+
+
+async def get_admin_actions_in_range(admin_id: int, date_str: str, hour_from=None, hour_to=None):
+    """مثلِ get_admin_actions_on_date، ولی اگه hour_from/hour_to داده بشه
+    (هر دو بینِ ۰ تا ۲۳)، فقط اقدام‌هایی که ساعتِ وقوع‌شون توی همون بازه
+    است برمی‌گردونه؛ وگرنه کلِ روز."""
+    rows = await get_admin_actions_on_date(admin_id, date_str)
+    if hour_from is None or hour_to is None:
+        return rows
+    lo, hi = min(hour_from, hour_to), max(hour_from, hour_to)
+    out = []
+    for r in rows:
+        ts = str(r["logged_at"] or "")
+        try:
+            hour = int(ts[11:13])
+        except (ValueError, IndexError):
+            continue
+        if lo <= hour <= hi:
+            out.append(r)
+    return out
+
+
+async def undo_admin_actions_range(admin_id: int, date_str: str, hour_from=None, hour_to=None):
+    """مثلِ undo_admin_actions ولی محدود به یک بازه‌ی ساعتیِ اختیاری توی
+    همون روز. برمی‌گردونه: (لیستِ خنثی‌شده‌ها, لیستِ ردشده‌ها)."""
+    rows = await get_admin_actions_in_range(admin_id, date_str, hour_from, hour_to)
+    reverted, skipped = [], []
+    for r in rows:
+        if r["undone"] or r["action_type"] not in UNDOABLE_ACTIONS:
+            if r["action_type"] not in UNDOABLE_ACTIONS:
+                skipped.append(r)
+            continue
+        at = r["action_type"]
+        tid = r["target_id"]
+        try:
+            if at in ("kick_player", "eliminate_player", "suspend_player") and tid:
+                await update_player(tid, status="active")
+            elif at == "delete_team" and tid:
+                await update_team(tid, status="active")
+            elif at == "delete_tournament" and tid:
+                await update_tournament(tid, status="active")
+            elif at == "kick_admin" and tid:
+                await revive_admin(tid)
+            elif at == "delete_match" and tid and r["snapshot"]:
+                await reinsert_match(json.loads(r["snapshot"]))
+            else:
+                skipped.append(r)
+                continue
+            await mark_action_undone(r["id"])
+            reverted.append(r)
+        except Exception:
+            logger.exception(f"undo_admin_actions_range failed for log id={r['id']}")
+            skipped.append(r)
+    return reverted, skipped
+
+
+# ─── Kick Requests (وقتی اخراجِ مستقیم برای یک مدیر خاموش است) ────
+async def create_kick_request(admin_id: int, player_id: int) -> int:
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "INSERT INTO kick_requests(admin_id,player_id,status,requested_at) VALUES (?,?,?,?)",
+            (admin_id, player_id, "pending", now)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_kick_request(req_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM kick_requests WHERE id=?", (req_id,)) as cur:
+            return await cur.fetchone()
+
+
+async def update_kick_request(req_id: int, status: str):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE kick_requests SET status=?, decided_at=? WHERE id=?",
+            (status, now, req_id)
+        )
+        await db.commit()
+
+
+async def get_pending_kick_requests():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM kick_requests WHERE status='pending' ORDER BY requested_at DESC"
+        ) as cur:
+            return await cur.fetchall()
 
 
 # ─── Access Requests ─────────────────────────────────────────

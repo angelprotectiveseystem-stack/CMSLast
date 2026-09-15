@@ -31,6 +31,7 @@ TABLES = [
     "team_members",
     "teams",
     "access_requests",
+    "kick_requests",
     "action_logs",
     "feedback",
     "tasks",

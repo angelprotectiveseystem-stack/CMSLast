@@ -130,6 +130,26 @@ async def menu_pishva(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 pass
 
 
+async def pishva_panel_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """جابه‌جاییِ صفحه‌های پنلِ مدیر ارشد. عمداً هیچ کوئریِ دیتابیسی یا
+    await ای غیر از خودِ ادیت نداره — فقط کیبورد عوض می‌شه — تا رفتن بین
+    صفحه‌ها کاملاً آنی حس بشه، نه اینکه دوباره منتظرِ یک رفت‌وبرگشتِ
+    شبکه‌ای بمونیم."""
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ این بخش فقط برای مدیر ارشد است.", show_alert=True)
+        return
+    await query.answer()
+    try:
+        page = int(query.data[len("pishva_panel_p"):])
+    except ValueError:
+        page = 0
+    try:
+        await query.edit_message_reply_markup(reply_markup=kb.kb_pishva_panel(page))
+    except Exception:
+        pass
+
+
 async def menu_comms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if await check_status_gate(query, "communications"):

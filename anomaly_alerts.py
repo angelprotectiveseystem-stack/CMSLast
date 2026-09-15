@@ -30,9 +30,35 @@ DESTRUCTIVE_ACTIONS = {
 
 # admin_id -> deque[زمانِ وقوعِ هر اقدامِ مخرب (monotonic)]
 _recent_destructive = defaultdict(deque)
-# admin_id -> زمانِ آخرین هشدارِ ارسالی، برای جلوگیری از مزاحمتِ تکراری
-# تا وقتی مدیر ارشد روی هشدارِ قبلی تصمیم نگرفته
-_last_alert_at = {}
+
+# admin_id هایی که یک هشدار براشون ارسال شده و هنوز مدیر ارشد روش تصمیم
+# نگرفته (نه خنثی‌سازی، نه خاموشی، نه تاییدِ «مشکلی نیست»).
+# FIX (باگِ «بعد از تصمیمِ اول، دیگه برای مشکلِ دوم هشدار نمی‌آد»): قبلاً
+# سرکوبِ هشدارِ بعدی صرفاً بر مبنای زمان بود (_last_alert_at + همون
+# window_sec شمارش) — یعنی اگه مدیر ارشد زود تصمیم می‌گرفت ولی ادمین
+# بلافاصله دوباره شروع می‌کرد به کارِ مشکوک، تا پایانِ همون بازه‌ی زمانی
+# (که می‌تونست ۱۰+ دقیقه باشه) هیچ هشدارِ تازه‌ای نمی‌رفت — طوری که به نظر
+# می‌رسید «دیگه هیچ‌وقت» هشدار نمی‌آد. حالا سرکوب صرفاً وضعیت‌محوره: تا
+# وقتی مدیر ارشد تصمیم نگرفته، هشدارِ تازه نمی‌ره؛ به‌محضِ تصمیم (هر کدوم
+# از سه گزینه)، شمارنده صفر می‌شه و اولین دسته‌ی جدیدِ اقدام‌های مخرب
+# (یعنی «مشکلِ دوم») بلافاصله یک هشدارِ تازه می‌سازه.
+_pending_alert = set()
+
+# ─── تصمیم‌گیریِ خودکار برای هشدارِ فعالیتِ مشکوک ───────────────
+# اگه فعال باشه، به‌جای فرستادنِ هشدار با سه دکمه و صبر برای تصمیمِ دستیِ
+# مدیر ارشد، همون لحظه یکی از این اقدام‌ها به‌صورت خودکار انجام می‌شه و فقط
+# یک پیامِ اطلاع‌رسانی (بدون دکمه) برای مدیر ارشد فرستاده می‌شه.
+AUTO_ACTION_DISABLE_NOTIFY = "disable_notify"                # خاموشی مدیر + اطلاع
+AUTO_ACTION_DISABLE_UNDO_NOTIFY = "disable_undo_notify"       # خاموشی + لغو همه‌ی اقدامات + اطلاع
+AUTO_ACTION_UNDO_NOTIFY = "undo_notify"                       # فقط لغو همه‌ی اقدامات (+ اطلاع)
+AUTO_ACTION_NOTIFY_ONLY = "notify_only"                       # فقط اطلاع به مدیر ارشد
+
+AUTO_ACTION_LABELS = {
+    AUTO_ACTION_DISABLE_NOTIFY: "🔇 خاموشی مدیر + اطلاع به مدیر ارشد",
+    AUTO_ACTION_DISABLE_UNDO_NOTIFY: "🔇↩️ خاموشی + لغو همه‌ی اقدامات + اطلاع",
+    AUTO_ACTION_UNDO_NOTIFY: "↩️ فقط لغو همه‌ی اقدامات",
+    AUTO_ACTION_NOTIFY_ONLY: "🔔 فقط اطلاع به مدیر ارشد",
+}
 
 
 # ─── تنظیمِ اختصاصیِ هر ادمین (به‌جز تنظیمِ کلی) ────────────────────
@@ -77,12 +103,20 @@ async def get_effective_settings(admin_id: int):
 async def record_destructive_action(bot, admin_id: int, action_type: str):
     """بعد از ثبتِ هر اقدامِ مخرب (توسط یک ادمینِ عادی، نه خودِ مدیر ارشد)
     صدا زده می‌شه. اگه تعداد این اقدام‌ها توی بازه‌ی زمانیِ تنظیم‌شده از
-    آستانه بیشتر بشه، فوری به مدیر ارشد هشدار می‌ده."""
+    آستانه بیشتر بشه، فوری به مدیر ارشد هشدار می‌ده (یا در صورتِ فعال بودنِ
+    تصمیم‌گیریِ خودکار، بلافاصله اقدامِ تنظیم‌شده رو خودش انجام می‌ده)."""
     if admin_id == PISHVA_ID or action_type not in DESTRUCTIVE_ACTIONS:
         return
 
     enabled, threshold, window_min = await get_effective_settings(admin_id)
     if enabled != "1":
+        return
+
+    # تا وقتی هشدارِ قبلیِ همین ادمین تصمیم‌گیری نشده، دوباره مزاحمِ مدیر
+    # ارشد نمی‌شیم — ولی برخلافِ قبل، این سرکوب صرفاً تا لحظه‌ی تصمیمه، نه
+    # یک بازه‌ی زمانیِ ثابت (پایینِ فایل، سه‌تا تابعِ تصمیم این ست رو پاک
+    # می‌کنن تا مشکلِ بعدی بتونه فوری هشدارِ تازه بسازه).
+    if admin_id in _pending_alert:
         return
 
     window_sec = max(window_min, 1) * 60
@@ -96,27 +130,65 @@ async def record_destructive_action(bot, admin_id: int, action_type: str):
     if len(dq) < threshold:
         return
 
-    # به ازای هر بازه، حداکثر یک هشدار — تا مدیر ارشد یکی از سه گزینه رو
-    # انتخاب کنه، دوباره مزاحمش نمی‌شیم حتی اگه ادمین به حذف ادامه بده.
-    last = _last_alert_at.get(admin_id, 0)
-    if now - last < window_sec:
-        return
-    _last_alert_at[admin_id] = now
-
     admin = await db.get_admin(admin_id)
     admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(admin_id)
     date_str = today_gregorian()
-    date_compact = date_str.replace("-", "")
+    count = len(dq)
+    dq.clear()  # این دسته دیده شد؛ شمارشِ «مشکلِ بعدی» از صفر شروع می‌شه
 
+    auto_enabled = await db.get_setting("suspicious_auto_enabled", "0")
+    if auto_enabled == "1":
+        action = await db.get_setting("suspicious_auto_action", AUTO_ACTION_NOTIFY_ONLY)
+        await _run_auto_action(bot, admin_id, admin_name, action, date_str, count, window_min)
+        return
+
+    _pending_alert.add(admin_id)
+    date_compact = date_str.replace("-", "")
     text = (
         f"{box('🚨 هشدار — فعالیت مشکوک ادمین')}\n\n"
         f"👤 ادمین: *{admin_name}*\n"
         f"🆔 آیدی: `{admin_id}`\n"
-        f"🗑️ تعداد اقدام مخرب: `{len(dq)}` در `{window_min}` دقیقه‌ی اخیر\n"
+        f"🗑️ تعداد اقدام مخرب: `{count}` در `{window_min}` دقیقه‌ی اخیر\n"
         f"⏱️ `{now_shamsi()}`\n\n"
         f"📌 یکی از گزینه‌های زیر را انتخاب کنید:"
     )
     await notify_pishva(bot, text, reply_markup=kb.kb_suspicious_alert(admin_id, date_compact))
+
+
+async def _run_auto_action(bot, admin_id: int, admin_name: str, action: str,
+                            date_str: str, count: int, window_min: int):
+    """اقدامِ تنظیم‌شده‌ی «تصمیم‌گیری خودکار» رو همین الان انجام می‌ده و
+    یک پیامِ اطلاع‌رسانی (بدون دکمه) برای مدیر ارشد می‌فرسته."""
+    done_lines = []
+    if action in (AUTO_ACTION_DISABLE_NOTIFY, AUTO_ACTION_DISABLE_UNDO_NOTIFY):
+        await db.kick_admin(admin_id)
+        await db.log_action(PISHVA_ID, "kick_admin",
+                             f"خاموشی خودکار بابت فعالیت مشکوک: {admin_name}", admin_id)
+        done_lines.append("🔇 دسترسیِ این ادمین به‌صورت خودکار قطع شد.")
+        try:
+            await bot.send_message(chat_id=admin_id,
+                text="🚫 دسترسی شما به ربات به دلیل فعالیت مشکوک، به‌صورت خودکار قطع شد.")
+        except Exception:
+            pass
+
+    if action in (AUTO_ACTION_DISABLE_UNDO_NOTIFY, AUTO_ACTION_UNDO_NOTIFY):
+        reverted, skipped = await db.undo_admin_actions(admin_id, date_str)
+        await db.log_action(PISHVA_ID, "undo_admin_actions",
+                             f"خنثی‌سازیِ خودکارِ اقدامات {admin_name} در {date_str}: {len(reverted)} مورد")
+        done_lines.append(f"↩️ `{len(reverted)}` اقدام به‌صورت خودکار خنثی شد "
+                           f"(`{len(skipped)}` مورد قابلِ بازگشتِ خودکار نبود).")
+
+    if action == AUTO_ACTION_NOTIFY_ONLY or not done_lines:
+        done_lines.append("🔔 فقط اطلاع‌رسانی — اقدامی به‌صورت خودکار انجام نشد.")
+
+    text = (
+        f"{box('🤖 تصمیم‌گیریِ خودکار — فعالیت مشکوک ادمین')}\n\n"
+        f"👤 ادمین: *{admin_name}*\n"
+        f"🆔 آیدی: `{admin_id}`\n"
+        f"🗑️ تعداد اقدام مخرب: `{count}` در `{window_min}` دقیقه‌ی اخیر\n"
+        f"⏱️ `{now_shamsi()}`\n\n" + "\n".join(done_lines)
+    )
+    await notify_pishva(bot, text)
 
 
 def _parse_alert_data(data: str):
@@ -136,6 +208,8 @@ async def suspicious_undo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     admin_id, date_str = _parse_alert_data(query.data)
+    _pending_alert.discard(admin_id)
+    _recent_destructive[admin_id].clear()
     admin = await db.get_admin(admin_id)
     admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(admin_id)
     reverted, skipped = await db.undo_admin_actions(admin_id, date_str)
@@ -158,6 +232,8 @@ async def suspicious_disable(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     admin_id, _ = _parse_alert_data(query.data)
+    _pending_alert.discard(admin_id)
+    _recent_destructive[admin_id].clear()
     admin = await db.get_admin(admin_id)
     admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(admin_id)
     await db.kick_admin(admin_id)
@@ -184,6 +260,9 @@ async def suspicious_dismiss(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
         return
     await query.answer("✅ ثبت شد.")
+    admin_id, _ = _parse_alert_data(query.data)
+    _pending_alert.discard(admin_id)
+    _recent_destructive[admin_id].clear()
     old_text = query.message.text or ""
     await safe_edit_message_text(
         query,
