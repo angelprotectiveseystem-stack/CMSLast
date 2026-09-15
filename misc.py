@@ -2,6 +2,7 @@
 Combined handlers for: tasks, admin management, feedback, help, teams, slash commands
 """
 import asyncio
+import uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 import database as db
@@ -9,13 +10,15 @@ import keyboards as kb
 from helpers import (safe_edit_message_text, box, separator, now_shamsi, broadcast_to_admins,
                      notify_pishva, pishva_display, warning_bar_admin,
                      power_bar, send_notification, check_perm, check_status_gate,
-                     today_gregorian, parse_hour_range)
+                     today_gregorian, parse_hour_range,
+                     days_ago_gregorian, date_label_fa, parse_admin_undo_date)
 from anomaly_alerts import record_destructive_action
 from config import (PISHVA_ID, ST_TASK_SELECT_ADMIN, ST_TASK_TITLE,
                     ST_TASK_DESC, ST_TASK_DONE_REASON, ST_FEEDBACK_TEXT,
                     ST_SUGGESTION_TEXT, ST_FEATURE_TITLE, ST_FEATURE_DESC,
                     ST_PRAISE_TEXT, ST_ADMIN_TASK_SS, ST_ADMIN_WARNING_REASON,
-                    ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER, ST_ADMIN_UNDO_RANGE)
+                    ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER,
+                    ST_ADMIN_UNDO_RANGE, ST_ADMIN_UNDO_DATE)
 import json
 
 
@@ -337,10 +340,10 @@ async def perm_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── لغو اقدامات یک مدیرِ خاص، با امکانِ انتخابِ بازه‌ی ساعتی ────────
+# ─── لغو اقدامات یک مدیرِ خاص، با امکانِ انتخابِ تاریخ + بازه‌ی ساعتی ────
 # (همون قابلیتی که توی هشدارِ فعالیتِ مشکوک بود، ولی این‌جا از منوی
-# مدیریتِ خودِ مدیر باز می‌شه و اجازه‌ی انتخابِ بازه‌ی ساعتی هم می‌ده،
-# نه فقط «کلِ امروز».)
+# مدیریتِ خودِ مدیر باز می‌شه، اجازه‌ی انتخابِ یه روزِ دیگه (نه فقط
+# امروز) رو هم می‌ده، و بعد از انتخابِ روز، بازه‌ی ساعتی هم قابلِ‌تعیینه.)
 async def admin_undo_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
@@ -353,26 +356,154 @@ async def admin_undo_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await safe_edit_message_text(
         query,
         f"{box('↩️ لغو اقدامات — ' + admin_name)}\n\n"
-        f"📌 بازه‌ی زمانیِ اقدام‌هایی که می‌خواید خنثی بشن (توی امروز) رو انتخاب کنید:",
-        reply_markup=kb.kb_admin_undo_menu(tid),
+        f"📌 اول تاریخِ موردنظر رو انتخاب کنید:",
+        reply_markup=kb.kb_admin_undo_date_menu(tid),
         parse_mode="Markdown"
     )
 
 
-async def _do_admin_undo(query, ctx, tid: int, hour_from, hour_to):
+async def _show_admin_undo_hourmenu(query, tid: int, date_str: str):
     admin = await db.get_admin(tid)
     admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
-    date_str = today_gregorian()
-    reverted, skipped = await db.undo_admin_actions_range(tid, date_str, hour_from, hour_to)
-    range_label = "کل امروز" if (hour_from in (None, 0) and hour_to in (None, 23)) else f"ساعت {hour_from} تا {hour_to}"
-    await db.log_action(PISHVA_ID, "undo_admin_actions",
-                         f"خنثی‌سازیِ اقدامات {admin_name} ({range_label}): {len(reverted)} مورد")
+    is_today = (date_str == today_gregorian())
     await safe_edit_message_text(
         query,
         f"{box('↩️ لغو اقدامات — ' + admin_name)}\n\n"
+        f"📅 تاریخ: {date_label_fa(date_str)}\n"
+        f"📌 بازه‌ی زمانیِ اقدام‌هایی که می‌خواید خنثی بشن رو انتخاب کنید:",
+        reply_markup=kb.kb_admin_undo_hourmenu(tid, date_str, is_today),
+        parse_mode="Markdown"
+    )
+
+
+async def admin_undo_daypick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    rest = query.data[len("admin_undo_daypick_"):]
+    tid_str, days_str = rest.split("_")
+    tid = int(tid_str)
+    date_str = days_ago_gregorian(int(days_str))
+    await _show_admin_undo_hourmenu(query, tid, date_str)
+
+
+async def admin_undo_daycustom(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    tid = int(query.data[len("admin_undo_daycustom_"):])
+    ctx.user_data["undo_admin_tid"] = tid
+    await safe_edit_message_text(
+        query,
+        "✍️ تاریخِ موردنظر رو بفرستید. فرمت‌های قابلِ قبول:\n"
+        "• یه عددِ ساده، مثلاً «۱۷» یعنی ۱۷ روز پیش\n"
+        "• شمسی، مثلاً «1403/06/20»\n"
+        "• میلادی، مثلاً «2026-09-10»",
+        reply_markup=kb.kb_cancel(f"admin_undo_menu_{tid}")
+    )
+    return ST_ADMIN_UNDO_DATE
+
+
+async def admin_undo_date_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    tid = ctx.user_data.get("undo_admin_tid")
+    if not tid:
+        return ConversationHandler.END
+    date_str = parse_admin_undo_date(update.message.text)
+    if date_str is None:
+        await update.message.reply_text(
+            "❌ تاریخِ نامعتبر. دوباره بفرستید (مثلاً «1403/06/20» یا «۱۷»):"
+        )
+        return ST_ADMIN_UNDO_DATE
+    admin = await db.get_admin(tid)
+    admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
+    is_today = (date_str == today_gregorian())
+    await update.message.reply_text(
+        f"{box('↩️ لغو اقدامات — ' + admin_name)}\n\n"
+        f"📅 تاریخ: {date_label_fa(date_str)}\n"
+        f"📌 بازه‌ی زمانیِ اقدام‌هایی که می‌خواید خنثی بشن رو انتخاب کنید:",
+        reply_markup=kb.kb_admin_undo_hourmenu(tid, date_str, is_today),
+        parse_mode="Markdown"
+    )
+    return ConversationHandler.END
+
+
+def _store_undo_batch(ctx, log_ids: list) -> str:
+    """لیستِ idهای خنثی‌شده رو با یه شناسه‌ی کوتاه توی bot_data نگه می‌داره تا
+    دکمه‌ی Redo بتونه بعداً همینا رو دوباره اعمال کنه (بدون نیاز به گنجوندنِ
+    کلِ لیست توی callback_data که محدودیتِ طول داره)."""
+    batches = ctx.bot_data.setdefault("undo_batches", {})
+    batch_id = uuid.uuid4().hex[:10]
+    batches[batch_id] = log_ids
+    return batch_id
+
+
+def _undo_result_markup(tid: int, reverted: list, ctx) -> InlineKeyboardMarkup:
+    rows = []
+    if reverted:
+        batch_id = _store_undo_batch(ctx, [r["id"] for r in reverted])
+        rows.append([InlineKeyboardButton("↪️ Redo (برگردوندنِ همینا)",
+                     callback_data=f"admin_redo_{tid}_{batch_id}", style="success")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _do_admin_undo(query, ctx, tid: int, date_str: str, hour_from, hour_to):
+    admin = await db.get_admin(tid)
+    admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
+    reverted, skipped = await db.undo_admin_actions_range(tid, date_str, hour_from, hour_to)
+    range_label = "کلِ روز" if (hour_from in (None, 0) and hour_to in (None, 23)) else f"ساعت {hour_from} تا {hour_to}"
+    date_label = date_label_fa(date_str)
+    await db.log_action(PISHVA_ID, "undo_admin_actions",
+                         f"خنثی‌سازیِ اقدامات {admin_name} ({date_label} — {range_label}): {len(reverted)} مورد")
+    await safe_edit_message_text(
+        query,
+        f"{box('↩️ لغو اقدامات — ' + admin_name)}\n\n"
+        f"📅 تاریخ: {date_label}\n"
         f"📌 بازه: {range_label}\n"
         f"✅ برگردانده‌شده: `{len(reverted)}`\n"
         f"⏭️ ردشده (بدون امکان بازگشت خودکار): `{len(skipped)}`",
+        reply_markup=_undo_result_markup(tid, reverted, ctx),
+        parse_mode="Markdown"
+    )
+
+
+async def admin_redo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """برعکسِ Undo: اقدام‌هایی که با دکمه‌ی Redoِ زیرِ یه نتیجه‌ی Undo
+    مشخص شدن رو دوباره اعمال می‌کنه. فقط برای همون دسته‌ای که تازه undo
+    شده کار می‌کنه (نه هر اقدامِ خنثی‌شده‌ی قدیمی‌ای)."""
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    rest = query.data[len("admin_redo_"):]
+    tid_str, batch_id = rest.split("_", 1)
+    tid = int(tid_str)
+    admin = await db.get_admin(tid)
+    admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
+    batches = ctx.bot_data.get("undo_batches", {})
+    log_ids = batches.pop(batch_id, None)
+    if not log_ids:
+        await safe_edit_message_text(
+            query,
+            f"{box('↪️ Redo اقدامات — ' + admin_name)}\n\n"
+            f"⛔ این دسته دیگه در دسترس نیست (یا قبلاً Redo شده، یا ربات ری‌استارت شده).",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}", style="danger")]]),
+            parse_mode="Markdown"
+        )
+        return
+    redone, skipped = await db.redo_admin_actions(log_ids)
+    await db.log_action(PISHVA_ID, "redo_admin_actions",
+                         f"بازگردانیِ دوبارهٔ اقدامات {admin_name}: {len(redone)} مورد")
+    await safe_edit_message_text(
+        query,
+        f"{box('↪️ Redo اقدامات — ' + admin_name)}\n\n"
+        f"✅ دوباره‌اجراشده: `{len(redone)}`\n"
+        f"⏭️ ردشده: `{len(skipped)}`",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}", style="danger")]]),
         parse_mode="Markdown"
     )
@@ -385,8 +516,8 @@ async def admin_undo_go(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     rest = query.data[len("admin_undo_go_"):]
-    tid_str, hfrom_str, hto_str = rest.split("_")
-    await _do_admin_undo(query, ctx, int(tid_str), int(hfrom_str), int(hto_str))
+    tid_str, date_str, hfrom_str, hto_str = rest.split("_")
+    await _do_admin_undo(query, ctx, int(tid_str), date_str, int(hfrom_str), int(hto_str))
 
 
 async def admin_undo_last(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -401,7 +532,7 @@ async def admin_undo_last(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     from datetime import datetime
     current_hour = datetime.now().hour
     hour_from = max(0, current_hour - hours)
-    await _do_admin_undo(query, ctx, tid, hour_from, current_hour)
+    await _do_admin_undo(query, ctx, tid, today_gregorian(), hour_from, current_hour)
 
 
 async def admin_undo_custom(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -410,8 +541,11 @@ async def admin_undo_custom(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔", show_alert=True)
         return
     await query.answer()
-    tid = int(query.data[len("admin_undo_custom_"):])
+    rest = query.data[len("admin_undo_custom_"):]
+    tid_str, date_str = rest.split("_", 1)
+    tid = int(tid_str)
     ctx.user_data["undo_admin_tid"] = tid
+    ctx.user_data["undo_admin_date"] = date_str
     await safe_edit_message_text(
         query,
         "✍️ بازه‌ی ساعتِ موردنظر رو بفرستید (مثلاً «۱۰ تا ۱۴» یا «10-14»؛ برای یک ساعتِ خاص فقط همون عدد رو بفرستید):",
@@ -430,16 +564,18 @@ async def admin_undo_range_save(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return ST_ADMIN_UNDO_RANGE
     admin = await db.get_admin(tid)
     admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(tid)
-    date_str = today_gregorian()
+    date_str = ctx.user_data.get("undo_admin_date") or today_gregorian()
+    date_label = date_label_fa(date_str)
     reverted, skipped = await db.undo_admin_actions_range(tid, date_str, hour_from, hour_to)
     await db.log_action(PISHVA_ID, "undo_admin_actions",
-                         f"خنثی‌سازیِ اقدامات {admin_name} (ساعت {hour_from} تا {hour_to}): {len(reverted)} مورد")
+                         f"خنثی‌سازیِ اقدامات {admin_name} ({date_label} — ساعت {hour_from} تا {hour_to}): {len(reverted)} مورد")
     await update.message.reply_text(
         f"{box('↩️ لغو اقدامات — ' + admin_name)}\n\n"
+        f"📅 تاریخ: {date_label}\n"
         f"📌 بازه: ساعت {hour_from} تا {hour_to}\n"
         f"✅ برگردانده‌شده: `{len(reverted)}`\n"
         f"⏭️ ردشده (بدون امکان بازگشت خودکار): `{len(skipped)}`",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}", style="danger")]]),
+        reply_markup=_undo_result_markup(tid, reverted, ctx),
         parse_mode="Markdown"
     )
     return ConversationHandler.END

@@ -42,7 +42,7 @@ from config import (
     ST_CHESS_AI_BROADCAST_TEXT,
     ST_LOGS_SEARCH_TERM, ST_LOGS_SEARCH_RANGE,
     ST_CALENDAR_TITLE,
-    ST_ADMIN_UNDO_RANGE,
+    ST_ADMIN_UNDO_RANGE, ST_ADMIN_UNDO_DATE,
 )
 
 from auth import (
@@ -143,6 +143,7 @@ from misc import (
     cmd_panic, cmd_unpanic, cmd_freeze_all, cmd_terminal, cmd_backup_now,
     cmd_override_strike, cmd_help,
     admin_undo_menu, admin_undo_go, admin_undo_last, admin_undo_custom, admin_undo_range_save,
+    admin_undo_daypick, admin_undo_daycustom, admin_undo_date_save, admin_redo,
 )
 from workhours import (
     pishva_workhours, workhour_start, workhour_start_minutes_received,
@@ -723,10 +724,14 @@ def build_application():
             CallbackQueryHandler(logs_search_start, pattern="^logs_search$"),
             CallbackQueryHandler(admin_logs_search_start, pattern="^adminlogssearch_"),
             CallbackQueryHandler(admin_undo_custom, pattern="^admin_undo_custom_"),
+            CallbackQueryHandler(admin_undo_daycustom, pattern="^admin_undo_daycustom_"),
         ],
         states={
             ST_ADMIN_UNDO_RANGE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_undo_range_save)
+            ],
+            ST_ADMIN_UNDO_DATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_undo_date_save)
             ],
             ST_LOGS_SEARCH_TERM: [
                 CallbackQueryHandler(logs_search_term_skip, pattern="^logs_search_skip_term$"),
@@ -1073,8 +1078,10 @@ def build_application():
     app.add_handler(CallbackQueryHandler(admin_perms, pattern="^admin_perms_"))
     app.add_handler(CallbackQueryHandler(perm_toggle, pattern="^perm_"))
     app.add_handler(CallbackQueryHandler(admin_undo_menu, pattern="^admin_undo_menu_"))
+    app.add_handler(CallbackQueryHandler(admin_undo_daypick, pattern="^admin_undo_daypick_"))
     app.add_handler(CallbackQueryHandler(admin_undo_go, pattern="^admin_undo_go_"))
     app.add_handler(CallbackQueryHandler(admin_undo_last, pattern="^admin_undo_last_"))
+    app.add_handler(CallbackQueryHandler(admin_redo, pattern="^admin_redo_"))
     app.add_handler(CallbackQueryHandler(pishva_kick_requests, pattern="^pishva_kick_requests$"))
     app.add_handler(CallbackQueryHandler(kick_request_view, pattern="^kickreq_view_"))
     app.add_handler(CallbackQueryHandler(kick_request_approve, pattern="^kickreq_approve_"))

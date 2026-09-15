@@ -1994,6 +1994,21 @@ async def mark_action_undone(log_id: int):
         await db.commit()
 
 
+async def mark_action_redone(log_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE action_logs SET undone=0 WHERE id=?", (log_id,))
+        await db.commit()
+
+
+async def get_action_log(log_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM action_logs WHERE id=?", (log_id,)
+        ) as cur:
+            return await cur.fetchone()
+
+
 async def reinsert_match(row: dict):
     """برگردوندنِ یک مسابقه‌ی حذف‌شده، دقیقاً با همون id و همون مقادیر
     (از روی snapshot ثبت‌شده‌ی وقتِ حذف)."""
@@ -2096,6 +2111,50 @@ async def undo_admin_actions_range(admin_id: int, date_str: str, hour_from=None,
             reverted.append(r)
         except Exception:
             logger.exception(f"undo_admin_actions_range failed for log id={r['id']}")
+            skipped.append(r)
+    return reverted, skipped
+
+
+# ─── Redo: برعکسِ undo — یک اقدامِ قبلاً‌خنثی‌شده رو دوباره اعمال می‌کنه ──
+REDO_STATUS_MAP = {
+    "kick_player": "kicked",
+    "eliminate_player": "eliminated",
+    "suspend_player": "suspended",
+}
+
+
+async def redo_admin_actions(log_ids: list):
+    """لیستی از idهای action_logs (که قبلاً undo شدن) رو می‌گیره و دوباره
+    همون اقدامِ مخرّبِ اصلی رو اعمال می‌کنه (یعنی درستِ برعکسِ کاری که
+    undo_admin_actions_range انجام می‌ده). برمی‌گردونه:
+    (لیستِ دوباره‌اجراشده‌ها, لیستِ ردشده‌ها)."""
+    reverted, skipped = [], []
+    for log_id in log_ids:
+        r = await get_action_log(log_id)
+        if not r or not r["undone"] or r["action_type"] not in UNDOABLE_ACTIONS:
+            if r:
+                skipped.append(r)
+            continue
+        at = r["action_type"]
+        tid = r["target_id"]
+        try:
+            if at in REDO_STATUS_MAP and tid:
+                await update_player(tid, status=REDO_STATUS_MAP[at])
+            elif at == "delete_team" and tid:
+                await update_team(tid, status="deleted")
+            elif at == "delete_tournament" and tid:
+                await update_tournament(tid, status="deleted", is_default=0)
+            elif at == "kick_admin" and tid:
+                await kick_admin(tid)
+            elif at == "delete_match" and tid:
+                await delete_match(tid)
+            else:
+                skipped.append(r)
+                continue
+            await mark_action_redone(r["id"])
+            reverted.append(r)
+        except Exception:
+            logger.exception(f"redo_admin_actions failed for log id={log_id}")
             skipped.append(r)
     return reverted, skipped
 

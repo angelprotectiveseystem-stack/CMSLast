@@ -1,7 +1,7 @@
 import jdatetime
 import pytz
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram.error import BadRequest
 from config import BAR_LENGTH, PISHVA_ID
 import database as db
@@ -34,6 +34,49 @@ def weekday_fa(dt: datetime = None) -> str:
     """اسم روز هفته به فارسی (شنبه تا جمعه)، بر اساس دیتتایم تهران."""
     dt = dt or datetime.now(TEHRAN_TZ)
     return _WEEKDAY_FA[dt.weekday()]
+
+def days_ago_gregorian(n: int) -> str:
+    """تاریخِ میلادیِ n روز قبل (بر پایه‌ی وقتِ تهران)، فرمت 'YYYY-MM-DD'.
+    n=0 یعنی امروز."""
+    dt = datetime.now(TEHRAN_TZ) - timedelta(days=max(0, n))
+    return dt.strftime("%Y-%m-%d")
+
+def date_label_fa(date_str: str) -> str:
+    """از یه تاریخِ میلادیِ 'YYYY-MM-DD'، برچسبِ خوانای فارسی (شمسی + روزِ
+    هفته) می‌سازه. اگه فرمت نامعتبر بود، خودِ ورودی رو برمی‌گردونه."""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return date_str
+    jd = jdatetime.datetime.fromgregorian(datetime=dt)
+    return f"{jd.strftime('%Y/%m/%d')} ({weekday_fa(dt)})"
+
+def parse_admin_undo_date(text: str):
+    """از یه متنِ آزاد، یه تاریخِ میلادیِ معتبر به فرمت 'YYYY-MM-DD' استخراج
+    می‌کنه. فرمت‌های قابلِ قبول:
+      • یه عددِ ساده (مثلاً «17») => همون تعداد روزِ قبل از امروز
+      • تاریخِ شمسی، مثلاً «1403/06/20» یا «1403-06-20»
+      • تاریخِ میلادی، مثلاً «2026-09-10»
+    اگه چیزی قابلِ‌فهم نبود، None برمی‌گردونه."""
+    import re
+    text = normalize_digits((text or "").strip())
+    if not text:
+        return None
+    if re.fullmatch(r"\d{1,4}", text):
+        return days_ago_gregorian(int(text))
+    m = re.fullmatch(r"(\d{3,4})[/-](\d{1,2})[/-](\d{1,2})", text)
+    if not m:
+        return None
+    y, mo, d = (int(x) for x in m.groups())
+    if y > 1500:
+        try:
+            return datetime(y, mo, d).strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+    try:
+        return jdatetime.date(y, mo, d).togregorian().strftime("%Y-%m-%d")
+    except ValueError:
+        return None
 
 def now_context_for_ai() -> str:
     """
@@ -205,6 +248,7 @@ ACTION_LOG_LABELS = {
     "unblock_user":               ("✅", "آنبلاک کاربر"),
     "weekly_champion":            ("🏅", "قهرمان هفته"),
     "undo_admin_actions":         ("↩️", "خنثی‌سازی اقدامات ادمین"),
+    "redo_admin_actions":         ("↪️", "بازگردانیِ دوبارهٔ اقدامات ادمین"),
 }
 
 

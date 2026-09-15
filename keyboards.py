@@ -890,18 +890,34 @@ def kb_admin_permissions(tid, perms):
 
 
 # ─── لغو اقدامات یک مدیرِ خاص (از پنل مدیریتِ همون مدیر) ────────
-# FIX: نسخه‌ای که توی هشدارِ فعالیتِ مشکوک بود فقط «امروز» رو پشتیبانی
-# می‌کرد؛ این‌جا مدیر ارشد می‌تونه بازه‌ی ساعتی هم مشخص کنه.
-def kb_admin_undo_menu(tid):
+# ابتدا تاریخ انتخاب می‌شه (امروز، دیروز، N روز پیش یا یه تاریخِ دلخواه)
+# و بعد بازه‌ی ساعتیِ همون روز.
+def kb_admin_undo_date_menu(tid):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("↩️ کل امروز", callback_data=f"admin_undo_go_{tid}_0_23", style="danger")],
-        [InlineKeyboardButton("⏱ ۱ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_1", style="primary"),
-        InlineKeyboardButton("⏱ ۳ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_3", style="primary")],
-        [InlineKeyboardButton("⏱ ۶ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_6", style="primary"),
-        InlineKeyboardButton("⏱ ۱۲ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_12", style="primary")],
-        [InlineKeyboardButton("✍️ بازهٔ ساعتِ دلخواه", callback_data=f"admin_undo_custom_{tid}", style="primary")],
+        [InlineKeyboardButton("📅 امروز", callback_data=f"admin_undo_daypick_{tid}_0", style="danger")],
+        [InlineKeyboardButton("📅 دیروز", callback_data=f"admin_undo_daypick_{tid}_1", style="primary"),
+        InlineKeyboardButton("📅 ۲ روز پیش", callback_data=f"admin_undo_daypick_{tid}_2", style="primary")],
+        [InlineKeyboardButton("📅 ۳ روز پیش", callback_data=f"admin_undo_daypick_{tid}_3", style="primary"),
+        InlineKeyboardButton("📅 ۷ روز پیش", callback_data=f"admin_undo_daypick_{tid}_7", style="primary")],
+        [InlineKeyboardButton("📅 ۱۴ روز پیش", callback_data=f"admin_undo_daypick_{tid}_14", style="primary"),
+        InlineKeyboardButton("📅 ۳۰ روز پیش", callback_data=f"admin_undo_daypick_{tid}_30", style="primary")],
+        [InlineKeyboardButton("✍️ تاریخِ دلخواه", callback_data=f"admin_undo_daycustom_{tid}", style="primary")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}", style="danger")],
     ])
+
+def kb_admin_undo_hourmenu(tid, date_str, is_today):
+    rows = [
+        [InlineKeyboardButton("↩️ کلِ روز", callback_data=f"admin_undo_go_{tid}_{date_str}_0_23", style="danger")],
+    ]
+    if is_today:
+        rows.append([InlineKeyboardButton("⏱ ۱ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_1", style="primary"),
+                    InlineKeyboardButton("⏱ ۳ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_3", style="primary")])
+        rows.append([InlineKeyboardButton("⏱ ۶ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_6", style="primary"),
+                    InlineKeyboardButton("⏱ ۱۲ ساعت اخیر", callback_data=f"admin_undo_last_{tid}_12", style="primary")])
+    rows.append([InlineKeyboardButton("✍️ بازهٔ ساعتِ دلخواه", callback_data=f"admin_undo_custom_{tid}_{date_str}", style="primary")])
+    rows.append([InlineKeyboardButton("🔙 تغییرِ تاریخ", callback_data=f"admin_undo_menu_{tid}", style="primary")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_view_{tid}", style="danger")])
+    return InlineKeyboardMarkup(rows)
 
 # ─── مخابرات ──────────────────────────────────────────────────
 def kb_comms_pishva():
