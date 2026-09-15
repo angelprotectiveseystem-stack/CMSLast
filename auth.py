@@ -153,6 +153,16 @@ _WEATHER_MOOD = {
     99: ["طوفانی و پرتگرگ"],
 }
 
+# FIX: چندتا از موردهای بالا (کدهای ۰ و ۲) توی روز به «آفتاب» اشاره می‌کنن؛
+# اگه شب باشه (is_day=0) و همون متن‌ها به‌طورِ تصادفی انتخاب بشن، جمله‌ای
+# مثلِ «امشب آفتابی به‌نظر می‌رسه» بی‌معنیه (شب که آفتاب نیست). برای این
+# کدها یه نسخه‌ی شبانه‌ی بدونِ اشاره به آفتاب داریم؛ get_weather_line شب‌ها
+# از این استفاده می‌کنه، نه از _WEATHER_MOOD.
+_WEATHER_MOOD_NIGHT = {
+    0: ["صاف و بی‌ابر", "آسمونِ روشن و بی‌ابر"],
+    2: ["نیمه‌ابری", "کمی ابری"],
+}
+
 _STORM_CODES = {95, 96, 99}
 _SNOW_CODES = {71, 73, 75, 77, 85, 86}
 _ICE_CODES = {56, 57, 66, 67}
@@ -222,7 +232,8 @@ async def get_weather_line() -> str:
                 return ""
 
             emoji = _weather_emoji(code, is_day)
-            mood = random.choice(_WEATHER_MOOD.get(code, ["نامشخص"]))
+            mood_pool = (_WEATHER_MOOD_NIGHT.get(code) if not is_day else None) or _WEATHER_MOOD.get(code, ["نامشخص"])
+            mood = random.choice(mood_pool)
             time_word = "امروز" if is_day else "امشب"
 
             line = f"{emoji} سرپل‌ذهاب {time_word} {mood} به‌نظر می‌رسه! (`{temp:.0f}°C`)"
