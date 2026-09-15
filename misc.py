@@ -241,23 +241,15 @@ async def task_history_filter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ADMIN MANAGEMENT
 # ══════════════════════════════════════════
 
-async def admin_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query.from_user.id != PISHVA_ID:
-        await query.answer("⛔", show_alert=True)
-        return
-    await query.answer()
-    tid = int(query.data.split("_")[-1])
-    # قبلاً get_admin، بعد get_tasks_for، بعد get_action_logs پشتِ‌سرِهم صدا
-    # زده می‌شدن — یعنی همون «باز شدنِ کندِ پنلِ مدیر» که حس می‌شد. هر سه
-    # مستقلن (فقط پیدا نبودنِ admin باعثِ خروجِ زودهنگام می‌شه که پایین چک
-    # می‌کنیم)، پس هم‌زمان گرفته می‌شن.
+async def build_admin_view_content(tid: int):
+    """محتوای (متن، کیبورد) پروفایلِ یه مدیرِ خاص رو می‌سازه — منبعِ مشترکِ
+    نمایش، چه از طریقِ دکمه (admin_view) چه از طریقِ ریپلای‌کردن با کلمه‌ی
+    «مدیر». اگه مدیر پیدا نشه، (None, None) برمی‌گردونه."""
     admin, tasks, (_logs_rows, logs_total) = await asyncio.gather(
         db.get_admin(tid), db.get_tasks_for(tid), db.get_action_logs("all", tid)
     )
     if not admin:
-        await query.answer("مدیر یافت نشد.", show_alert=True)
-        return
+        return None, None
 
     warn_bar = warning_bar_admin(admin["warnings"])
     role_label = "🏆 مدیر مسابقات" if admin["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
@@ -276,7 +268,25 @@ async def admin_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{separator('⚠️ اخطارها')}\n"
         f"{warn_bar}"
     )
-    await safe_edit_message_text(query, text, reply_markup=kb.kb_admin_actions(tid, admin["is_active"]), parse_mode="Markdown")
+    return text, kb.kb_admin_actions(tid, admin["is_active"])
+
+
+async def admin_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    tid = int(query.data.split("_")[-1])
+    # قبلاً get_admin، بعد get_tasks_for، بعد get_action_logs پشتِ‌سرِهم صدا
+    # زده می‌شدن — یعنی همون «باز شدنِ کندِ پنلِ مدیر» که حس می‌شد. هر سه
+    # مستقلن، پس با asyncio.gather توی build_admin_view_content هم‌زمان
+    # گرفته می‌شن.
+    text, markup = await build_admin_view_content(tid)
+    if text is None:
+        await query.answer("مدیر یافت نشد.", show_alert=True)
+        return
+    await safe_edit_message_text(query, text, reply_markup=markup, parse_mode="Markdown")
 
 
 async def admin_perms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

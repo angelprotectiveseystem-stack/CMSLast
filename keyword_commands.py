@@ -55,6 +55,7 @@ SIMPLE_KEYWORDS = {
     "اطلاعات": "reply_info",       # ریپلای روی یه پیام → جزئیات کاربر
     "درباره": "reply_info",        # مترادف اطلاعات
     "کیه": "reply_info",           # مترادف اطلاعات
+    "مدیر": "reply_admin_panel",   # ریپلای روی پیامِ آیدیِ یه مدیر → باز شدنِ پنلِ همون مدیر
     "آنلاین": "online_admins",     # لیست ادمین‌های آنلاین/فعال
     "الان": "online_admins",       # مترادف آنلاین
     "ادمین‌ها": "admin_list",      # لیست همه ادمین‌ها
@@ -96,7 +97,7 @@ WORKHOURS_END_KEYWORDS = {"پایان", "تموم"}
 PISHVA_ONLY_ACTIONS = {
     "security", "status", "backup", "requests", "logs", "reminders", "settings",
     "pishva_panel", "online_admins", "ai_manage_panel", "admin_manage_panel",
-    "workhours_menu", "workhours_start", "workhours_end",
+    "workhours_menu", "workhours_start", "workhours_end", "reply_admin_panel",
 }
 
 
@@ -589,6 +590,27 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("\n".join(text_lines), parse_mode="Markdown")
         except Exception:
             await update.message.reply_text("\n".join(text_lines))
+        raise ApplicationHandlerStop()
+
+    # ─── مدیر — ریپلای روی پیامی که آیدیِ یه مدیر توشه → باز شدنِ پنلِ
+    # همون مدیر (فقط مدیر ارشد؛ گیت‌کیپینگش بالاتر با PISHVA_ONLY_ACTIONS
+    # انجام شده). از build_admin_view_content توی misc.py استفاده می‌کنه
+    # تا دقیقاً همون چیزی که با دکمه هم باز می‌شه نشون داده بشه.
+    if action == "reply_admin_panel":
+        target_id, target_name, _ = _extract_reply_target(update)
+        if not target_id:
+            await update.message.reply_text(
+                "❗ برای باز کردنِ پنلِ یه مدیر، روی پیامی که آیدیِ اون توشه (یا خودِ پیامش) "
+                "ریپلای کنید و «مدیر» بنویسید."
+            )
+            raise ApplicationHandlerStop()
+        from misc import build_admin_view_content
+        text, markup = await build_admin_view_content(target_id)
+        if text is None:
+            await update.message.reply_text(f"❗ آیدیِ `{target_id}` مربوط به هیچ مدیرِ ثبت‌شده‌ای نیست.", parse_mode="Markdown")
+            raise ApplicationHandlerStop()
+        sent = await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+        await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()
 
     # ─── آنلاین / الان (وضعیت لحظه‌ایِ همه‌ی ادمین‌ها) ───
@@ -1276,20 +1298,30 @@ async def _build_user_info(target_id: int, target_name: str, target_username: st
 
     return lines
 def _extract_reply_target(update: Update):
+    """آیدیِ هدف رو از پیامِ ریپلای‌شده استخراج می‌کنه.
+
+    FIX: قبلاً همیشه اول از from_user پیامِ ریپلای‌شده استفاده می‌کرد — یعنی
+    اگه یه نفر توی گروه صرفاً آیدیِ یه شخصِ دیگه رو به‌صورت متن می‌فرستاد
+    (مثلاً برای معرفیِ یه بازیکن که خودش عضوِ گروه نیست)، ریپلای‌کردن روی
+    همون پیام با «کیه» چیزی برنمی‌گردوند یا اطلاعاتِ خودِ فرستنده رو نشون
+    می‌داد، نه آیدیِ نوشته‌شده. الان اگه متنِ پیامِ ریپلای‌شده صرفاً یه عددِ
+    تنها باشه (آیدیِ تلگرام)، همون عدد اولویت داره؛ در غیرِ این صورت،
+    مثلِ قبل، فرستنده‌ی واقعیِ پیام هدف در نظر گرفته می‌شه."""
     msg = update.message
     if not msg.reply_to_message:
         return None, None, None
     replied = msg.reply_to_message
+    if replied.text:
+        stripped = replied.text.strip()
+        m = re.fullmatch(r"\D{0,12}(\d{5,})\D{0,12}", stripped)
+        if m:
+            tid = int(m.group(1))
+            return tid, f"کاربر {tid}", ""
     if replied.from_user and not replied.from_user.is_bot:
         u = replied.from_user
         name = " ".join(filter(None, [u.first_name, u.last_name])) or (u.username or str(u.id))
         username = f"@{u.username}" if u.username else ""
         return u.id, name, username
-    if replied.text:
-        m = re.search(r"\d{5,}", replied.text)
-        if m:
-            tid = int(m.group())
-            return tid, f"کاربر {tid}", ""
     return None, None, None
 
 
