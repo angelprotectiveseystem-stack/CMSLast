@@ -695,7 +695,7 @@ async def player_search_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     search_context = data[len(prefix):] if data.startswith(prefix) else "all"
     ctx.user_data["player_search_ctx"] = search_context
     await safe_edit_message_text(query, f"{box('🔍 جستجو بازیکن')}\n\nنام، نام‌خانوادگی یا کلاس را وارد کنید:",
-                                   parse_mode="Markdown")
+                                   reply_markup=kb.kb_cancel("back_players"), parse_mode="Markdown")
     return ST_SEARCH_PLAYER
 
 async def player_search_run(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

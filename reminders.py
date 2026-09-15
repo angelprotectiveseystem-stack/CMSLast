@@ -151,13 +151,14 @@ async def run_reminder_checks(application):
         except Exception as e:
             text = f"🔴 هشدار: بررسی «{REMINDER_TYPES[rtype]['label']}» با خطا مواجه شد.\nجزئیات: {e}"
         if text:
+            markup = kb.kb_reminder_unfinished_matches() if rtype == "match" else None
             try:
-                await application.bot.send_message(PISHVA_ID, text)
+                await application.bot.send_message(PISHVA_ID, text, reply_markup=markup)
             except Exception:
                 pass
             if group_id and group_on == "1":
                 try:
-                    await application.bot.send_message(chat_id=int(group_id), text=text)
+                    await application.bot.send_message(chat_id=int(group_id), text=text, reply_markup=markup)
                 except Exception:
                     pass
             if channel_id and channel_on == "1":

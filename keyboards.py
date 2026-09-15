@@ -258,6 +258,14 @@ def kb_tournament_list(tournaments):
     return InlineKeyboardMarkup(rows)
 
 # ─── مسابقات ──────────────────────────────────────────────────
+def kb_reminder_unfinished_matches():
+    """دکمه‌ی «ثبت نتیجه» زیرِ پیامِ یادآورِ مسابقاتِ بدون نتیجه، تا مدیر
+    مستقیماً از همون‌جا وارد فرایندِ ثبت نتیجه بشه، بدون نیاز به رفتن به
+    منوی مسابقات."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏆 ثبت نتیجه", callback_data="match_result", style="success")],
+    ])
+
 def kb_match_result_options(match_id, white_name, black_name):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"🥇 برد {white_name}", callback_data=f"result_white_{match_id}", style="success")],
