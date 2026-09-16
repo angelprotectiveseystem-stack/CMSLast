@@ -10,7 +10,7 @@ from helpers import (safe_edit_message_text, box, separator, now_shamsi, today_g
 from anomaly_alerts import record_destructive_action
 from config import (PISHVA_ID, ST_MATCH_WHITE, ST_MATCH_BLACK, ST_MATCH_DATE,
     ST_MATCH_DRAW_REASON, ST_MATCH_CANCEL_REASON, ST_SEARCH_MATCH, ST_ADV_LOTTERY_SCOPE,
-    ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT)
+    ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT, ST_MATCH_EDIT_DATE)
 
 PLAYER_PAGE_SIZE = 8
 PENDING_PAGE_SIZE = 10
@@ -173,6 +173,64 @@ async def match_date_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def match_date_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["match_date"] = update.message.text.strip()
     return await _finalize_match(update, ctx, via_query=False)
+
+async def match_edit_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """FIX «دکمه‌ی ویرایش مسابقه کار نمی‌کرد»: این دکمه توی صفحه‌ی هر مسابقه
+    وجود داشت ولی هیچ هندلری براش ثبت نشده بود. فعلاً امکانِ ویرایشِ تاریخ
+    مسابقه رو اضافه می‌کنیم (رایج‌ترین تصحیحِ لازم روی یه مسابقه‌ی ثبت‌شده)."""
+    query = update.callback_query
+    await query.answer()
+    mid = int(query.data.split("_")[-1])
+    m = await db.get_match(mid)
+    if not m:
+        await query.answer("مسابقه یافت نشد.", show_alert=True)
+        return ConversationHandler.END
+    ctx.user_data["edit_match"] = mid
+    await safe_edit_message_text(
+        query,
+        f"{box('✏️ ویرایش مسابقه')}\n\n"
+        f"⬜ {m['white_name']} ⚔️ {m['black_name']}\n"
+        f"📅 تاریخ فعلی: `{m['match_date'] or '—'}`\n\n"
+        f"📌 تاریخ جدید را بفرستید، یا روی «امروز» بزنید:",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📅 امروز", callback_data=f"medate_today_{mid}")],
+            [InlineKeyboardButton("🔙 انصراف", callback_data=f"match_view_{mid}")],
+        ]),
+        parse_mode="Markdown"
+    )
+    return ST_MATCH_EDIT_DATE
+
+async def match_editdate_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    mid = int(query.data.split("_")[-1])
+    await _apply_match_date_edit(mid, today_gregorian(), query.from_user.id)
+    m = await db.get_match(mid)
+    await safe_edit_message_text(
+        query,
+        f"✅ تاریخ مسابقه به `{m['match_date']}` تغییر کرد.",
+        reply_markup=kb.kb_match_item_actions(mid),
+        parse_mode="Markdown"
+    )
+    return ConversationHandler.END
+
+async def match_editdate_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    mid = ctx.user_data.get("edit_match")
+    if not mid:
+        await update.message.reply_text("❌ خطا. دوباره از ابتدا شروع کنید.")
+        return ConversationHandler.END
+    new_date = update.message.text.strip()
+    await _apply_match_date_edit(mid, new_date, update.effective_user.id)
+    await update.message.reply_text(
+        f"✅ تاریخ مسابقه به `{new_date}` تغییر کرد.",
+        reply_markup=kb.kb_match_item_actions(mid),
+        parse_mode="Markdown"
+    )
+    return ConversationHandler.END
+
+async def _apply_match_date_edit(mid: int, new_date: str, uid: int):
+    await db.update_match(mid, match_date=new_date)
+    await db.log_action(uid, "edit_match", f"ویرایش تاریخ مسابقه {mid} -> {new_date}", mid)
 
 async def _finalize_match(update, ctx, via_query: bool):
     query = update.callback_query if via_query else None

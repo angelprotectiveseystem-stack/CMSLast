@@ -23,7 +23,7 @@ from config import (
     ST_CLASS_NAME, ST_PLAYER_CLASS_SELECT, ST_PLAYER_NAME,
     ST_TOURNAMENT_NAME, ST_TOURNAMENT_EDIT,
     ST_MATCH_WHITE, ST_MATCH_BLACK, ST_MATCH_DATE, ST_MATCH_DRAW_REASON,
-    ST_MATCH_CANCEL_REASON,
+    ST_MATCH_CANCEL_REASON, ST_MATCH_EDIT_DATE,
     ST_WARNING_REASON, ST_NOTE_TEXT, ST_EDIT_PLAYER_NAME, ST_SEARCH_PLAYER,
     ST_SEARCH_MATCH, ST_SEND_MSG_SELECT_ADMIN, ST_SEND_MSG_TEXT,
     ST_ANNOUNCEMENT_TEXT, ST_ANNOUNCEMENT_FILE, ST_NEWS_TEXT,
@@ -84,6 +84,7 @@ from matches import (
     eliminate_yes, eliminate_no, match_history, match_hist_filter,
     match_hist_search_start, match_hist_search_run, match_full_history,
     match_view, match_delete, match_pin, match_panel,
+    match_edit_start, match_editdate_today, match_editdate_text,
     lottery_start, lottery_all, lottery_class_select, lottery_class_chosen,
     lottery_confirm, lottery_redo, lottery_manual,
     adv_lottery_start, adv_lottery_scope_chosen, adv_lottery_classA_chosen,
@@ -134,7 +135,7 @@ from misc import (
     task_assign_start, task_to_admin, task_title_received, task_desc_received,
     task_track, task_view, task_ack, task_done, task_fail_start, task_fail_reason,
     task_followup, task_history, task_history_filter,
-    admin_view, admin_perms, perm_toggle, admin_warn_start, admin_warn_reason,
+    admin_view, admin_profile, admin_perms, perm_toggle, admin_warn_start, admin_warn_reason,
     admin_clear_warnings,
     admin_kick, admin_revive, admin_msg_start, admin_task_start,
     cmd_ss, fb_start, fb_text_received, fb_feature_desc, fb_view,
@@ -582,8 +583,13 @@ def build_application():
             CallbackQueryHandler(match_hist_search_start, pattern="^mhist_search$"),
             CallbackQueryHandler(adv_lottery_start, pattern="^adv_lottery_start$"),
             CallbackQueryHandler(result_cancel_ask, pattern="^result_cancel_"),
+            CallbackQueryHandler(match_edit_start, pattern="^match_edit_"),
         ],
         states={
+            ST_MATCH_EDIT_DATE: [
+                CallbackQueryHandler(match_editdate_today, pattern="^medate_today_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, match_editdate_text),
+            ],
             ST_MATCH_WHITE: [
                 CallbackQueryHandler(match_white_page, pattern="^mwpage_"),
                 CallbackQueryHandler(match_white_selected, pattern="^mwhite_"),
@@ -1079,6 +1085,7 @@ def build_application():
 
     # Admin management
     app.add_handler(CallbackQueryHandler(admin_view, pattern="^admin_view_"))
+    app.add_handler(CallbackQueryHandler(admin_profile, pattern="^admin_profile_"))
     app.add_handler(CallbackQueryHandler(admin_perms, pattern="^admin_perms_"))
     app.add_handler(CallbackQueryHandler(perm_toggle, pattern="^perm_"))
     app.add_handler(CallbackQueryHandler(admin_undo_menu, pattern="^admin_undo_menu_"))
