@@ -55,7 +55,7 @@ async def comms_msg_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     pname = await pishva_display()
     if tid and text:
-        await db.send_message_db(uid, tid, text)
+        msg_id = await db.send_message_db(uid, tid, text)
         ts = now_shamsi()
         notif = (
             f"{box('📨 پیام جدید')}\n\n"
@@ -65,13 +65,16 @@ async def comms_msg_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"💬 متن: _{text}_"
         )
         try:
-            await ctx.bot.send_message(
+            sent = await ctx.bot.send_message(
                 chat_id=tid, text=notif,
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("✅ تأیید مطالعه", callback_data="msg_ack")]
                 ]),
                 parse_mode="Markdown"
             )
+            # آی‌دیِ پیامِ ارسال‌شده رو ذخیره می‌کنیم تا اگه فرستنده بعداً از
+            # «پیام‌های ارسالی» حذفش کرد، بشه واقعاً از چتِ گیرنده هم پاکش کرد.
+            await db.set_message_notif(msg_id, sent.chat_id, sent.message_id)
         except Exception:
             pass
     await update.message.reply_text("✅ پیام ارسال شد.")
@@ -126,6 +129,85 @@ async def comms_inbox(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"{box('📨 پیام‌های دریافتی')}\n\n" + "\n\n".join(lines),
         reply_markup=kb.kb_back("comms"),
         parse_mode="Markdown"
+    )
+
+async def comms_sent_history(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """تاریخچه‌ی پیام‌های ارسالیِ خودِ کاربر (چه مدیر ارشد چه یه ادمین
+    معمولی) — هر کدوم فقط پیام‌های خودشون رو می‌بینن."""
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    msgs = await db.get_sent_messages_for(uid)
+    if not msgs:
+        back_to = "comms_pishva" if uid == PISHVA_ID else "comms_admin"
+        await safe_edit_message_text(query, "📭 هیچ پیامی ارسال نکرده‌اید.", reply_markup=kb.kb_back(back_to))
+        return
+    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
+    pname = await pishva_display()
+    rows = []
+    for m in msgs[:15]:
+        rn = pname if m["receiver_id"] == PISHVA_ID else admins.get(m["receiver_id"], str(m["receiver_id"]))
+        rows.append([
+            InlineKeyboardButton(
+                f"📤 به {rn}: {str(m['text'])[:30]}...",
+                callback_data=f"sent_msg_view_{m['id']}"
+            )
+        ])
+    back_to = "comms_pishva" if uid == PISHVA_ID else "comms_admin"
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=back_to)])
+    await safe_edit_message_text(query, 
+        f"{box('📤 پیام‌های ارسالی')}\n\n📌 یک پیام را انتخاب کنید:",
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode="Markdown"
+    )
+
+async def sent_msg_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    uid = query.from_user.id
+    msg_id = int(query.data.split("_")[-1])
+    m = await db.get_message(msg_id)
+    # فقط خودِ فرستنده حق دیدن/حذفِ پیامِ ارسالی‌ش رو داره.
+    if not m or m["sender_id"] != uid:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    admins = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in await db.get_all_admins()}
+    pname = await pishva_display()
+    rn = pname if m["receiver_id"] == PISHVA_ID else admins.get(m["receiver_id"], str(m["receiver_id"]))
+    rows = [
+        [InlineKeyboardButton("🗑️ حذف پیام", callback_data=f"sent_msg_delete_{msg_id}")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="comms_sent_history")]
+    ]
+    await safe_edit_message_text(query, 
+        f"📤 <b>پیام ارسالی</b>\n\n👤 به: {html.escape(str(rn))}\n💬 {html.escape(str(m['text']))}\n\n"
+        f"⏱️ <code>{html.escape(str(m['sent_at'])[:19])}</code>",
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode="HTML"
+    )
+
+async def sent_msg_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    uid = query.from_user.id
+    msg_id = int(query.data.split("_")[-1])
+    m = await db.get_message(msg_id)
+    if not m or m["sender_id"] != uid:
+        await query.answer("⛔", show_alert=True)
+        return
+    await query.answer()
+    # حذفِ واقعی: خودِ پیامی که برای گیرنده فرستاده شده رو از چتش پاک
+    # می‌کنیم، نه فقط رکورد رو توی دیتابیس علامت می‌زنیم.
+    if m["notif_chat_id"] and m["notif_message_id"]:
+        try:
+            await ctx.bot.delete_message(chat_id=m["notif_chat_id"], message_id=m["notif_message_id"])
+        except Exception as e:
+            logger.warning(f"Failed to delete telegram message for sent msg {msg_id}: {e}")
+    # حذفِ نرم: فقط از تاریخچه‌ی خودِ فرستنده پاک می‌شه؛ اگه فرستنده یه
+    # ادمینِ معمولی باشه، ردیف توی دیتابیس می‌مونه و همچنان توی «پیام
+    # ادمین‌ها»ی مدیر ارشد (comms_all_msgs) دیده می‌شه.
+    await db.delete_sent_message(msg_id)
+    await safe_edit_message_text(
+        query, "🗑️ پیام حذف شد.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="comms_sent_history")]])
     )
 
 async def comms_all_msgs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

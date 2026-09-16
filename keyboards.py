@@ -952,11 +952,12 @@ def kb_comms_pishva():
         [InlineKeyboardButton("💬 پیام به ادمین", callback_data="comms_msg_admin", style="primary"),
         InlineKeyboardButton("📢 ارسال بیانیه", callback_data="comms_announce", style="success")],
         [InlineKeyboardButton("📨 پیام‌های دریافتی", callback_data="comms_inbox", style="primary"),
-        InlineKeyboardButton("🔔 اعلانات اخیر", callback_data="comms_notifs", style="primary")],
+        InlineKeyboardButton("📤 پیام‌های ارسالی", callback_data="comms_sent_history", style="primary")],
         [InlineKeyboardButton("👁️ پیام ادمین‌ها", callback_data="comms_all_msgs", style="primary"),
-        InlineKeyboardButton("📰 ارسال خبر", callback_data="comms_news", style="success")],
-        [InlineKeyboardButton("📊 گزارشات", callback_data="comms_reports", style="primary"),
-        InlineKeyboardButton("📜 تاریخچه بیانیات", callback_data="comms_ann_history", style="primary")],
+        InlineKeyboardButton("🔔 اعلانات اخیر", callback_data="comms_notifs", style="primary")],
+        [InlineKeyboardButton("📰 ارسال خبر", callback_data="comms_news", style="success"),
+        InlineKeyboardButton("📊 گزارشات", callback_data="comms_reports", style="primary")],
+        [InlineKeyboardButton("📜 تاریخچه بیانیات", callback_data="comms_ann_history", style="primary")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main", style="danger")],
     ])
 
@@ -965,9 +966,10 @@ def kb_comms_admin():
         [InlineKeyboardButton("💬 پیام به مدیر ارشد", callback_data="comms_msg_pishva", style="primary"),
         InlineKeyboardButton("💬 پیام به ادمین", callback_data="comms_msg_other", style="primary")],
         [InlineKeyboardButton("📨 پیام‌های دریافتی", callback_data="comms_inbox", style="primary"),
-        InlineKeyboardButton("📜 بیانیات", callback_data="comms_ann_history", style="primary")],
-        [InlineKeyboardButton("📰 اخبار", callback_data="comms_news_list", style="primary"),
-        InlineKeyboardButton("🔙 بازگشت", callback_data="back_main", style="danger")],
+        InlineKeyboardButton("📤 پیام‌های ارسالی", callback_data="comms_sent_history", style="primary")],
+        [InlineKeyboardButton("📜 بیانیات", callback_data="comms_ann_history", style="primary"),
+        InlineKeyboardButton("📰 اخبار", callback_data="comms_news_list", style="primary")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main", style="danger")],
     ])
 
 def kb_announce_file():

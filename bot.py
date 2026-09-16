@@ -127,7 +127,8 @@ from comms import (
     comms_announce_no_file, comms_announce_with_file,
     comms_announce_file_received, comms_ann_history, ann_view, ann_delete,
     comms_news_start, comms_news_send, comms_news_list,
-    comms_notifs, comms_reports, msg_ack
+    comms_notifs, comms_reports, msg_ack,
+    comms_sent_history, sent_msg_view, sent_msg_delete
 )
 from misc import (
     task_assign_start, task_to_admin, task_title_received, task_desc_received,
@@ -1055,6 +1056,9 @@ def build_application():
 
     # Comms
     app.add_handler(CallbackQueryHandler(comms_inbox, pattern="^comms_inbox$"))
+    app.add_handler(CallbackQueryHandler(comms_sent_history, pattern="^comms_sent_history$"))
+    app.add_handler(CallbackQueryHandler(sent_msg_view, pattern="^sent_msg_view_"))
+    app.add_handler(CallbackQueryHandler(sent_msg_delete, pattern="^sent_msg_delete_"))
     app.add_handler(CallbackQueryHandler(comms_all_msgs, pattern="^comms_all_msgs$"))
     app.add_handler(CallbackQueryHandler(comms_ann_history, pattern="^comms_ann_history$"))
     app.add_handler(CallbackQueryHandler(ann_view, pattern="^ann_view_"))

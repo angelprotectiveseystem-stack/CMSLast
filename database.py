@@ -234,7 +234,10 @@ async def init_db():
             text TEXT,
             sent_at TEXT,
             is_read INTEGER DEFAULT 0,
-            msg_type TEXT DEFAULT 'direct'
+            msg_type TEXT DEFAULT 'direct',
+            notif_chat_id INTEGER,
+            notif_message_id INTEGER,
+            deleted_for_sender INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS announcements (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -461,6 +464,16 @@ async def init_db():
             # یک اقدام دوبار اجرا نشه) ───
             "ALTER TABLE action_logs ADD COLUMN snapshot TEXT",
             "ALTER TABLE action_logs ADD COLUMN undone INTEGER DEFAULT 0",
+            # ─── تاریخچه‌ی پیام‌های ارسالی + حذف واقعی: notif_chat_id/notif_message_id
+            # آی‌دیِ پیامِ نوتیفیکیشنی که برای گیرنده فرستاده شده رو نگه می‌داره تا
+            # بعداً با bot.delete_message واقعاً از چتِ گیرنده پاک بشه (نه فقط از
+            # دیتابیس). deleted_for_sender یه حذفِ نرمِ مخصوصِ خودِ فرستنده‌ست: وقتی
+            # یه ادمین معمولی پیامش رو حذف می‌کنه فقط از لیستِ ارسالیِ خودش پنهون
+            # می‌شه، ردیف از دیتابیس پاک نمی‌شه، پس توی «پیام ادمین‌ها»ی مدیر ارشد
+            # (get_all_messages که این فیلتر رو اصلاً چک نمی‌کنه) همچنان می‌مونه.
+            "ALTER TABLE messages ADD COLUMN notif_chat_id INTEGER",
+            "ALTER TABLE messages ADD COLUMN notif_message_id INTEGER",
+            "ALTER TABLE messages ADD COLUMN deleted_for_sender INTEGER DEFAULT 0",
         ):
             try:
                 await db.execute(stmt)
@@ -1688,11 +1701,25 @@ async def have_played_before(p1: int, p2: int) -> bool:
 
 # ─── Messages ─────────────────────────────────────────────────
 async def send_message_db(sender_id, receiver_id, text, msg_type="direct"):
+    """پیام رو ثبت می‌کنه و id ردیفِ جدید رو برمی‌گردونه تا بعداً بشه
+    notif_chat_id/notif_message_id رو روش ثبت کرد (برای امکانِ حذفِ واقعی)."""
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
+        cur = await db.execute(
             "INSERT INTO messages(sender_id,receiver_id,text,sent_at,msg_type) VALUES (?,?,?,?,?)",
             (sender_id, receiver_id, text, now, msg_type)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def set_message_notif(msg_id: int, chat_id: int, message_id: int):
+    """آی‌دیِ پیامِ نوتیفیکیشنِ ارسال‌شده به گیرنده رو ذخیره می‌کنه تا در صورتِ
+    حذف توسط فرستنده، بشه اون پیام رو واقعاً از چتِ گیرنده هم پاک کرد."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE messages SET notif_chat_id=?, notif_message_id=? WHERE id=?",
+            (chat_id, message_id, msg_id)
         )
         await db.commit()
 
@@ -1705,6 +1732,37 @@ async def get_messages_for(receiver_id: int):
             (receiver_id,)
         ) as cur:
             return await cur.fetchall()
+
+
+async def get_sent_messages_for(sender_id: int):
+    """تاریخچه‌ی پیام‌های ارسالیِ خودِ فرستنده (چه مدیر ارشد چه یه ادمین
+    معمولی). deleted_for_sender=0 رو فیلتر می‌کنه چون این حذفِ نرم فقط
+    مخصوص لیستِ خودِ همون فرستنده‌ست."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM messages WHERE sender_id=? AND deleted_for_sender=0 ORDER BY sent_at DESC",
+            (sender_id,)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def get_message(msg_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM messages WHERE id=?", (msg_id,)) as cur:
+            return await cur.fetchone()
+
+
+async def delete_sent_message(msg_id: int):
+    """حذفِ نرم: فقط از تاریخچه‌ی ارسالیِ فرستنده پنهون می‌شه، ردیف از
+    دیتابیس پاک نمی‌شه. عمداً UPDATE هست نه DELETE، تا توی get_all_messages
+    (که مدیر ارشد باهاش همه‌ی پیام‌ها رو می‌بینه) همچنان دیده بشه — یعنی
+    یه ادمینِ معمولی هیچ‌وقت نمی‌تونه ردِ پیامش رو از تاریخچه‌ی مدیر ارشد
+    پاک کنه."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE messages SET deleted_for_sender=1 WHERE id=?", (msg_id,))
+        await db.commit()
 
 
 async def get_all_messages():
