@@ -152,12 +152,31 @@ def kb_player_list(players, page=0, page_size=8, context="all"):
         row = []
         for p in chunk[i:i+2]:
             status = p["status"]
-            icon = "⛔" if status == "eliminated" else "🚫" if status == "suspended" else "❌" if status == "kicked" else "🟢"
+            is_elite = p["is_elite"]
+            is_special = p["is_special"]
+            # FIX: بازیکنان برتر/ویژه اموجی ثابت خودشون (🌟/⚡) رو دارن که با
+            # تغییر وضعیت فعال/غیرفعال عوض نمی‌شه؛ فقط رنگ دکمه تغییر می‌کنه.
+            if is_elite:
+                icon = "🌟"
+            elif is_special:
+                icon = "⚡"
+            else:
+                icon = "⛔" if status == "eliminated" else "🚫" if status == "suspended" else "❌" if status == "kicked" else "🟢"
             # FIX: قبلاً استایل دکمه همیشه "primary" بود و فقط ایموجی فرق می‌کرد؛
             # بازیکنِ اخراج/تعلیق/حذف‌شده هم رنگش با بازیکن فعال یکی بود.
-            # حالا بازیکنی که دیگه ادامه‌دهنده نیست، دکمه‌ش قرمز (danger) می‌شه.
-            style = "danger" if status != "active" else "primary"
-            row.append(InlineKeyboardButton(f"{icon} {p['full_name']}", callback_data=f"player_view_{p['id']}", style=style))
+            # حالا: بازیکنِ تعلیق‌شده دکمه‌ش بی‌رنگه (هرچی که باشه)، بازیکنِ
+            # برتر/ویژه بین سبز (فعال) و قرمز (غیرفعال) جابه‌جا می‌شه، و بقیه‌ی
+            # بازیکن‌ها مثل قبل بین آبی (فعال) و قرمز (غیرفعال).
+            if status == "suspended":
+                style = None
+            elif is_elite or is_special:
+                style = "success" if status == "active" else "danger"
+            else:
+                style = "danger" if status != "active" else "primary"
+            btn_kwargs = {"callback_data": f"player_view_{p['id']}"}
+            if style:
+                btn_kwargs["style"] = style
+            row.append(InlineKeyboardButton(f"{icon} {p['full_name']}", **btn_kwargs))
         rows.append(row)
     nav = []
     if page > 0:

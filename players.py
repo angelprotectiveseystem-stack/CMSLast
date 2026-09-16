@@ -406,7 +406,13 @@ async def player_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     direct_allowed = bool(perms.get("direct_ban", False))
     global_allowed = (await db.get_setting("admin_direct_kick_enabled", "1")) == "1"
 
-    if direct_allowed and global_allowed:
+    # FIX: تنظیمِ «اخراجِ مستقیمِ مدیران» فقط مخصوصِ ادمین‌هاست. قبلاً چون
+    # مدیر ارشد رکورد/دسترسیِ direct_ban توی جدولِ ادمین‌ها نداره، وقتی این
+    # تنظیم خاموش بود، مدیر ارشد هم به‌جای اخراجِ مستقیم می‌رفت توی مسیرِ
+    # «درخواست برای مدیر ارشد» — یعنی عملاً برای خودش درخواست می‌ساخت و
+    # باید اخراجِ خودش رو توی پنلش تایید/رد می‌کرد. حالا مدیر ارشد همیشه
+    # مستقیم اخراج می‌کنه، مستقل از این تنظیم.
+    if uid == PISHVA_ID or (direct_allowed and global_allowed):
         await query.answer()
         if p["is_elite"] or p["is_special"]:
             icon = "🌟" if p["is_elite"] else "⚡"
@@ -419,7 +425,12 @@ async def player_kick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     # ─── دسترسیِ اخراجِ مستقیم خاموشه — به‌جای اخراج، درخواست بساز ───
-    await query.answer("⏳ اخراجِ مستقیم برای شما غیرفعاله؛ درخواست برای مدیر ارشد ارسال شد.", show_alert=True)
+    # FIX: قبلاً همین‌جا یک popup («show_alert=True») هم نشون داده می‌شد که
+    # دقیقاً همون پیامِ متنیِ پایینِ تابع (بعد از ساختِ درخواست) رو تکرار
+    # می‌کرد؛ یعنی کاربر هم توی متنِ پیام و هم توی یک پاپ‌آپِ جدا همین خبر رو
+    # می‌دید. حالا فقط همون callback رو تایید می‌کنیم (بدون پاپ‌آپ) و خبر
+    # فقط یک‌بار، توی متنِ ویرایش‌شده‌ی پیام، نشون داده می‌شه.
+    await query.answer()
     req_id = await db.create_kick_request(uid, pid)
     admin_name = (admin["display_name"] or admin["full_name"]) if admin else str(uid)
     await notify_pishva(
