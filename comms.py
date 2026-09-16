@@ -449,11 +449,33 @@ async def comms_reports(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def msg_ack(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    msg_id = None
     try:
         msg_id = int(query.data.split("_")[-1])
-        await db.mark_message_read(msg_id)
     except (ValueError, IndexError):
         pass
+    if msg_id is not None:
+        await db.mark_message_read(msg_id)
+        m = await db.get_message(msg_id)
+        if m:
+            receiver_id = m["receiver_id"]
+            if receiver_id == PISHVA_ID:
+                receiver_name = await pishva_display()
+            else:
+                admin = await db.get_admin(receiver_id)
+                receiver_name = (admin["display_name"] or admin["full_name"]) if admin else "کاربر"
+            try:
+                await ctx.bot.send_message(
+                    chat_id=m["sender_id"],
+                    text=(
+                        f"{box('✅ تأیید مطالعه')}\n\n"
+                        f"👤 *{receiver_name}* پیام شما را خواند.\n"
+                        f"💬 _{str(m['text'])[:80]}_"
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
     await query.answer("✅ پیام خوانده شد.")
     # دکمه رو بعد از تأیید حذف می‌کنیم تا معلوم بشه قبلاً خونده شده.
     try:
