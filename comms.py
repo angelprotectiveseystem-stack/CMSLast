@@ -68,7 +68,7 @@ async def comms_msg_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             sent = await ctx.bot.send_message(
                 chat_id=tid, text=notif,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ تأیید مطالعه", callback_data="msg_ack")]
+                    [InlineKeyboardButton("✅ تأیید مطالعه", callback_data=f"msg_ack_{msg_id}")]
                 ]),
                 parse_mode="Markdown"
             )
@@ -449,4 +449,14 @@ async def comms_reports(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def msg_ack(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    try:
+        msg_id = int(query.data.split("_")[-1])
+        await db.mark_message_read(msg_id)
+    except (ValueError, IndexError):
+        pass
     await query.answer("✅ پیام خوانده شد.")
+    # دکمه رو بعد از تأیید حذف می‌کنیم تا معلوم بشه قبلاً خونده شده.
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass

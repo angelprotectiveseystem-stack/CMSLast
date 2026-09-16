@@ -1025,7 +1025,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             if not text:
                 return "متن پیام نمی‌تونه خالی باشه."
             tid = a["telegram_id"]
-            await db.send_message_db(caller_id, tid, text)
+            msg_id = await db.send_message_db(caller_id, tid, text)
             pname = await pishva_display()
             ts = now_shamsi()
             notif = (
@@ -1037,11 +1037,12 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 f"🤖 این پیام از طریق دستیار هوشمند ارسال شده"
             )
             try:
-                await ctx.bot.send_message(
+                sent = await ctx.bot.send_message(
                     chat_id=tid, text=notif,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ تأیید مطالعه", callback_data="msg_ack")]]),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ تأیید مطالعه", callback_data=f"msg_ack_{msg_id}")]]),
                     parse_mode="Markdown",
                 )
+                await db.set_message_notif(msg_id, sent.chat_id, sent.message_id)
             except Exception:
                 return f"⚠️ پیام ثبت شد ولی ارسالش به {a['full_name']} با خطا مواجه شد (شاید ربات رو بلاک/استارت نکرده)."
             await db.add_memory_note(a["full_name"], f"پیام مستقیم: {text}", visibility="pishva", created_by=caller_id)

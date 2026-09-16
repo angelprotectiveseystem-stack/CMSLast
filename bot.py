@@ -1066,7 +1066,7 @@ def build_application():
     app.add_handler(CallbackQueryHandler(comms_news_list, pattern="^comms_news_list$"))
     app.add_handler(CallbackQueryHandler(comms_notifs, pattern="^comms_notifs$"))
     app.add_handler(CallbackQueryHandler(comms_reports, pattern="^comms_reports$"))
-    app.add_handler(CallbackQueryHandler(msg_ack, pattern="^msg_ack$"))
+    app.add_handler(CallbackQueryHandler(msg_ack, pattern="^msg_ack_"))
 
     # Tasks
     app.add_handler(CallbackQueryHandler(task_track, pattern="^task_track$"))
