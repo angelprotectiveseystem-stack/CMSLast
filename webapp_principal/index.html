@@ -100,16 +100,28 @@
   </main>
 
   <!-- ── ناوبری پایین صفحه (فقط موبایل) ───────────────────── -->
-  <nav id="bottom-nav" class="bottom-nav">
-    <button class="bn-item active" data-view="home"><span class="bn-ic">🏠</span><span class="bn-label">خانه</span></button>
-    <button class="bn-item" data-view="classes"><span class="bn-ic">🏫</span><span class="bn-label">کلاس‌ها</span></button>
-    <button class="bn-item" data-view="players"><span class="bn-ic">♟️</span><span class="bn-label">بازیکن‌ها</span></button>
-    <button class="bn-item" data-view="matches"><span class="bn-ic">📅</span><span class="bn-label">مسابقات</span></button>
-    <button class="bn-item" data-view="top"><span class="bn-ic">🏆</span><span class="bn-label">برترین‌ها</span></button>
-    <button class="bn-item" data-view="trends"><span class="bn-ic">📈</span><span class="bn-label">روندها</span></button>
-  </nav>
+  <!-- FIX: قبلاً این ناوبری بچه‌ی #app بود. تا وقتی #app کلاسِ app-veil/reveal
+       داره (یعنی از لحظه‌ی لود صفحه تا چند صدم‌ثانیه بعد از تمومِ اسپلش)،
+       #app یک transform فعال دارد؛ طبق مشخصاتِ CSS، هر المانِ ترنسفورم‌شده
+       برای بچه‌های position:fixed خودش «containing block» جدید می‌سازه.
+       یعنی این ناوبری، به‌جای اینکه صرفاً به پایینِ کل صفحه فیکس باشه، عملاً
+       به #app فیکس می‌شد و همراه با ترنسفورمِ #app (که از scale(0.99) به
+       scale(1) و translateY(14px) به ۰ انیمیت می‌شه) خودش هم کش میومد و
+       جا‌به‌جا می‌شد — دقیقاً همون «سکته‌زدن/کشیده‌شدن» یک‌ثانیه‌ای درست
+       بعد از تمومِ خوش‌آمدگویی. با انتقالِ این ناوبری به بیرونِ #app (به‌عنوان
+       فرزندِ مستقیمِ body)، دیگه هیچ‌وقت زیرِ ترنسفورمِ #app قرار نمی‌گیره و
+       همیشه واقعاً نسبت به کل صفحه فیکسه. -->
 
 </div>
+
+<nav id="bottom-nav" class="bottom-nav">
+  <button class="bn-item active" data-view="home"><span class="bn-ic">🏠</span><span class="bn-label">خانه</span></button>
+  <button class="bn-item" data-view="classes"><span class="bn-ic">🏫</span><span class="bn-label">کلاس‌ها</span></button>
+  <button class="bn-item" data-view="players"><span class="bn-ic">♟️</span><span class="bn-label">بازیکن‌ها</span></button>
+  <button class="bn-item" data-view="matches"><span class="bn-ic">📅</span><span class="bn-label">مسابقات</span></button>
+  <button class="bn-item" data-view="top"><span class="bn-ic">🏆</span><span class="bn-label">برترین‌ها</span></button>
+  <button class="bn-item" data-view="trends"><span class="bn-ic">📈</span><span class="bn-label">روندها</span></button>
+</nav>
 
 <script>window.PRINCIPAL_KEY = "{{KEY}}";</script>
 <script src="/principal-assets/app.js?v={{V}}"></script>

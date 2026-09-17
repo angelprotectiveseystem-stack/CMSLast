@@ -350,7 +350,10 @@ switchView("home"); // داده‌های خانه همزمان با پخش اس�
 
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const SPLASH_MS = reduceMotion ? 0 : 2200;
-  const EXIT_MS = reduceMotion ? 0 : 650;
+  // FIX: قبلاً اینجا ۶۵۰ بود ولی ترنزیشنِ واقعیِ .app-veil.reveal توی CSS
+  // ۷۰۰ میلی‌ثانیه‌ست؛ یعنی کلاس‌ها ۵۰ میلی‌ثانیه زودتر از تمومِ ترنزیشن پاک
+  // می‌شدن. الان با همون عددِ CSS (۷۰۰) هماهنگ شده.
+  const EXIT_MS = reduceMotion ? 0 : 700;
 
   setTimeout(() => {
     splashEl.classList.add("leaving");
