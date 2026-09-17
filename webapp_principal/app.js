@@ -248,7 +248,7 @@ async function renderTop(period = "week") {
     // نفرات برتر دستی‌ست — بازه‌ی زمانی معنی نداره، فهرستی که مدیر ارشد
     // خودش انتخاب کرده به همون ترتیب نشون داده می‌شه.
     viewBodyEl.innerHTML = `
-      <div class="manual-note">🎯 نمایشِ نفراتِ برتر روی حالتِ دستی تنظیم شده — این فهرست را مدیر ارشد از بخشِ «پنل مدیر» انتخاب کرده است.</div>
+      <div class="manual-note">🎯 نمایشِ نفرات برتر با دقت بالا توسط ربات محاسبه شده و نمایش داده خواهد شد.</div>
       <div id="top-list"></div>
     `;
     const box = document.getElementById("top-list");
