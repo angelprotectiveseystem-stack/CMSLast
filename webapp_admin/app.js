@@ -3,7 +3,7 @@
 
   var TOKEN_KEY = "chess_panel_token";
   var POLL_MS = 4000; // زنده بدون فشار به سرور: هر ۴ ثانیه فقط GET های سبک
-  var state = { view: "home", timer: null, activityPage: 0 };
+  var state = { view: "home", timer: null, activityPage: 0, topManualView: false };
 
   // ── HTTP ──────────────────────────────────────────────
   function api(path, opts) {
@@ -19,6 +19,14 @@
         }
         return r.json();
       });
+  }
+
+  function apiPost(path, body) {
+    return api(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
   }
 
   function doLogout() {
@@ -68,6 +76,9 @@
   function goToView(view) {
     if (!VIEW_TITLES[view]) return;
     if (state.view === view && !document.querySelector(".sidebar.open")) return; // از رندر تکراری/بی‌مورد جلوگیری می‌کنه
+    // با خروج از تبِ «تنظیمات»، اگه وسطِ ویرایشِ دستیِ نفراتِ برتر بودیم،
+    // دفعه‌ی بعد که دوباره وارد تنظیمات بشیم از اول (لیستِ اصلی) شروع بشه.
+    if (state.view === "settings" && view !== "settings") state.topManualView = false;
     state.view = view;
 
     // ۱) فیدبک فوری: فقط هایلایت آیتم‌ها و عنوان بالای صفحه عوض بشه.
@@ -501,20 +512,177 @@
     },
 
     settings: function () {
-      api("/api/panel/settings").then(function (d) {
+      if (state.topManualView) { renderTopManual(); return; }
+      Promise.all([api("/api/panel/settings"), api("/api/panel/top-mode")]).then(function (results) {
+        var d = results[0], modeData = results[1];
         if (!d.ok) return;
-        if (!d.settings.length) { setBody('<div class="section"><div class="empty-state">تنظیماتی ثبت نشده</div></div>'); return; }
-        var rows = d.settings.map(function (s) {
-          return '<tr><td class="cell-primary">' + esc(s.key) + '</td><td data-label="مقدار">' + esc(s.value) + '</td></tr>';
-        }).join("");
-        setBody(
-          '<div class="section table-as-cards">' +
-            '<div class="section-head"><h3>تنظیمات سیستم</h3></div>' +
-            '<table><thead><tr><th>کلید</th><th>مقدار</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-          '</div>');
+        var tableHtml;
+        if (!d.settings.length) {
+          tableHtml = '<div class="section"><div class="empty-state">تنظیماتی ثبت نشده</div></div>';
+        } else {
+          var rows = d.settings.map(function (s) {
+            return '<tr><td class="cell-primary">' + esc(s.key) + '</td><td data-label="مقدار">' + esc(s.value) + '</td></tr>';
+          }).join("");
+          tableHtml =
+            '<div class="section table-as-cards">' +
+              '<div class="section-head"><h3>تنظیمات سیستم</h3></div>' +
+              '<table><thead><tr><th>کلید</th><th>مقدار</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+            '</div>';
+        }
+
+        var manualMode = !!(modeData && modeData.ok && modeData.top_players_mode === "manual");
+        var topCardHtml =
+          '<div class="section-title">🏆 نمایشِ نفرات برتر</div>' +
+          '<div class="settings-card">' +
+            '<div class="settings-row">' +
+              '<div class="settings-row-txt">' +
+                '<div class="main-txt">شیوه‌ی فعلی: ' + (manualMode ? "🖐️ دستی" : "⚡ خودکار") + '</div>' +
+                '<div class="sub-txt">این حالت فقط از تلگرام (تنظیماتِ ربات) قابل تغییره. خودکار یعنی بر اساسِ امتیازِ مسابقات؛ دستی یعنی خودتان پنج نفر را انتخاب می‌کنید.</div>' +
+              '</div>' +
+            '</div>' +
+            (manualMode
+              ? '<button class="big-btn" id="open-top-manual">👥 برتران — انتخاب نفرات برتر</button>'
+              : '<div class="manual-note">وقتی حالت به «دستی» تغییر کند، دکمه‌ی «برتران» برای انتخابِ نفراتِ برتر همین‌جا ظاهر می‌شود.</div>') +
+          '</div>';
+
+        setBody(tableHtml + topCardHtml);
+
+        var openBtn = document.getElementById("open-top-manual");
+        if (openBtn) {
+          openBtn.addEventListener("click", function () {
+            state.topManualView = true;
+            document.getElementById("view-title").textContent = "برتران";
+            render();
+          });
+        }
       });
     },
   };
+
+  function manualSlot(item) {
+    if (!item) return '<div class="slot-card empty">خالی</div>';
+    return (
+      '<div class="slot-card filled" data-pid="' + item.player_id + '">' +
+        '<div class="top-rank">' + item.rank + '</div>' +
+        '<div class="top-info">' +
+          '<div class="main-txt">' + esc(item.full_name) + '</div>' +
+          '<div class="sub-txt">' + esc(item.class_name) + '</div>' +
+        '</div>' +
+        '<button class="slot-remove" data-pid="' + item.player_id + '" title="حذف">✕</button>' +
+      '</div>'
+    );
+  }
+
+  function renderTopManual() {
+    body.innerHTML = '<div class="loading-state"><span class="spinner"></span></div>';
+    Promise.all([api("/api/panel/top-manual"), api("/api/panel/top-candidates")]).then(function (results) {
+      var manualData = results[0], candData = results[1];
+      drawTopManual(manualData.list || [], candData.players || []);
+    });
+  }
+
+  function drawTopManual(manualList, candidates) {
+    var byRank = {};
+    manualList.forEach(function (i) { byRank[i.rank] = i; });
+    var slots = [1, 2, 3, 4, 5].map(function (r) { return manualSlot(byRank[r]); }).join("");
+
+    setBody(
+      '<button class="back-btn" id="top-manual-back">→ بازگشت به تنظیمات</button>' +
+      '<div class="section-title">۵ نفر برتر فعلی</div>' +
+      '<div class="card-list slot-list" id="slot-list">' + slots + '</div>' +
+      '<div class="section-title">👥 انتخاب از بین بازیکن‌های فعال (به ترتیبِ پیشنهادِ ربات)</div>' +
+      '<div class="search-box">' +
+        '<input type="text" id="candidates-search" placeholder="جستجوی نام بازیکن یا کلاس…" autocomplete="off">' +
+        '<span class="search-ic">🔍</span>' +
+      '</div>' +
+      '<div class="card-list" id="candidates-list"></div>'
+    );
+
+    document.getElementById("top-manual-back").addEventListener("click", function () {
+      state.topManualView = false;
+      document.getElementById("view-title").textContent = VIEW_TITLES.settings;
+      render();
+    });
+
+    document.getElementById("slot-list").addEventListener("click", function (e) {
+      var btn = e.target.closest(".slot-remove");
+      if (!btn) return;
+      var pid = btn.getAttribute("data-pid");
+      apiPost("/api/panel/top-manual-remove", { player_id: Number(pid) }).then(function (res) {
+        return api("/api/panel/top-candidates").then(function (candData) {
+          drawTopManual(res.list || [], candData.players || []);
+        });
+      }).catch(function () { alert("خطا در حذف. دوباره تلاش کنید."); });
+    });
+
+    var listEl = document.getElementById("candidates-list");
+    var searchEl = document.getElementById("candidates-search");
+    var openPid = null;
+
+    function candidateRow(p) {
+      var taken = !!p.manual_rank;
+      return (
+        '<div class="row-card candidate-row" data-pid="' + p.id + '">' +
+          '<div>' +
+            '<div class="main-txt">' + (taken ? "✅ " : "") + esc(p.full_name) +
+              (taken ? ' <span class="rank-badge">رتبه ' + p.manual_rank + '</span>' : "") + '</div>' +
+            '<div class="sub-txt">' + esc(p.class_name) + ' · ' + esc(p.games) + ' بازی · امتیاز ' + esc(p.score) + '</div>' +
+          '</div>' +
+          '<div class="badge-group">' +
+            '<span class="badge win">' + esc(p.wins) + '</span>' +
+            '<span class="badge draw">' + esc(p.draws) + '</span>' +
+            '<span class="badge loss">' + esc(p.losses) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="rank-picker" id="rank-picker-' + p.id + '" hidden>' +
+          '<span class="rank-picker-lbl">این بازیکن از پنج نفر برتر چندم باشد؟</span>' +
+          '<div class="rank-picker-btns">' +
+            [1, 2, 3, 4, 5].map(function (r) {
+              return '<button class="rank-num-btn' + (p.manual_rank === r ? " active" : "") +
+                '" data-pid="' + p.id + '" data-rank="' + r + '">' + r + '</button>';
+            }).join("") +
+          '</div>' +
+        '</div>'
+      );
+    }
+
+    function draw() {
+      var q = searchEl.value.trim().toLowerCase();
+      var rows = q
+        ? candidates.filter(function (p) {
+            return (p.full_name || "").toLowerCase().indexOf(q) !== -1 ||
+                   (p.class_name || "").toLowerCase().indexOf(q) !== -1;
+          })
+        : candidates;
+      listEl.innerHTML = rows.length ? rows.map(candidateRow).join("") : '<div class="empty-state">بازیکنی یافت نشد.</div>';
+    }
+
+    listEl.addEventListener("click", function (e) {
+      var rankBtn = e.target.closest(".rank-num-btn");
+      if (rankBtn) {
+        var pid = Number(rankBtn.getAttribute("data-pid"));
+        var rank = Number(rankBtn.getAttribute("data-rank"));
+        apiPost("/api/panel/top-manual-set", { player_id: pid, rank: rank }).then(function (res) {
+          return api("/api/panel/top-candidates").then(function (candData) {
+            openPid = null;
+            drawTopManual(res.list || [], candData.players || []);
+          });
+        }).catch(function () { alert("خطا در ثبتِ رتبه. دوباره تلاش کنید."); });
+        return;
+      }
+      var row = e.target.closest(".candidate-row");
+      if (!row) return;
+      var pid = row.getAttribute("data-pid");
+      var picker = document.getElementById("rank-picker-" + pid);
+      var wasOpen = openPid === pid;
+      document.querySelectorAll(".rank-picker").forEach(function (p) { p.hidden = true; });
+      openPid = wasOpen ? null : pid;
+      if (picker) picker.hidden = wasOpen;
+    });
+
+    searchEl.addEventListener("input", draw);
+    draw();
+  }
 
   function statCard(label, value, accentClass) {
     return '<div class="stat-card ' + accentClass + '"><div class="stat-label">' + label + '</div><div class="stat-value">' + value + '</div></div>';
