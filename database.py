@@ -2134,6 +2134,27 @@ async def reinsert_match(row: dict):
              row.get("updated_by"), row.get("updated_at"), row.get("is_pinned"))
         )
         await db.commit()
+    _invalidate_matches_cache()
+
+
+async def _reapply_match_stats_and_elo(snap: dict):
+    """
+    وقتی یک مسابقه‌ی حذف‌شده (که قبلاً نتیجه داشته) با undo برمی‌گرده،
+    reinsert_match فقط ردیفِ خودِ مسابقه رو برمی‌گردونه — دقیقاً مثل
+    delete_match خام، اثرش روی wins/losses/draws و Elo بازیکن‌ها رو
+    دوباره اعمال نمی‌کنه. این تابع همون کاری که record_match_result وقتِ
+    ثبتِ اولیه انجام می‌داد رو، برای undo هم تکرار می‌کنه.
+    """
+    stat_map = {"white": ("win", "loss"), "black": ("loss", "win"), "draw": ("draw", "draw")}
+    white_stat, black_stat = stat_map[snap["result"]]
+    await update_player_stats(snap["white_player_id"], white_stat)
+    await update_player_stats(snap["black_player_id"], black_stat)
+    try:
+        from elo import recalculate_all_elo, ensure_elo_table
+        await ensure_elo_table()
+        await recalculate_all_elo()
+    except Exception:
+        logger.exception("Elo recalculation failed while reapplying undone match")
 
 
 async def undo_admin_actions(admin_id: int, date_str: str):
@@ -2159,7 +2180,10 @@ async def undo_admin_actions(admin_id: int, date_str: str):
             elif at == "kick_admin" and tid:
                 await revive_admin(tid)
             elif at == "delete_match" and tid and r["snapshot"]:
-                await reinsert_match(json.loads(r["snapshot"]))
+                snap = json.loads(r["snapshot"])
+                await reinsert_match(snap)
+                if snap.get("result") in ("white", "black", "draw"):
+                    await _reapply_match_stats_and_elo(snap)
             else:
                 skipped.append(r)
                 continue
@@ -2213,7 +2237,10 @@ async def undo_admin_actions_range(admin_id: int, date_str: str, hour_from=None,
             elif at == "kick_admin" and tid:
                 await revive_admin(tid)
             elif at == "delete_match" and tid and r["snapshot"]:
-                await reinsert_match(json.loads(r["snapshot"]))
+                snap = json.loads(r["snapshot"])
+                await reinsert_match(snap)
+                if snap.get("result") in ("white", "black", "draw"):
+                    await _reapply_match_stats_and_elo(snap)
             else:
                 skipped.append(r)
                 continue
@@ -2257,7 +2284,14 @@ async def redo_admin_actions(log_ids: list):
             elif at == "kick_admin" and tid:
                 await kick_admin(tid)
             elif at == "delete_match" and tid:
-                await delete_match(tid)
+                m = await delete_match_safely(tid)
+                if m and m["result"] in ("white", "black", "draw"):
+                    try:
+                        from elo import recalculate_all_elo, ensure_elo_table
+                        await ensure_elo_table()
+                        await recalculate_all_elo()
+                    except Exception:
+                        logger.exception("Elo recalculation failed during redo of delete_match")
             else:
                 skipped.append(r)
                 continue
