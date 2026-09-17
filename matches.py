@@ -652,7 +652,7 @@ async def match_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "created_at": m["created_at"], "updated_by": m["updated_by"],
             "updated_at": m["updated_at"], "is_pinned": m["is_pinned"],
         }, ensure_ascii=False)
-    await db.delete_match(mid)
+    await db.delete_match_safely(mid)
     await db.log_action(uid, "delete_match", f"حذف مسابقه {mid}", mid, snapshot=snap)
     await record_destructive_action(ctx.bot, uid, "delete_match")
     await safe_edit_message_text(query, "🗑️ مسابقه حذف شد.", reply_markup=kb.kb_back("match_history"))

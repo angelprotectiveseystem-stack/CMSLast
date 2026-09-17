@@ -1661,6 +1661,55 @@ async def correct_match_result(mid: int, new_result: str, reason: str, updated_b
     return m
 
 
+async def recalculate_all_player_stats():
+    """
+    اصلاحِ یک‌بارِ آمار همه‌ی بازیکنان: wins/losses/draws رو از روی خودِ
+    جدول matches (که منبع اصلی حقیقته) از نو می‌سازه، به‌جای اینکه به
+    شمارنده‌های تجمعی که ممکنه به‌خاطر باگ حذف/ویرایشِ قدیمی از هم خارج
+    شده باشن اعتماد کنه. خروجی: تعداد بازیکنانی که مقدارشون واقعاً تغییر کرد.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT id, wins, losses, draws FROM players") as cur:
+            players = await cur.fetchall()
+
+        changed = 0
+        for p in players:
+            pid = p["id"]
+            async with db.execute(
+                "SELECT COUNT(*) c FROM matches WHERE result='white' AND white_player_id=?", (pid,)
+            ) as cur:
+                w1 = (await cur.fetchone())["c"]
+            async with db.execute(
+                "SELECT COUNT(*) c FROM matches WHERE result='black' AND black_player_id=?", (pid,)
+            ) as cur:
+                w2 = (await cur.fetchone())["c"]
+            async with db.execute(
+                "SELECT COUNT(*) c FROM matches WHERE result='black' AND white_player_id=?", (pid,)
+            ) as cur:
+                l1 = (await cur.fetchone())["c"]
+            async with db.execute(
+                "SELECT COUNT(*) c FROM matches WHERE result='white' AND black_player_id=?", (pid,)
+            ) as cur:
+                l2 = (await cur.fetchone())["c"]
+            async with db.execute(
+                "SELECT COUNT(*) c FROM matches WHERE result='draw' AND (white_player_id=? OR black_player_id=?)",
+                (pid, pid)
+            ) as cur:
+                d = (await cur.fetchone())["c"]
+
+            real_wins, real_losses, real_draws = w1 + w2, l1 + l2, d
+            if (real_wins, real_losses, real_draws) != (p["wins"], p["losses"], p["draws"]):
+                await db.execute(
+                    "UPDATE players SET wins=?, losses=?, draws=? WHERE id=?",
+                    (real_wins, real_losses, real_draws, pid)
+                )
+                changed += 1
+        await db.commit()
+    _invalidate_players_cache()
+    return changed
+
+
 async def delete_match_safely(mid: int):
     """
     حذف یک مسابقه: اگه از قبل نتیجه داشته، اول اثرش رو از آمار بازیکن‌ها
