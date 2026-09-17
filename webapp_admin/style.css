@@ -42,7 +42,7 @@
   --brick:      #b2534a;   /* آجریِ کم‌رنگ — باخت/هشدار/در انتظار */
   --radius: 6px;
   --font: "Vazirmatn", Tahoma, sans-serif;
-  --bottom-nav-h: 66px;
+  --bottom-nav-h: 60px;
 }
 
 * { box-sizing: border-box; }
@@ -422,30 +422,43 @@ tbody tr:last-child td { border-bottom: none; }
 /* وقتی منوی موبایل بازه، پس‌زمینه اسکرول نخوره تا حس نپریدن صفحه حفظ بشه */
 body.no-scroll { overflow: hidden; }
 
-/* ── ناوبری پایین صفحه (فقط موبایل) — الگوی پنل مدیر مدرسه ── */
+/* ── ناوبری پایین صفحه (فقط موبایل) — قاب بیضی شناور مدرن ── */
 .bottom-nav {
   display: none;
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
-  justify-content: space-around;
-  background: rgba(19,27,22,0.98);
-  border-top: 1px solid var(--line);
-  padding: 6px 2px calc(6px + env(safe-area-inset-bottom, 0px));
-  box-shadow: 0 -4px 18px rgba(0,0,0,.25);
+  position: fixed; left: 12px; right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  justify-content: space-around; align-items: center;
+  background: rgba(23,33,27,0.86);
+  border: 1px solid rgba(236,227,210,0.08);
+  border-radius: 999px;
+  padding: 7px 8px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.28),
+              inset 0 1px 0 rgba(255,255,255,.03);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
 .bn-item {
   background: none; border: none; color: var(--ivory-dim);
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 6px 6px 5px; border-radius: 10px; flex: 1; min-width: 0;
-  transition: color .15s ease, background .15s ease;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 7px 8px; border-radius: 999px; flex: 1; min-width: 0;
+  transition: color .18s ease, background .22s cubic-bezier(.2,.8,.2,1), transform .18s ease;
 }
 .bn-ic {
-  font-size: 20px; line-height: 1;
+  width: 20px; height: 20px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
   transition: transform .22s cubic-bezier(.4,1.6,.5,1);
 }
-.bn-label { font-size: 10px; white-space: nowrap; font-weight: 500; }
-.bn-item.active { color: var(--amber); background: rgba(201,154,70,.09); }
-.bn-item.active .bn-ic { transform: scale(1.14) translateY(-1px); }
-.bn-item:active { transform: scale(.94); }
+.bn-ic svg { width: 100%; height: 100%; }
+.bn-label {
+  font-size: 9.5px; white-space: nowrap; font-weight: 500;
+  max-width: 0; opacity: 0; overflow: hidden;
+  transition: max-width .22s ease, opacity .18s ease, margin-top .22s ease;
+}
+.bn-item.active { color: var(--ink); background: var(--amber); }
+.bn-item.active .bn-ic { transform: scale(1.05); }
+.bn-item.active .bn-label { max-width: 60px; opacity: 1; margin-top: 1px; }
+.bn-item:active { transform: scale(.92); }
 .bn-item.bn-more.menu-open .bn-ic { transform: rotate(90deg); }
 
 @media (max-width: 860px) {
@@ -476,7 +489,7 @@ body.no-scroll { overflow: hidden; }
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  .main { padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px)); }
+  .main { padding-bottom: calc(var(--bottom-nav-h) + 22px + env(safe-area-inset-bottom, 0px)); }
   .bottom-nav { display: flex; }
 
   .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
