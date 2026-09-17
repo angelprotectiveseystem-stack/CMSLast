@@ -67,9 +67,17 @@ def _disabled_page():
         "<title>پنل غیرفعال است</title>"
         "<style>body{font-family:Tahoma,sans-serif;background:#111;color:#eee;"
         "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"
-        "text-align:center;padding:20px}</style></head><body>"
-        "<div>🔒 این پنل توسط مدیر ارشد غیرفعال شده است.<br>"
-        "لطفاً بعداً دوباره تلاش کنید.</div></body></html>"
+        "text-align:center;padding:20px}"
+        ".title{font-size:28px;font-weight:bold;margin-bottom:18px;display:block}"
+        ".msg{font-size:17px;line-height:1.9}</style></head><body>"
+        "<div>"
+        "<span class='title'>مدیر عزیز!</span>"
+        "<div class='msg'>"
+        "با عرض پوزش، پنل نظارت شما بر مسابقات به دلیل مشکل در اجرای سیستم از دسترس خارج گشته‌.<br>"
+        "این مشکل به زودی برطرف خواهد شد.<br>"
+        "در این فاصله با پارسا کریمی در ارتباط باشید.<br>"
+        "با تشکر از پیگیری و شکیبایی شما🙏"
+        "</div></div></body></html>"
     )
     return web.Response(text=html, content_type="text/html", charset="utf-8", status=503)
 
