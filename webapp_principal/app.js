@@ -1,6 +1,5 @@
-// پنل مدیر مدرسه — تقریباً همه‌جا فقط‌خواندنی؛ تنها استثنا بخشِ «پنل مدیر»
-// (تبِ admin) هست که چند درخواستِ POST برای روشن/خاموشِ پنلِ ادمین‌ها و
-// انتخابِ دستیِ نفراتِ برتر می‌فرسته.
+// پنل مدیر مدرسه — کاملاً فقط‌خواندنی (بخشِ انتخابِ دستیِ نفراتِ برتر که
+// قبلاً اینجا (تبِ «پنل مدیر») بود، به پنلِ ادمین‌ها منتقل شده).
 
 const KEY = window.PRINCIPAL_KEY || "";
 const viewTitleEl = document.getElementById("view-title");
@@ -14,7 +13,6 @@ const VIEW_TITLES = {
   matches: "مسابقات",
   top: "نفرات برتر",
   trends: "روندها",
-  admin: "پنل مدیر",
 };
 
 let currentView = "home";
@@ -26,18 +24,6 @@ async function api(path, params = {}) {
   url.searchParams.set("k", KEY);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   const res = await fetch(url.toString());
-  if (!res.ok) throw new Error("request_failed:" + res.status);
-  return res.json();
-}
-
-async function apiPost(path, body = {}) {
-  const url = new URL(path, window.location.origin);
-  url.searchParams.set("k", KEY);
-  const res = await fetch(url.toString(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
   if (!res.ok) throw new Error("request_failed:" + res.status);
   return res.json();
 }
@@ -352,163 +338,6 @@ async function renderTrends() {
 }
 
 // ─── پنل مدیر: فقط اجرا (انتخابِ دستیِ نفرات برتر) ─────────────
-// حالتِ خودکار/دستی خودش فقط از تلگرام (منوی تنظیماتِ پیشوا) عوض می‌شه؛
-// این‌جا فقط همون حالت رو نشون می‌ده و، وقتی دستی‌ست، اجرا (انتخابِ
-// بازیکن‌ها) در اختیارِ مدیر مدرسه قرار می‌گیره.
-async function renderAdminPanel() {
-  currentView = "admin";
-  viewTitleEl.textContent = VIEW_TITLES.admin;
-  viewBodyEl.innerHTML = `<div class="loading-state"><span class="spinner"></span></div>`;
-  const data = await api("/api/principal/settings");
-  drawAdminPanel(data);
-}
-
-function drawAdminPanel(data) {
-  const manualMode = data.top_players_mode === "manual";
-  viewBodyEl.innerHTML = `
-    <div class="section-title">🏆 نمایشِ نفرات برتر</div>
-    <div class="settings-card">
-      <div class="settings-row">
-        <div class="settings-row-txt">
-          <div class="main-txt">شیوه‌ی فعلی: ${manualMode ? "🖐️ دستی" : "⚡ خودکار"}</div>
-          <div class="sub-txt">این حالت فقط از تلگرام (تنظیماتِ ربات) قابل تغییره. خودکار یعنی بر اساسِ امتیازِ مسابقات؛ دستی یعنی خودتان پنج نفر را انتخاب می‌کنید.</div>
-        </div>
-      </div>
-      ${manualMode
-        ? `<button class="big-btn" id="open-top-manual">👥 برتران — انتخاب نفرات برتر</button>`
-        : `<div class="manual-note">وقتی حالت به «دستی» تغییر کند، دکمه‌ی «برتران» برای انتخابِ نفراتِ برتر همین‌جا ظاهر می‌شود.</div>`
-      }
-    </div>
-  `;
-
-  const openBtn = document.getElementById("open-top-manual");
-  if (openBtn) openBtn.addEventListener("click", renderTopManual);
-}
-
-function manualSlot(item) {
-  if (!item) return `<div class="slot-card empty">خالی</div>`;
-  return `
-    <div class="slot-card filled" data-pid="${item.player_id}">
-      <div class="top-rank">${item.rank}</div>
-      <div class="top-info">
-        <div class="main-txt">${esc(item.full_name)}</div>
-        <div class="sub-txt">${esc(item.class_name)}</div>
-      </div>
-      <button class="slot-remove" data-pid="${item.player_id}" title="حذف">✕</button>
-    </div>
-  `;
-}
-
-async function renderTopManual() {
-  currentView = "admin";
-  viewTitleEl.textContent = "برتران";
-  viewBodyEl.innerHTML = `<div class="loading-state"><span class="spinner"></span></div>`;
-
-  const [manualData, candData] = await Promise.all([
-    api("/api/principal/top-manual"),
-    api("/api/principal/top-candidates"),
-  ]);
-  drawTopManual(manualData.list || [], candData.players || []);
-}
-
-function drawTopManual(manualList, candidates) {
-  const byRank = {};
-  manualList.forEach(i => { byRank[i.rank] = i; });
-  const slots = [1, 2, 3, 4, 5].map(r => manualSlot(byRank[r])).join("");
-
-  viewBodyEl.innerHTML = `
-    <button class="back-btn" id="top-manual-back">→ بازگشت به پنل مدیر</button>
-    <div class="section-title">۵ نفر برتر فعلی</div>
-    <div class="card-list slot-list" id="slot-list">${slots}</div>
-
-    <div class="section-title">👥 انتخاب از بین بازیکن‌های فعال (به ترتیبِ پیشنهادِ ربات)</div>
-    <div class="search-box">
-      <input type="text" id="candidates-search" placeholder="جستجوی نام بازیکن یا کلاس…" autocomplete="off">
-      <span class="search-ic">🔍</span>
-    </div>
-    <div class="card-list" id="candidates-list"></div>
-  `;
-
-  document.getElementById("top-manual-back").addEventListener("click", renderAdminPanel);
-
-  document.getElementById("slot-list").addEventListener("click", async (e) => {
-    const btn = e.target.closest(".slot-remove");
-    if (!btn) return;
-    const pid = btn.dataset.pid;
-    try {
-      const res = await apiPost("/api/principal/top-manual-remove", { player_id: Number(pid) });
-      const [candData] = await Promise.all([api("/api/principal/top-candidates")]);
-      drawTopManual(res.list || [], candData.players || []);
-    } catch (e) {
-      alert("خطا در حذف. دوباره تلاش کنید.");
-    }
-  });
-
-  const listEl = document.getElementById("candidates-list");
-  const searchEl = document.getElementById("candidates-search");
-  let openPid = null;
-
-  function candidateRow(p) {
-    const taken = !!p.manual_rank;
-    return `
-      <div class="row-card candidate-row" data-pid="${p.id}">
-        <div>
-          <div class="main-txt">${taken ? "✅ " : ""}${esc(p.full_name)}${taken ? ` <span class="rank-badge">رتبه ${p.manual_rank}</span>` : ""}</div>
-          <div class="sub-txt">${esc(p.class_name)} · ${esc(p.games)} بازی · امتیاز ${esc(p.score)}</div>
-        </div>
-        <div class="badge-group">
-          <span class="badge win">${esc(p.wins)}</span>
-          <span class="badge draw">${esc(p.draws)}</span>
-          <span class="badge loss">${esc(p.losses)}</span>
-        </div>
-      </div>
-      <div class="rank-picker" id="rank-picker-${p.id}" hidden>
-        <span class="rank-picker-lbl">این بازیکن از پنج نفر برتر چندم باشد؟</span>
-        <div class="rank-picker-btns">
-          ${[1, 2, 3, 4, 5].map(r => `<button class="rank-num-btn ${p.manual_rank === r ? "active" : ""}" data-pid="${p.id}" data-rank="${r}">${r}</button>`).join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  function draw() {
-    const q = searchEl.value.trim().toLowerCase();
-    const rows = q
-      ? candidates.filter(p => (p.full_name || "").toLowerCase().includes(q) || (p.class_name || "").toLowerCase().includes(q))
-      : candidates;
-    listEl.innerHTML = rows.length ? rows.map(candidateRow).join("") :
-      `<div class="empty-state">بازیکنی یافت نشد.</div>`;
-  }
-
-  listEl.addEventListener("click", async (e) => {
-    const rankBtn = e.target.closest(".rank-num-btn");
-    if (rankBtn) {
-      const pid = Number(rankBtn.dataset.pid);
-      const rank = Number(rankBtn.dataset.rank);
-      try {
-        const res = await apiPost("/api/principal/top-manual-set", { player_id: pid, rank });
-        const candData = await api("/api/principal/top-candidates");
-        openPid = null;
-        drawTopManual(res.list || [], candData.players || []);
-      } catch (e) {
-        alert("خطا در ثبتِ رتبه. دوباره تلاش کنید.");
-      }
-      return;
-    }
-    const row = e.target.closest(".candidate-row");
-    if (!row) return;
-    const pid = row.dataset.pid;
-    const picker = document.getElementById(`rank-picker-${pid}`);
-    const wasOpen = openPid === pid;
-    document.querySelectorAll(".rank-picker").forEach(p => (p.hidden = true));
-    openPid = wasOpen ? null : pid;
-    if (picker) picker.hidden = wasOpen;
-  });
-
-  searchEl.addEventListener("input", draw);
-  draw();
-}
-
 const RENDERERS = {
   home: renderHome,
   classes: renderClasses,
@@ -516,7 +345,6 @@ const RENDERERS = {
   matches: () => renderMatches("all"),
   top: () => renderTop("week"),
   trends: renderTrends,
-  admin: renderAdminPanel,
 };
 
 // ─── ساعت بالای صفحه ──────────────────────────────────────────
