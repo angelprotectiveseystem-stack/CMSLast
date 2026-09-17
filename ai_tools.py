@@ -942,6 +942,12 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 return str(e)
             if m is None:
                 return f"مسابقه‌ای با شناسه‌ی #{mid} پیدا نشد."
+            try:
+                from elo import recalculate_all_elo, ensure_elo_table
+                await ensure_elo_table()
+                await recalculate_all_elo()
+            except Exception:
+                pass
             return f"✅ نتیجه‌ی مسابقه‌ی #{mid} اصلاح شد و آمار بازیکن‌ها به‌روزرسانی شد."
 
         elif name == "delete_match":
@@ -949,6 +955,13 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             m = await db.delete_match_safely(mid)
             if m is None:
                 return f"مسابقه‌ای با شناسه‌ی #{mid} پیدا نشد."
+            if m["result"] in ("white", "black", "draw"):
+                try:
+                    from elo import recalculate_all_elo, ensure_elo_table
+                    await ensure_elo_table()
+                    await recalculate_all_elo()
+                except Exception:
+                    pass
             return f"🗑️ مسابقه‌ی #{mid} حذف شد و آمار بازیکن‌ها (در صورت داشتن نتیجه) اصلاح شد."
 
         elif name == "recent_matches":

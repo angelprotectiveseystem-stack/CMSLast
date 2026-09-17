@@ -28,9 +28,17 @@ async def main():
     await db.init_db()  # اگه از قبل init نشده باشه (جدول‌ها رو می‌سازه، دیتای موجود رو دست نمی‌زنه)
     changed = await db.recalculate_all_player_stats()
     if changed == 0:
-        print("✅ همه‌چیز از قبل درست بود — هیچ بازیکنی نیاز به اصلاح نداشت.")
+        print("✅ آمار wins/losses/draws از قبل درست بود.")
     else:
         print(f"🔧 آمار {changed} بازیکن اصلاح شد (wins/losses/draws از روی جدول matches بازسازی شد).")
+
+    try:
+        from elo import recalculate_all_elo, ensure_elo_table
+        await ensure_elo_table()
+        replayed = await recalculate_all_elo()
+        print(f"🔧 Elo همه‌ی بازیکنان از نو ساخته شد (بر اساس {replayed} مسابقه‌ی دارای‌نتیجه).")
+    except Exception as e:
+        print(f"⚠️ بازسازی Elo با خطا مواجه شد: {e}")
 
 
 if __name__ == "__main__":

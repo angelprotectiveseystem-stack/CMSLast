@@ -382,3 +382,39 @@ async def get_player_elo_history(player_id: int, limit: int = 10) -> list:
             LIMIT ?
         """, (player_id, limit)) as cur:
             return await cur.fetchall()
+
+
+async def recalculate_all_elo():
+    """
+    بازسازیِ کاملِ Elo از صفر.
+
+    چرا لازمه: بر خلاف wins/losses/draws (که یه شمارنده‌ی ساده‌ست و
+    برگردوندنش فقط یعنی یکی کم کردن)، Elo زنجیره‌ایه — امتیاز هر مسابقه
+    به امتیازِ *لحظه‌ی* قبلِ دو بازیکن بستگی داره. اگه یه مسابقه‌ی قدیمی
+    حذف یا نتیجه‌ش اصلاح بشه، همه‌ی مسابقات *بعدی*ِ همون دو بازیکن هم
+    باید با رتبه‌های درست از نو حساب بشن؛ کم/زیاد کردنِ ساده‌ی همون یک
+    تغییر کافی نیست. راه درست: کل جدول player_elo/elo_history رو خالی و
+    تمام مسابقاتِ دارای‌نتیجه رو به ترتیب تاریخ، از اول تا آخر، دوباره
+    شبیه‌سازی می‌کنیم — دقیقاً همون‌طور که هر بار real-time محاسبه می‌شد.
+
+    فعلاً بعد از هر delete_match_safely یا correct_match_result باید این
+    تابع صدا زده بشه تا Elo هم مثل wins/losses/draws همیشه با matches
+    همگام بمونه.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("DELETE FROM player_elo")
+        await db.execute("DELETE FROM elo_history")
+        await db.commit()
+
+        async with db.execute(
+            "SELECT id, white_player_id, black_player_id, result FROM matches "
+            "WHERE result IN ('white','black','draw') ORDER BY created_at ASC, id ASC"
+        ) as cur:
+            rows = await cur.fetchall()
+
+    replayed = 0
+    for m in rows:
+        await update_elo_after_match(m["white_player_id"], m["black_player_id"], m["result"], m["id"])
+        replayed += 1
+    return replayed

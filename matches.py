@@ -653,6 +653,13 @@ async def match_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "updated_at": m["updated_at"], "is_pinned": m["is_pinned"],
         }, ensure_ascii=False)
     await db.delete_match_safely(mid)
+    if m and m["result"] in ("white", "black", "draw"):
+        try:
+            from elo import recalculate_all_elo, ensure_elo_table
+            await ensure_elo_table()
+            await recalculate_all_elo()
+        except Exception as e:
+            import logging; logging.getLogger(__name__).warning(f"Elo recalculation failed: {e}")
     await db.log_action(uid, "delete_match", f"حذف مسابقه {mid}", mid, snapshot=snap)
     await record_destructive_action(ctx.bot, uid, "delete_match")
     await safe_edit_message_text(query, "🗑️ مسابقه حذف شد.", reply_markup=kb.kb_back("match_history"))
