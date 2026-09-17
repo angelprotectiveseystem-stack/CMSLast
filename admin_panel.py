@@ -5,8 +5,10 @@ admin_panel.py — پنل مدیریتی وب (داشبورد زنده) برای
 game_server.py استفاده می‌کنه) و روی سرور aiohttp خودش، در پروسه‌ی جدای
 خودش، سرو می‌شه — با panel_server.py اجرا کن. تنها وابستگی‌اش دیتابیسِ
 مشترک (Turso) از طریق database.py/turso_db.py هست.
-هیچ کوئری‌ای که این پنل می‌زنه، چیزی رو توی دیتابیس تغییر نمی‌ده — فقط
-SELECT — پس هیچ ریسکی برای منطق ربات یا کندی‌ای براش نداره.
+تقریباً هیچ کوئری‌ای که این پنل می‌زنه چیزی رو توی دیتابیس تغییر نمی‌ده —
+فقط SELECT — با یک استثنا: بخشِ «نفرات برتر» توی تبِ تنظیمات، که وقتی
+حالتِ نمایش روی دستی باشه، انتخابِ همون پنج نفر از همین‌جا نوشته می‌شه
+(این بخش قبلاً توی پنل مدیر مدرسه بود، به اینجا منتقل شده).
 
 احراز هویت: یک توکن ساده (رمز پنل از env، یا رمز پیشوا) که در
 localStorage مرورگر ذخیره می‌شه و با هر درخواست به‌صورت هدر فرستاده می‌شه.
@@ -449,6 +451,194 @@ async def panel_settings(request):
         async with conn.execute("SELECT * FROM system_settings") as cur:
             rows = await cur.fetchall()
     return _json({"ok": True, "settings": [{"key": r["key"], "value": r["value"]} for r in rows]})
+
+
+# ─── نفراتِ برتر: انتخابِ دستی (منتقل‌شده از پنل مدیر مدرسه) ────────────
+# حالتِ خودکار/دستی خودش فقط از تلگرام (منوی تنظیماتِ پیشوا) عوض می‌شه؛
+# این پنل فقط همون حالت رو می‌خونه و، وقتی دستی‌ست، انتخابِ خودِ پنج نفر
+# از همین‌جا نوشته می‌شه.
+TOP_PLAYERS_MODE_KEY = "top_players_mode"       # "auto" | "manual"
+TOP_PLAYERS_MANUAL_KEY = "top_players_manual"   # JSON: [{"rank":1,"player_id":12}, ...]
+
+# شناسه‌ی نمادین برای لاگِ اقدامات؛ این پنل به کاربرِ تلگرامیِ خاصی وصل
+# نیست (فقط با توکنِ نشست احراز هویت می‌شه)، پس آی‌دیِ واقعی‌ای نداریم.
+_ADMIN_PANEL_LOG_ID = 0
+
+
+async def _top_mode() -> str:
+    val = await db.get_setting(TOP_PLAYERS_MODE_KEY, "auto")
+    return val if val in ("auto", "manual") else "auto"
+
+
+async def _manual_list() -> list:
+    raw = await db.get_setting(TOP_PLAYERS_MANUAL_KEY, "[]")
+    try:
+        data = json.loads(raw) or []
+    except Exception:
+        data = []
+    out = []
+    for item in data:
+        try:
+            out.append({"rank": int(item["rank"]), "player_id": int(item["player_id"])})
+        except Exception:
+            continue
+    out.sort(key=lambda x: x["rank"])
+    return out
+
+
+async def _save_manual_list(items: list):
+    items = sorted(items, key=lambda x: x["rank"])
+    await db.set_setting(TOP_PLAYERS_MANUAL_KEY, json.dumps(items, ensure_ascii=False))
+
+
+async def _top_candidates_stats():
+    """برای همه‌ی مسابقاتِ ثبت‌شده (بدون محدودیتِ بازه)، برای هر بازیکنی که
+    مسابقه داشته آمار (بازی/برد/تساوی/باخت/امتیاز) حساب می‌کنه — پایه‌ی
+    رتبه‌بندیِ پیشنهادیِ ربات برای وقتی که از این پنل نفراتِ برتر دستی
+    انتخاب می‌شن."""
+    matches, players = await asyncio.gather(
+        db.get_matches_by_filter("all"), db.get_all_players()
+    )
+    matches = matches or []
+    players = players or []
+    meta = {
+        p["id"]: {
+            "full_name": p["full_name"],
+            "class_name": p["class_name"] or "بدون کلاس",
+            "status": p["status"],
+        }
+        for p in players
+    }
+    stats = {}
+    for m in matches:
+        if not m or m["result"] not in ("white", "black", "draw"):
+            continue
+        w_id, b_id = m["white_player_id"], m["black_player_id"]
+        for pid in (w_id, b_id):
+            stats.setdefault(pid, {"games": 0, "wins": 0, "draws": 0, "losses": 0, "score": 0.0})
+        stats[w_id]["games"] += 1
+        stats[b_id]["games"] += 1
+        if m["result"] == "white":
+            stats[w_id]["wins"] += 1
+            stats[w_id]["score"] += 1
+            stats[b_id]["losses"] += 1
+        elif m["result"] == "black":
+            stats[b_id]["wins"] += 1
+            stats[b_id]["score"] += 1
+            stats[w_id]["losses"] += 1
+        else:
+            stats[w_id]["draws"] += 1
+            stats[w_id]["score"] += 0.5
+            stats[b_id]["draws"] += 1
+            stats[b_id]["score"] += 0.5
+    return meta, stats
+
+
+@routes.get("/api/panel/top-mode")
+async def panel_top_mode(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    return _json({"ok": True, "top_players_mode": await _top_mode()})
+
+
+@routes.get("/api/panel/top-candidates")
+async def panel_top_candidates(request):
+    """فهرستِ بازیکن‌های فعال، به ترتیبِ همون رتبه‌بندیِ خودکارِ ربات (بهترین
+    نامزدها اول) — تا از بینِ همین ترتیب، پنج نفر برتر دستی انتخاب بشن.
+    برای هرکدوم، رتبه‌ی دستیِ فعلی‌شون (اگه از قبل گرفته شده) هم همراهش
+    می‌آد تا توی پنل با تیک نشون داده بشه."""
+    _require_auth(request)
+    await _require_enabled(request)
+    meta, stats = await _top_candidates_stats()
+    manual = await _manual_list()
+    manual_rank = {item["player_id"]: item["rank"] for item in manual}
+
+    rows = []
+    for pid, m in meta.items():
+        if m["status"] != "active":
+            continue
+        s = stats.get(pid, {"games": 0, "wins": 0, "draws": 0, "losses": 0, "score": 0.0})
+        rows.append({
+            "id": pid,
+            "full_name": m["full_name"],
+            "class_name": m["class_name"],
+            **s,
+            "manual_rank": manual_rank.get(pid),
+        })
+    rows.sort(key=lambda r: (-r["score"], -r["wins"], r["full_name"] or ""))
+    return _json({"ok": True, "players": rows})
+
+
+@routes.get("/api/panel/top-manual")
+async def panel_top_manual_get(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    manual = await _manual_list()
+    players = await db.get_all_players() or []
+    meta = {p["id"]: {"full_name": p["full_name"], "class_name": p["class_name"] or "بدون کلاس"} for p in players}
+    rows = []
+    for item in manual:
+        m = meta.get(item["player_id"])
+        rows.append({
+            "rank": item["rank"],
+            "player_id": item["player_id"],
+            "full_name": m["full_name"] if m else "بازیکن حذف‌شده",
+            "class_name": m["class_name"] if m else "—",
+        })
+    return _json({"ok": True, "list": rows})
+
+
+@routes.post("/api/panel/top-manual-set")
+async def panel_top_manual_set(request):
+    """این شخص از پنج نفر برتر چندم باشه — rank باید بینِ ۱ تا ۵ باشه. اگه
+    قبلاً کسِ دیگه‌ای همون رتبه رو داشته، جاش عوض می‌شه؛ اگه خودِ این بازیکن
+    قبلاً رتبه‌ی دیگه‌ای داشته، اون یکی برداشته می‌شه (هر بازیکن حداکثر یک
+    رتبه)."""
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        player_id = int(body.get("player_id"))
+        rank = int(body.get("rank"))
+    except Exception:
+        return _json({"ok": False, "error": "invalid_input"})
+    if rank < 1 or rank > 5:
+        return _json({"ok": False, "error": "invalid_rank"})
+
+    player = await db.get_player(player_id)
+    if not player or player["status"] != "active":
+        return _json({"ok": False, "error": "player_not_found"})
+
+    items = await _manual_list()
+    items = [i for i in items if i["player_id"] != player_id and i["rank"] != rank]
+    items.append({"rank": rank, "player_id": player_id})
+    await _save_manual_list(items)
+    await db.log_action(_ADMIN_PANEL_LOG_ID, "top_manual_set",
+                         f"رتبه {rank} برای بازیکنِ #{player_id} (از پنل ادمین)")
+    return await panel_top_manual_get(request)
+
+
+@routes.post("/api/panel/top-manual-remove")
+async def panel_top_manual_remove(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        player_id = int(body.get("player_id"))
+    except Exception:
+        return _json({"ok": False, "error": "invalid_input"})
+    items = await _manual_list()
+    items = [i for i in items if i["player_id"] != player_id]
+    await _save_manual_list(items)
+    await db.log_action(_ADMIN_PANEL_LOG_ID, "top_manual_remove",
+                         f"حذفِ بازیکنِ #{player_id} از نفراتِ برتر (از پنل ادمین)")
+    return await panel_top_manual_get(request)
 
 
 # ─── دستیار (تاریخچه چت هوش مصنوعی) ────────────────────────────────
