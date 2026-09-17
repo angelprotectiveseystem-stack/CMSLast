@@ -86,6 +86,44 @@ def _json(data):
     return web.json_response(data, dumps=lambda o: json.dumps(o, ensure_ascii=False, default=str))
 
 
+# ─── نفراتِ برتر: حالت (خودکار/دستی) از تلگرام تنظیم می‌شه ─────────────
+# این پنل این کلیدها رو فقط می‌خونه (و، در حالتِ دستی، فهرستِ انتخاب‌شده رو
+# می‌نویسه) — خودِ سوییچِ auto/manual منحصراً از منوی تنظیماتِ پیشوا در
+# تلگرام تغییر می‌کنه، نه از این‌جا.
+TOP_PLAYERS_MODE_KEY = "top_players_mode"       # "auto" | "manual"
+TOP_PLAYERS_MANUAL_KEY = "top_players_manual"   # JSON: [{"rank":1,"player_id":12}, ...]
+
+# شناسه‌ی نمادین برای لاگِ اقدامات؛ مدیر ارشد اینجا کاربرِ تلگرامی نیست
+# (فقط با کلیدِ لینک احراز هویت می‌شه)، پس آی‌دیِ واقعی‌ای برای ثبت نداریم.
+_PRINCIPAL_LOG_ID = 0
+
+
+async def _top_mode() -> str:
+    val = await db.get_setting(TOP_PLAYERS_MODE_KEY, "auto")
+    return val if val in ("auto", "manual") else "auto"
+
+
+async def _manual_list() -> list:
+    raw = await db.get_setting(TOP_PLAYERS_MANUAL_KEY, "[]")
+    try:
+        data = json.loads(raw) or []
+    except Exception:
+        data = []
+    out = []
+    for item in data:
+        try:
+            out.append({"rank": int(item["rank"]), "player_id": int(item["player_id"])})
+        except Exception:
+            continue
+    out.sort(key=lambda x: x["rank"])
+    return out
+
+
+async def _save_manual_list(items: list):
+    items = sorted(items, key=lambda x: x["rank"])
+    await db.set_setting(TOP_PLAYERS_MANUAL_KEY, json.dumps(items, ensure_ascii=False))
+
+
 # ─── صفحه اصلی و فایل‌های استاتیک ────────────────────────────────
 def _asset_version():
     try:
@@ -275,17 +313,23 @@ async def principal_matches(request):
 
 
 # ─── نفرات برتر (هفته/ماه/کل) ─────────────────────────────────────
-@routes.get("/api/principal/top")
-async def principal_top(request):
-    _require_auth(request)
-    await _require_enabled(request)
-    period = request.query.get("period", "week")
+async def _period_stats(period: str):
+    """برای بازه‌ی داده‌شده، برای هر بازیکنی که مسابقه داشته آمار (بازی/برد/
+    تساوی/باخت/امتیاز) حساب می‌کنه. پایه‌ی مشترکِ هم جدولِ خودکار و هم
+    رتبه‌بندیِ پیشنهادیِ ربات (برای وقتی مدیر ارشد می‌خواد دستی انتخاب کنه)."""
     matches, players = await asyncio.gather(
         db.get_matches_by_filter(period), db.get_all_players()
     )
     matches = matches or []
     players = players or []
-    meta = {p["id"]: {"full_name": p["full_name"], "class_name": p["class_name"] or "بدون کلاس"} for p in players}
+    meta = {
+        p["id"]: {
+            "full_name": p["full_name"],
+            "class_name": p["class_name"] or "بدون کلاس",
+            "status": p["status"],
+        }
+        for p in players
+    }
 
     stats = {}
     for m in matches:
@@ -309,13 +353,151 @@ async def principal_top(request):
             stats[w_id]["score"] += 0.5
             stats[b_id]["draws"] += 1
             stats[b_id]["score"] += 0.5
+    return meta, stats
 
+
+@routes.get("/api/principal/top")
+async def principal_top(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    mode = await _top_mode()
+
+    if mode == "manual":
+        # مدیر ارشد نفراتِ برتر رو دستی انتخاب کرده — بازه (هفته/ماه/کل)
+        # اینجا معنی نداره، همیشه همون فهرستِ دستی (با آمارِ واقعیِ کل دوران
+        # برای نمایش) و به ترتیبِ رتبه‌ای که خودش تعیین کرده برگردونده می‌شه.
+        manual = await _manual_list()
+        meta, stats = await _period_stats("all")
+        rows = []
+        for item in manual:
+            pid = item["player_id"]
+            m = meta.get(pid)
+            if not m:
+                continue
+            s = stats.get(pid, {"games": 0, "wins": 0, "draws": 0, "losses": 0, "score": 0.0})
+            rows.append({"full_name": m["full_name"], "class_name": m["class_name"], **s})
+        return _json({"ok": True, "leaderboard": rows, "mode": "manual"})
+
+    period = request.query.get("period", "week")
+    meta, stats = await _period_stats(period)
     rows = []
     for pid, s in stats.items():
         m = meta.get(pid, {"full_name": "بازیکن حذف‌شده", "class_name": "—"})
-        rows.append({**m, **s})
+        rows.append({"full_name": m["full_name"], "class_name": m["class_name"], **s})
     rows.sort(key=lambda r: (-r["score"], -r["wins"]))
-    return _json({"ok": True, "leaderboard": rows[:50]})
+    return _json({"ok": True, "leaderboard": rows[:50], "mode": "auto"})
+
+
+# ─── وضعیتِ نفراتِ برتر (فقط خواندن — حالت خودکار/دستی از تلگرام تنظیم می‌شه) ──
+@routes.get("/api/principal/settings")
+async def principal_settings_get(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    return _json({
+        "ok": True,
+        "top_players_mode": await _top_mode(),
+    })
+
+
+# ─── انتخابِ دستیِ نفراتِ برتر ────────────────────────────────────────
+@routes.get("/api/principal/top-candidates")
+async def principal_top_candidates(request):
+    """فهرستِ بازیکن‌های فعال، به ترتیبِ همون رتبه‌بندیِ خودکارِ ربات (بهترین
+    نامزدها اول) — تا مدیر ارشد از بینِ همین ترتیب، پنج نفر برتر رو دستی
+    انتخاب کنه. برای هرکدوم، رتبه‌ی دستیِ فعلی‌شون (اگه از قبل گرفته شده) هم
+    همراهش می‌آد تا توی پنل با تیک نشون داده بشه."""
+    _require_auth(request)
+    await _require_enabled(request)
+    meta, stats = await _period_stats("all")
+    manual = await _manual_list()
+    manual_rank = {item["player_id"]: item["rank"] for item in manual}
+
+    rows = []
+    for pid, m in meta.items():
+        if m["status"] != "active":
+            continue
+        s = stats.get(pid, {"games": 0, "wins": 0, "draws": 0, "losses": 0, "score": 0.0})
+        rows.append({
+            "id": pid,
+            "full_name": m["full_name"],
+            "class_name": m["class_name"],
+            **s,
+            "manual_rank": manual_rank.get(pid),
+        })
+    rows.sort(key=lambda r: (-r["score"], -r["wins"], r["full_name"] or ""))
+    return _json({"ok": True, "players": rows})
+
+
+@routes.get("/api/principal/top-manual")
+async def principal_top_manual_get(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    manual = await _manual_list()
+    players = await db.get_all_players() or []
+    meta = {p["id"]: {"full_name": p["full_name"], "class_name": p["class_name"] or "بدون کلاس"} for p in players}
+    rows = []
+    for item in manual:
+        m = meta.get(item["player_id"])
+        rows.append({
+            "rank": item["rank"],
+            "player_id": item["player_id"],
+            "full_name": m["full_name"] if m else "بازیکن حذف‌شده",
+            "class_name": m["class_name"] if m else "—",
+        })
+    return _json({"ok": True, "list": rows})
+
+
+@routes.post("/api/principal/top-manual-set")
+async def principal_top_manual_set(request):
+    """این شخص از پنج نفر برتر چندم باشه — rank باید بینِ ۱ تا ۵ باشه. اگه
+    قبلاً کسِ دیگه‌ای همون رتبه رو داشته، جاش عوض می‌شه؛ اگه خودِ این بازیکن
+    قبلاً رتبه‌ی دیگه‌ای داشته، اون یکی برداشته می‌شه (هر بازیکن حداکثر یک
+    رتبه)."""
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        player_id = int(body.get("player_id"))
+        rank = int(body.get("rank"))
+    except Exception:
+        return _json({"ok": False, "error": "invalid_input"})
+    if rank < 1 or rank > 5:
+        return _json({"ok": False, "error": "invalid_rank"})
+
+    player = await db.get_player(player_id)
+    if not player or player["status"] != "active":
+        return _json({"ok": False, "error": "player_not_found"})
+
+    items = await _manual_list()
+    items = [i for i in items if i["player_id"] != player_id and i["rank"] != rank]
+    items.append({"rank": rank, "player_id": player_id})
+    await _save_manual_list(items)
+    await db.log_action(_PRINCIPAL_LOG_ID, "top_manual_set",
+                         f"رتبه {rank} برای بازیکنِ #{player_id} (از پنل مدیر مدرسه)")
+    return await principal_top_manual_get(request)
+
+
+@routes.post("/api/principal/top-manual-remove")
+async def principal_top_manual_remove(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        player_id = int(body.get("player_id"))
+    except Exception:
+        return _json({"ok": False, "error": "invalid_input"})
+    items = await _manual_list()
+    items = [i for i in items if i["player_id"] != player_id]
+    await _save_manual_list(items)
+    await db.log_action(_PRINCIPAL_LOG_ID, "top_manual_remove",
+                         f"حذفِ بازیکنِ #{player_id} از نفراتِ برتر (از پنل مدیر مدرسه)")
+    return await principal_top_manual_get(request)
 
 
 # ─── روندها (نمودارها) ─────────────────────────────────────────────

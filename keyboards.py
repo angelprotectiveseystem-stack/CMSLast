@@ -634,6 +634,10 @@ def kb_pishva_settings_simple(settings):
         [InlineKeyboardButton(f"🏫 پنل وب مدیر مدرسه {tog('principal_panel_enabled')}", callback_data="setting_principal_panel", style=st('principal_panel_enabled')),
         InlineKeyboardButton(f"🌐 پنل وب ادمین‌ها {tog('admin_webpanel_enabled')}", callback_data="setting_admin_webpanel", style=st('admin_webpanel_enabled'))],
         [InlineKeyboardButton(f"🚫 اخراجِ مستقیمِ مدیران {tog('admin_direct_kick_enabled')}", callback_data="setting_admin_direct_kick", style=st('admin_direct_kick_enabled'))],
+        [InlineKeyboardButton(
+            f"🏆 نفرات برتر: {'🖐️ دستی' if settings.get('top_players_mode') == 'manual' else '⚡ خودکار'}",
+            callback_data="setting_top_players_mode",
+            style=_onoff_style(settings.get('top_players_mode') == 'manual'))],
         [InlineKeyboardButton("🚨 هشدار حذف مشکوک ⚙️", callback_data="sadel_panel", style="danger")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
     ])

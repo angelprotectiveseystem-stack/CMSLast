@@ -511,6 +511,9 @@ async def init_db():
             # ─── روشن/خاموشِ جداگانه‌ی دو پنل وب (لینک‌دار) ───
             "principal_panel_enabled": "1",
             "admin_webpanel_enabled": "1",
+            # ─── نفرات برتر: خودکار (بر اساس امتیاز) یا دستیِ مدیر ارشد ───
+            "top_players_mode": "auto",
+            "top_players_manual": "[]",
         }
         for k, v in defaults.items():
             await db.execute(
