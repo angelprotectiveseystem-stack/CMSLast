@@ -1060,8 +1060,10 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         keys = ["notifications_enabled", "communications_enabled", "help_enabled",
             "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
             "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
-            "admin_dashboard_enabled"]
-        settings = {k: await db.get_setting(k, "1") for k in keys}
+            "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
+            "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled",
+            "admin_direct_kick_enabled", "top_players_mode"]
+        settings = await db.get_settings_bulk(keys, "1")
         await update.message.reply_text(
             f"{box('⚙️ تنظیمات ربات')}\n\n📌 گزینه موردنظر را تغییر دهید:",
             reply_markup=kb.kb_pishva_settings_simple(settings), parse_mode="Markdown"
