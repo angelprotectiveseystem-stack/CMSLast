@@ -16,6 +16,16 @@ from panel_timeout import (
 
 logger = logging.getLogger(__name__)
 
+# ─── میان‌بر «ت<شماره>» → مستقیم صفحه‌ی N پنل مدیر ارشد ─────────────
+# پشتیبانی از هر ترکیبِ رایج: «ت1»، «ت 1»، «ت۱»، «ت ۱». عدد می‌تونه
+# فارسی یا انگلیسی باشه؛ قبل از matchِ regex به انگلیسی نرمالایز می‌شه.
+_DIGIT_TRANSLATION = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+TAB_PAGE_RE = re.compile(r"^ت\s*([0-9]+)$")
+
+
+def _to_ascii_digits(s: str) -> str:
+    return s.translate(_DIGIT_TRANSLATION)
+
 ADMIN_KEYWORDS = {"تنظیم مدیر", "تنظیم مدیر امنیتی", "حذف مدیر", "حذف مدیر امنیتی"}
 
 # کلمه‌ی گفته‌شده -> نام یکتای عملیات (برای پشتیبانی از مترادف‌ها)
@@ -245,6 +255,12 @@ async def ask_panel_location(update: Update, ctx: ContextTypes.DEFAULT_TYPE, act
 
 
 def _action_label(action: str) -> str:
+    if action.startswith("pishva_page_"):
+        try:
+            n = int(action[len("pishva_page_"):]) + 1
+        except ValueError:
+            n = 1
+        return f"پنل مدیر ارشد — صفحه {n}"
     labels = {
         "dashboard": "داشبورد",
         "matches": "مسابقات",
@@ -288,6 +304,19 @@ async def _panel_content(action: str, uid: int, is_pishva: bool, admin):
         if not is_pishva:
             return None, None, "⛔ شما مجوز باز کردن این پنل را ندارید."
         return box("👑 پنل مدیر ارشد"), kb.kb_pishva_main(), None
+
+    # ─── میان‌بر «ت<شماره>» — مستقیم صفحه‌ی N از پنلِ خودِ مدیر ارشد
+    # (همون کیبوردِ صفحه‌بندی‌شده‌ای که از داخلِ «پنل مدیر ارشد» ← دکمه‌های
+    # ◀️/▶️ در دسترسه)، بدونِ نیاز به رفتن مرحله‌به‌مرحله. ─────────────
+    if action.startswith("pishva_page_"):
+        if not is_pishva:
+            return None, None, "⛔ شما مجوز باز کردن این پنل را ندارید."
+        try:
+            page_index = int(action[len("pishva_page_"):])
+        except ValueError:
+            page_index = 0
+        return box("👑 پنل مدیر ارشد"), kb.kb_pishva_panel(page_index), None
+
 
     if action == "quick_panel":
         # پنل ساده و سریع: بدون خوش‌آمدگویی/آب‌وهوا/جزئیات، فقط عنوان + کیبورد کامل.
@@ -445,6 +474,38 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     # ممکنه یک state (مدت دقیقه) از مدیر ارشد بخوان.
     if text in WORKHOURS_START_KEYWORDS or text in WORKHOURS_END_KEYWORDS:
         return
+
+    # ─── میان‌بر «ت<شماره>» (ت1، ت 1، ت۱، ت ۱، ...) ───
+    # مستقیم صفحه‌ی N از پنل مدیر ارشد رو باز می‌کنه، بدون نیاز به رفتن
+    # داخل «پنل مدیر ارشد» و زدنِ ◀️/▶️ چندبار. صفحه‌ها از ۱ شماره‌گذاری
+    # می‌شن (ت1 = صفحه‌ی اول = ایندکسِ صفر در kb_pishva_panel).
+    tab_match = TAB_PAGE_RE.match(_to_ascii_digits(text))
+    if tab_match:
+        uid0 = update.effective_user.id if update.effective_user else None
+        if not uid0:
+            return
+        is_pishva0 = (uid0 == PISHVA_ID)
+        admin0 = await db.get_admin(uid0)
+        is_admin0 = bool(admin0 and admin0["is_active"])
+        if not (is_pishva0 or is_admin0):
+            return
+        if not is_pishva0:
+            await update.message.reply_text("⛔ این دستور فقط برای مدیر ارشد است.")
+            raise ApplicationHandlerStop()
+        page_num = int(tab_match.group(1))
+        page_index = max(0, page_num - 1)
+        page_action = f"pishva_page_{page_index}"
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, page_action)
+        else:
+            text_out, markup, err = await _panel_content(page_action, uid0, is_pishva0, admin0)
+            if text_out is None:
+                await update.message.reply_text(err or "⛔ شما مجوز باز کردن این پنل را ندارید.")
+                raise ApplicationHandlerStop()
+            sent = await update.message.reply_text(text_out, reply_markup=markup, parse_mode="Markdown")
+            await register_panel_owner(update, ctx, sent.message_id)
+        raise ApplicationHandlerStop()
 
     action = SIMPLE_KEYWORDS.get(text)
 
