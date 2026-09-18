@@ -330,6 +330,7 @@ function buildBoard(){
     Object.keys(state.boardEls).forEach(function(s){
       state.boardEls[s].classList.remove("drop-hover");
     });
+    lastHoverSq = null;
   }
 
   $("board").addEventListener("pointerdown", function(e){
@@ -361,9 +362,19 @@ function buildBoard(){
     };
   });
 
-  document.addEventListener("pointermove", function(e){
-    if(!drag || e.pointerId !== drag.pointerId) return;
-    if(e.cancelable) e.preventDefault();
+  // نکته‌ی کارایی: pointermove روی موبایل می‌تواند ده‌ها بار در ثانیه
+  // (بدون هیچ همگام‌سازی با فریمِ رندر) شلیک شود. قبلاً این هندلر به
+  // ازای *هر* رویداد بلافاصله روی هر ۶۴ خانه‌ی تخته classList.toggle
+  // صدا می‌زد (۶۴ نوشتنِ DOM در هر رویداد pointermove) — همین باعثِ
+  // لگِ محسوس هنگام نگه‌داشتن/کشیدنِ مهره می‌شد، دقیقاً همان الگویی که
+  // در initPullRefresh (پایینِ فایل) با یک rAF حل شده. اینجا هم با
+  // همان الگو: رویدادهای پیاپی در یک متغیر ذخیره و فقط یک‌بار در هر
+  // فریم پردازش می‌شوند؛ و به‌جای لوپِ کاملِ ۶۴ خانه، فقط خانه‌ی قبلی و
+  // خانه‌ی جدیدِ زیرِ انگشت (حداکثر ۲ نوشتنِ DOM) دست می‌خورند.
+  var lastHoverSq = null;
+  var moveRaf = null, pendingMoveEvent = null;
+
+  function applyDragMove(e){
     var dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
     if(!drag.moved){
       if(Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
@@ -376,14 +387,30 @@ function buildBoard(){
     // و مهره‌ی درگ‌شونده بدونِ حسِ «بلندشدن» صرفاً جابه‌جا به‌نظر می‌رسد.
     drag.ghost.style.transform = "translate(" + dx + "px," + dy + "px) scale(1.18)";
     var overSq = squareFromPoint(e.clientX, e.clientY);
-    Object.keys(state.boardEls).forEach(function(s){
-      state.boardEls[s].classList.toggle("drop-hover", s === overSq && s !== drag.fromSq);
+    var hoverSq = (overSq && overSq !== drag.fromSq) ? overSq : null;
+    if(hoverSq !== lastHoverSq){
+      if(lastHoverSq && state.boardEls[lastHoverSq]) state.boardEls[lastHoverSq].classList.remove("drop-hover");
+      if(hoverSq && state.boardEls[hoverSq]) state.boardEls[hoverSq].classList.add("drop-hover");
+      lastHoverSq = hoverSq;
+    }
+  }
+
+  document.addEventListener("pointermove", function(e){
+    if(!drag || e.pointerId !== drag.pointerId) return;
+    if(e.cancelable) e.preventDefault();
+    pendingMoveEvent = e;
+    if(moveRaf) return;
+    moveRaf = requestAnimationFrame(function(){
+      moveRaf = null;
+      if(drag && pendingMoveEvent) applyDragMove(pendingMoveEvent);
     });
   });
 
   function endDrag(e){
     if(!drag || e.pointerId !== drag.pointerId) return;
     var d = drag; drag = null;
+    if(moveRaf){ cancelAnimationFrame(moveRaf); moveRaf = null; }
+    pendingMoveEvent = null;
     clearDropHover();
 
     if(!d.moved) return; // تپِ ساده بوده؛ کلیکِ طبیعیِ بعدی طبقِ روالِ قبلی onSquareClick را صدا می‌زند
