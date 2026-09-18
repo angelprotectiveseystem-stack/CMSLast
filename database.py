@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import pytz
+import jdatetime
 from datetime import datetime, timedelta
 from config import DB_PATH, STATUS_NORMAL, ROLE_PISHVA, PISHVA_ID
 
@@ -25,6 +26,16 @@ def _now_tehran_iso() -> str:
     با چیزی که قبلاً datetime.now().isoformat() تولید می‌کرد، فقط حالا با
     ساعتِ درست، تا با تمامِ فیلترها/مقایسه‌های رشته‌ایِ موجود سازگار بمونه."""
     return datetime.now(TEHRAN_TZ).replace(tzinfo=None).isoformat()
+
+
+def _now_tehran_shamsi() -> str:
+    """تاریخِ فعلیِ شمسی (وقتِ تهران)، هم‌فرمت با helpers.now_shamsi، برای
+    جاهایی مثل ثبتِ تیم که می‌خوایم created_at میلادی نباشه. ۱۰ کاراکترِ اول
+    (YYYY/MM/DD) با همون slicing قدیمیِ [:10] که روی created_at انجام
+    می‌شد سازگار می‌مونه."""
+    now = datetime.now(TEHRAN_TZ)
+    jd = jdatetime.datetime.fromgregorian(datetime=now)
+    return jd.strftime("%Y/%m/%d — %H:%M:%S")
 
 # درخواست‌های بازی شطرنجی که طرف مقابل بعد از این مدت به آن‌ها پاسخ نداده باشد،
 # دیگر «در انتظار پاسخ» حساب نمی‌شوند و مانع ارسال درخواست جدید نمی‌شوند.
@@ -2471,8 +2482,8 @@ import random
 import string
 
 
-async def create_team(name, slogan, requester_name, created_by) -> int:
-    now = datetime.now().isoformat()
+async def create_team(name, slogan, requester_name, created_by, created_at=None) -> int:
+    now = created_at or _now_tehran_shamsi()
     code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
@@ -2509,6 +2520,21 @@ async def get_team_members(team_id: int):
             (team_id,)
         ) as cur:
             return await cur.fetchall()
+
+
+async def get_players_with_team() -> set:
+    """ست آی‌دیِ بازیکن‌هایی که همین الان عضوِ حداقل یک تیمِ فعال (غیرحذف‌شده)
+    هستن — برای فیلتر کردنِ لیستِ انتخابِ عضو موقعِ ساختِ تیمِ جدید، تا
+    بازیکنی که از قبل تیم داره دوباره پیشنهاد نشه."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """SELECT DISTINCT tm.player_id
+               FROM team_members tm
+               JOIN teams t ON tm.team_id = t.id
+               WHERE t.status='active'"""
+        ) as cur:
+            rows = await cur.fetchall()
+            return {r[0] for r in rows}
 
 
 async def add_team_member(team_id: int, player_id: int, level="", is_reserve=0):

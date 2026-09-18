@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 import database as db
 import keyboards as kb
-from helpers import safe_edit_message_text, box, now_shamsi, today_shamsi, today_gregorian
+from helpers import safe_edit_message_text, box, now_shamsi, today_shamsi
 from config import (PISHVA_ID, ST_TEAM_NAME, ST_TEAM_SLOGAN, ST_TEAM_MEMBERS,
                     ST_TEAM_DATE, ST_TEAM_REQUESTER)
 
@@ -60,7 +60,8 @@ async def team_slogan_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def _ask_members(query_or_update, ctx):
     players = await db.get_all_players()
-    active = [p for p in players if p["status"] == "active"]
+    taken = await db.get_players_with_team()
+    active = [p for p in players if p["status"] == "active" and p["id"] not in taken]
     ctx.user_data["new_team"]["selected_members"] = []
     ctx.user_data["new_team"]["all_active_players"] = [dict(p) for p in active]
 
@@ -79,7 +80,8 @@ async def _ask_members(query_or_update, ctx):
 
 async def _ask_members_msg(update, ctx):
     players = await db.get_all_players()
-    active = [p for p in players if p["status"] == "active"]
+    taken = await db.get_players_with_team()
+    active = [p for p in players if p["status"] == "active" and p["id"] not in taken]
     ctx.user_data["new_team"]["selected_members"] = []
     ctx.user_data["new_team"]["all_active_players"] = [dict(p) for p in active]
 
@@ -155,7 +157,7 @@ async def team_confirm_members(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def team_date_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    ctx.user_data["new_team"]["date"] = today_gregorian()
+    ctx.user_data["new_team"]["date"] = today_shamsi()
     await safe_edit_message_text(query, "🙋 مرحله ۵: این تیم توسط چه دانش‌آموزی درخواست ساخت شده؟ (فقط نام):")
     return ST_TEAM_REQUESTER
 
@@ -175,7 +177,8 @@ async def team_requester_received(update: Update, ctx: ContextTypes.DEFAULT_TYPE
         name=team_data.get("name", "تیم جدید"),
         slogan=team_data.get("slogan", ""),
         requester_name=requester,
-        created_by=uid
+        created_by=uid,
+        created_at=team_data.get("date")
     )
 
     # Add selected members
