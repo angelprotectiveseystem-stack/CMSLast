@@ -11,7 +11,8 @@ from helpers import (safe_edit_message_text, box, separator, now_shamsi, broadca
                      notify_pishva, pishva_display, warning_bar_admin,
                      power_bar, send_notification, check_perm, check_status_gate,
                      today_gregorian, parse_hour_range,
-                     days_ago_gregorian, date_label_fa, parse_admin_undo_date)
+                     days_ago_gregorian, date_label_fa, parse_admin_undo_date,
+                     TEHRAN_TZ)
 from anomaly_alerts import record_destructive_action
 from config import (PISHVA_ID, ST_TASK_SELECT_ADMIN, ST_TASK_TITLE,
                     ST_TASK_DESC, ST_TASK_DONE_REASON, ST_FEEDBACK_TEXT,
@@ -540,7 +541,10 @@ async def admin_undo_last(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tid_str, hours_str = rest.split("_")
     tid, hours = int(tid_str), int(hours_str)
     from datetime import datetime
-    current_hour = datetime.now().hour
+    # FIX: قبلاً datetime.now().hour (ساعتِ سرور/UTC) بود، در حالی که بقیه‌ی
+    # منویِ Undo (و الان خودِ logged_at هم) بر پایه‌ی وقتِ تهرانه — دو ساعتِ
+    # متفاوت توی یک فیچر قاطی شده بود.
+    current_hour = datetime.now(TEHRAN_TZ).hour
     hour_from = max(0, current_hour - hours)
     await _do_admin_undo(query, ctx, tid, today_gregorian(), hour_from, current_hour)
 
