@@ -1527,9 +1527,14 @@ async def record_match_result(mid: int, result: str, reason: str, updated_by: in
     یک‌بار get_match(mid) رو برای گرفتنِ اسم/آیدیِ بازیکن‌ها زده — قبلاً
     اینجا دوباره همون کوئری تکرار می‌شد (یک رفت‌وبرگشتِ کاملاً اضافه‌ی
     شبکه‌ای). حالا اگه match از قبل در دسترس باشه، از پارامتر match
-    استفاده می‌شه و دوباره از دیتابیس خونده نمی‌شه. همچنین آپدیتِ آمارِ
-    دو بازیکن (که کاملاً مستقلن) با batch در یک رفت‌وبرگشت انجام می‌شه،
-    نه دو رفت‌وبرگشتِ جدا.
+    استفاده می‌شه و دوباره از دیتابیس خونده نمی‌شه.
+
+    FIX (کندیِ ثبت نتیجه، ادامه): آپدیتِ خودِ نتیجه‌ی مسابقه (روی جدولِ
+    matches) قبلاً یک رفت‌وبرگشتِ جدا بود (از طریق set_match_result با
+    کانکشنِ خودش) و آپدیتِ آمارِ دو بازیکن یک رفت‌وبرگشتِ دیگه — یعنی دو
+    تا رفت‌وبرگشتِ کاملِ Turso پشتِ‌سرِهم برای سه تا UPDATE مستقل که هیچ
+    وابستگی‌ای به هم ندارن. الان هر سه با هم در یک batch/یک کانکشن انجام
+    می‌شن (یک رفت‌وبرگشت به‌جای دو تا).
     """
     m = match if match is not None else await get_match(mid)
     if m is None:
@@ -1548,12 +1553,15 @@ async def record_match_result(mid: int, result: str, reason: str, updated_by: in
     stat_col = {"win": "wins", "loss": "losses", "draw": "draws"}
     white_col, black_col = stat_col[white_stat], stat_col[black_stat]
 
-    step = "set_match_result"
+    step = "set_match_result+update_player_stats"
     try:
-        await set_match_result(mid, result, reason, updated_by)
-        step = "update_player_stats"
+        now = datetime.now().isoformat()
         async with aiosqlite.connect(DB_PATH) as db:
             async with db.batch():
+                await db.execute(
+                    "UPDATE matches SET result=?,draw_reason=?,updated_by=?,updated_at=? WHERE id=?",
+                    (result, reason, updated_by, now, mid)
+                )
                 await db.execute(
                     f"UPDATE players SET {white_col}={white_col}+1 WHERE id=?",
                     (m["white_player_id"],)
@@ -1562,6 +1570,7 @@ async def record_match_result(mid: int, result: str, reason: str, updated_by: in
                     f"UPDATE players SET {black_col}={black_col}+1 WHERE id=?",
                     (m["black_player_id"],)
                 )
+        _invalidate_matches_cache()
         _invalidate_players_cache()
     except Exception as e:
         logger.error(

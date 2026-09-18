@@ -355,21 +355,33 @@ async def result_white(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("این مسابقه قبلاً نتیجه‌اش ثبت شده.", show_alert=True)
         return
     await db.log_action(query.from_user.id, "match_result", f"برد سفید — مسابقه {mid}", mid)
-    chg_w = chg_b = 0
-    try:
-        from elo import update_elo_after_match, ensure_elo_table
-        await ensure_elo_table()
-        _, _, chg_w, chg_b = await update_elo_after_match(
-            m["white_player_id"], m["black_player_id"], "white", mid)
-    except Exception as e:
-        import logging; logging.getLogger(__name__).warning(f"Elo update failed: {e}")
+
+    # FIX (کندیِ ثبت نتیجه): آپدیتِ Elo و خوندنِ اطلاعاتِ بازنده کاملاً
+    # مستقلن (هیچ‌کدوم به نتیجه‌ی اون‌یکی نیاز نداره)، ولی قبلاً پشتِ‌سرِهم
+    # await می‌شدن یعنی دو رفت‌وبرگشتِ کاملِ شبکه‌ای پشتِ‌هم. الان با
+    # asyncio.gather هم‌زمان اجرا می‌شن (یک رفت‌وبرگشت به‌جای دو تا، از نظرِ
+    # زمانِ سپری‌شده). اعلانِ نتیجه به گروه/کانال هم دیگه صدازننده رو معطل
+    # نمی‌کنه — چون روی چیزی که به ادمین نشون داده می‌شه اثر نداره، در
+    # پس‌زمینه (fire-and-forget) اجرا می‌شه.
+    async def _do_elo():
+        try:
+            from elo import update_elo_after_match, ensure_elo_table
+            await ensure_elo_table()
+            return await update_elo_after_match(
+                m["white_player_id"], m["black_player_id"], "white", mid)
+        except Exception as e:
+            import logging; logging.getLogger(__name__).warning(f"Elo update failed: {e}")
+            return (0, 0, 0, 0)
+
+    (_, _, chg_w, chg_b), loser = await asyncio.gather(
+        _do_elo(), db.get_player(m["black_player_id"]))
+
     try:
         from features import announce_match_result
-        await announce_match_result(query.get_bot(), mid, "white",
-            m["white_name"], m["black_name"], chg_w, chg_b)
+        db._fire_and_forget(announce_match_result(query.get_bot(), mid, "white",
+            m["white_name"], m["black_name"], chg_w, chg_b))
     except Exception:
         pass
-    loser = await db.get_player(m["black_player_id"])
     warn = ""
     if loser["is_elite"] or loser["is_special"]:
         icon = "🌟" if loser["is_elite"] else "⚡"
@@ -401,21 +413,26 @@ async def result_black(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("این مسابقه قبلاً نتیجه‌اش ثبت شده.", show_alert=True)
         return
     await db.log_action(query.from_user.id, "match_result", f"برد سیاه — مسابقه {mid}", mid)
-    chg_w = chg_b = 0
-    try:
-        from elo import update_elo_after_match, ensure_elo_table
-        await ensure_elo_table()
-        _, _, chg_w, chg_b = await update_elo_after_match(
-            m["white_player_id"], m["black_player_id"], "black", mid)
-    except Exception as e:
-        import logging; logging.getLogger(__name__).warning(f"Elo update failed: {e}")
+
+    async def _do_elo():
+        try:
+            from elo import update_elo_after_match, ensure_elo_table
+            await ensure_elo_table()
+            return await update_elo_after_match(
+                m["white_player_id"], m["black_player_id"], "black", mid)
+        except Exception as e:
+            import logging; logging.getLogger(__name__).warning(f"Elo update failed: {e}")
+            return (0, 0, 0, 0)
+
+    (_, _, chg_w, chg_b), loser = await asyncio.gather(
+        _do_elo(), db.get_player(m["white_player_id"]))
+
     try:
         from features import announce_match_result
-        await announce_match_result(query.get_bot(), mid, "black",
-            m["white_name"], m["black_name"], chg_w, chg_b)
+        db._fire_and_forget(announce_match_result(query.get_bot(), mid, "black",
+            m["white_name"], m["black_name"], chg_w, chg_b))
     except Exception:
         pass
-    loser = await db.get_player(m["white_player_id"])
     warn = ""
     if loser["is_elite"] or loser["is_special"]:
         icon = "🌟" if loser["is_elite"] else "⚡"
@@ -463,18 +480,17 @@ async def draw_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("این مسابقه قبلاً نتیجه‌اش ثبت شده.", show_alert=True)
         return
     await db.log_action(query.from_user.id, "match_result", f"تساوی ({reason}) — {mid}", mid)
-    chg_w = chg_b = 0
     try:
         from elo import update_elo_after_match, ensure_elo_table
         await ensure_elo_table()
         _, _, chg_w, chg_b = await update_elo_after_match(
             m["white_player_id"], m["black_player_id"], "draw", mid)
     except Exception:
-        pass
+        chg_w = chg_b = 0
     try:
         from features import announce_match_result
-        await announce_match_result(query.get_bot(), mid, "draw",
-            m["white_name"], m["black_name"], chg_w, chg_b)
+        db._fire_and_forget(announce_match_result(query.get_bot(), mid, "draw",
+            m["white_name"], m["black_name"], chg_w, chg_b))
     except Exception:
         pass
     w_sign = "+" if chg_w >= 0 else ""
