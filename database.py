@@ -2,8 +2,29 @@ import turso_db as aiosqlite
 import asyncio
 import json
 import logging
+import pytz
 from datetime import datetime, timedelta
 from config import DB_PATH, STATUS_NORMAL, ROLE_PISHVA, PISHVA_ID
+
+# FIX (باگِ اصلیِ Undo/Redoِ ادمین‌ها — «اصلاً کار نمی‌کنه»): منویِ Undo
+# تاریخِ «امروز»/«N روز پیش» رو با وقتِ تهران می‌سازه (helpers.today_gregorian/
+# days_ago_gregorian)، اما اینجا action_logs.logged_at قبلاً با
+# datetime.now().isoformat() یعنی وقتِ سرور (روی Railway معمولاً UTC) ثبت
+# می‌شد. چون اختلافِ تهران با UTC ۳:۳۰ ساعته، هر اقدامی که توی تقریباً ۳.۵
+# ساعتِ اولِ روزِ تهران (یا معادلش نزدیکِ مرزِ شب) ثبت می‌شد، زیرِ فیلترِ
+# logged_at LIKE '{date_str}%' روی «روزِ» اشتباه می‌افتاد و دکمه‌ی Undo هیچی
+# پیدا نمی‌کرد. راه‌حل: همه‌جا که logged_at نوشته/خونده می‌شه، بر پایه‌ی همین
+# TEHRAN_TZ باشه (helpers.py هم دقیقاً همین tz رو داره، ولی چون helpers.py
+# خودش database.py رو ایمپورت می‌کنه، اینجا مستقیم pytz استفاده شده تا
+# ایمپورتِ حلقوی پیش نیاد).
+TEHRAN_TZ = pytz.timezone("Asia/Tehran")
+
+
+def _now_tehran_iso() -> str:
+    """isoformat وقتِ فعلیِ تهران، بدون آفستِ timezone (naive) — دقیقاً هم‌فرمت
+    با چیزی که قبلاً datetime.now().isoformat() تولید می‌کرد، فقط حالا با
+    ساعتِ درست، تا با تمامِ فیلترها/مقایسه‌های رشته‌ایِ موجود سازگار بمونه."""
+    return datetime.now(TEHRAN_TZ).replace(tzinfo=None).isoformat()
 
 # درخواست‌های بازی شطرنجی که طرف مقابل بعد از این مدت به آن‌ها پاسخ نداده باشد،
 # دیگر «در انتظار پاسخ» حساب نمی‌شوند و مانع ارسال درخواست جدید نمی‌شوند.
@@ -1977,8 +1998,12 @@ async def log_action(admin_id, action_type, description, target_id=None, snapsho
 
     snapshot (اختیاری): برای اقدام‌هایی که واقعاً ردیف رو از دیتابیس پاک
     می‌کنن (نه فقط status رو عوض می‌کنن)، یه JSON از حالتِ قبل از حذف؛
-    تا دکمه‌ی «خنثی‌سازی» بعداً بتونه دقیقاً همون رکورد رو برگردونه."""
-    now = datetime.now().isoformat()
+    تا دکمه‌ی «خنثی‌سازی» بعداً بتونه دقیقاً همون رکورد رو برگردونه.
+
+    FIX: قبلاً datetime.now().isoformat() یعنی وقتِ سرور بود؛ الان وقتِ
+    تهران ثبت می‌شه تا با تاریخ‌هایی که منوی Undo (Tehran-based) فیلتر
+    می‌کنه یکی باشه — رجوع کن به توضیحِ TEHRAN_TZ بالای فایل."""
+    now = _now_tehran_iso()
 
     async def _write():
         async with aiosqlite.connect(DB_PATH) as db:
@@ -2001,7 +2026,10 @@ async def get_action_logs(period="all", admin_id=None, page=0, page_size=10):
     رفت‌وبرگشتِ کاملِ HTTP. کوئریِ COUNT(*) و کوئریِ SELECT صفحه‌ی فعلی به‌هم
     وابسته نیستن، پس قبلاً پشتِ‌سرِهم اجرا می‌شدن، حالا هم‌زمان (asyncio.gather)."""
     from datetime import timedelta
-    now = datetime.now()
+    # FIX: logged_at الان بر پایه‌ی وقتِ تهرانه (رجوع کن به _now_tehran_iso)،
+    # پس «now»ی که این فیلترها باهاش مقایسه می‌کنن هم باید تهران باشه، وگرنه
+    # فیلترِ today/week/month دوباره چند ساعت جابه‌جا می‌شد.
+    now = datetime.now(TEHRAN_TZ).replace(tzinfo=None)
     conditions = []
     params = []
     if period == "today":
@@ -2146,11 +2174,19 @@ async def get_action_log(log_id: int):
             return await cur.fetchone()
 
 
-async def reinsert_match(row: dict):
+async def reinsert_match(row: dict) -> bool:
     """برگردوندنِ یک مسابقه‌ی حذف‌شده، دقیقاً با همون id و همون مقادیر
-    (از روی snapshot ثبت‌شده‌ی وقتِ حذف)."""
+    (از روی snapshot ثبت‌شده‌ی وقتِ حذف).
+
+    FIX: قبلاً این تابع چیزی برنمی‌گردوند، در حالی که INSERT OR IGNORE اگه
+    مسابقه‌ای با همون id از قبل وجود داشته باشه (مثلاً همین undo دوبار زده
+    بشه) هیچ ردیفی درج نمی‌کنه ولی خطایی هم نمی‌ده — caller (undo_admin_actions)
+    بدونِ چک‌کردن، آمار برد/باخت و Elo رو دوباره اعمال می‌کرد و پیامِ
+    «✅ برگردانده‌شده» نشون می‌داد، یعنی آمار درست کاذب می‌شد. الان True/False
+    برمی‌گردونه (بر اساسِ rowcount واقعیِ درج) تا caller بتونه این حالت رو
+    skipped حساب کنه، نه reverted."""
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
+        cur = await db.execute(
             """INSERT OR IGNORE INTO matches
                (id, white_player_id, black_player_id, result, draw_reason, match_date,
                 tournament_id, created_by, created_at, updated_by, updated_at, is_pinned)
@@ -2160,8 +2196,10 @@ async def reinsert_match(row: dict):
              row.get("tournament_id"), row.get("created_by"), row.get("created_at"),
              row.get("updated_by"), row.get("updated_at"), row.get("is_pinned"))
         )
+        inserted = (getattr(cur, "rowcount", 0) or 0) > 0
         await db.commit()
     _invalidate_matches_cache()
+    return inserted
 
 
 async def _reapply_match_stats_and_elo(snap: dict):
@@ -2208,7 +2246,13 @@ async def undo_admin_actions(admin_id: int, date_str: str):
                 await revive_admin(tid)
             elif at == "delete_match" and tid and r["snapshot"]:
                 snap = json.loads(r["snapshot"])
-                await reinsert_match(snap)
+                # FIX: reinsert_match الان می‌گه آیا واقعاً ردیفی درج شده یا
+                # نه (INSERT OR IGNORE قبلاً بی‌سر‌وصدا هیچی درج نمی‌کرد اگه
+                # id تکراری بود، ولی کد بدونِ چک، آمار/Elo رو دوباره اعمال
+                # می‌کرد و «برگردانده‌شده» نشون می‌داد — آمار درست کاذب).
+                if not await reinsert_match(snap):
+                    skipped.append(r)
+                    continue
                 if snap.get("result") in ("white", "black", "draw"):
                     await _reapply_match_stats_and_elo(snap)
             else:
@@ -2265,7 +2309,11 @@ async def undo_admin_actions_range(admin_id: int, date_str: str, hour_from=None,
                 await revive_admin(tid)
             elif at == "delete_match" and tid and r["snapshot"]:
                 snap = json.loads(r["snapshot"])
-                await reinsert_match(snap)
+                # FIX: مثلِ undo_admin_actions بالا — rowcount واقعی رو چک
+                # می‌کنیم تا id تکراری/درج‌نشده به‌اشتباه reverted حساب نشه.
+                if not await reinsert_match(snap):
+                    skipped.append(r)
+                    continue
                 if snap.get("result") in ("white", "black", "draw"):
                     await _reapply_match_stats_and_elo(snap)
             else:
@@ -2312,7 +2360,15 @@ async def redo_admin_actions(log_ids: list):
                 await kick_admin(tid)
             elif at == "delete_match" and tid:
                 m = await delete_match_safely(tid)
-                if m and m["result"] in ("white", "black", "draw"):
+                # FIX: delete_match_safely اگه مسابقه از قبل وجود نداشته باشه
+                # (مثلاً بعد از undo، کسی از مسیرِ عادیِ UI دوباره حذفش کرده)
+                # None برمی‌گردونه — قبلاً کد این حالت رو نادیده می‌گرفت و
+                # همچنان action رو «دوباره‌اجراشده» علامت می‌زد، در حالی که
+                # عملاً هیچی حذف نشده بود.
+                if m is None:
+                    skipped.append(r)
+                    continue
+                if m["result"] in ("white", "black", "draw"):
                     try:
                         from elo import recalculate_all_elo, ensure_elo_table
                         await ensure_elo_table()
