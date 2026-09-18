@@ -350,7 +350,8 @@ async def init_db():
             round_num INTEGER,
             created_by INTEGER,
             created_at TEXT,
-            status TEXT DEFAULT 'pending'
+            status TEXT DEFAULT 'pending',
+            result TEXT
         );
         CREATE TABLE IF NOT EXISTS team_match_boards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -495,6 +496,13 @@ async def init_db():
             "ALTER TABLE messages ADD COLUMN notif_chat_id INTEGER",
             "ALTER TABLE messages ADD COLUMN notif_message_id INTEGER",
             "ALTER TABLE messages ADD COLUMN deleted_for_sender INTEGER DEFAULT 0",
+            # ─── همون مشکلِ همیشگی، این بار برای team_matches: ستونِ result
+            # (نتیجه‌ی نهاییِ مسابقه‌ی تیمی: 'team1'/'team2'/'draw') توی
+            # get_team_stats کوئری می‌شد ولی هیچ‌وقت واقعاً به جدول اضافه نشده
+            # بود، چون CREATE TABLE IF NOT EXISTS روی جدولِ از قبل موجود کاری
+            # نمی‌کنه. نتیجه‌ش خطای «no such column: result» بود که با هر باز
+            # کردنِ پنلِ تیم (team_view) رخ می‌داد.
+            "ALTER TABLE team_matches ADD COLUMN result TEXT",
         ):
             try:
                 await db.execute(stmt)
