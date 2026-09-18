@@ -295,6 +295,20 @@ async def post_init(application: Application) -> None:
     except Exception as e:
         logger.warning(f"Could not schedule auto-backup: {e}")
 
+    # کشِ آب‌وهوا: هم‌همون لحظه‌ی استارت گرم می‌شه و هر ۱۰ دقیقه تازه می‌مونه
+    # تا اولین /start بعد از ری‌استارت/سکوت، بدونِ خطِ آب‌وهوا نمونه.
+    try:
+        from auth import weather_warm_job
+        application.job_queue.run_repeating(
+            weather_warm_job,
+            interval=timedelta(minutes=10),
+            first=timedelta(seconds=1),
+            name="weather_warm",
+        )
+        logger.info("Weather cache warm-up scheduled every 10m.")
+    except Exception as e:
+        logger.warning(f"Could not schedule weather warm-up: {e}")
+
     # Schedule hourly reminder checks
     try:
         application.job_queue.run_repeating(

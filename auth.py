@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 _perf_logger = logging.getLogger("perf")
+logger = logging.getLogger(__name__)
 
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
@@ -205,7 +206,7 @@ def _weather_emoji(code: int, is_day: int) -> str:
     return "🌡️"
 
 
-async def get_weather_line() -> str:
+async def get_weather_line(force: bool = False) -> str:
     """یک جمله‌ی کوتاه و خودمونی درباره‌ی آب‌وهوای سرپل‌ذهاب.
     نوعِ توصیف صرفاً بر اساس دما نیست؛ کدِ واقعیِ آب‌وهوا تعیین‌کننده‌ست.
     اگر در دسترس نبود، رشته‌ی خالی برمی‌گرداند.
@@ -219,9 +220,10 @@ async def get_weather_line() -> str:
     global _weather_cache
     now = time.monotonic()
     cached = _weather_cache
-    if cached is not None and (now - cached[1]) < _WEATHER_CACHE_TTL:
+    if not force and cached is not None and (now - cached[1]) < _WEATHER_CACHE_TTL:
         return cached[0]
     if httpx is None:
+        logger.warning("weather: httpx نصب نیست؛ خطِ آب‌وهوا هرگز نمایش داده نمی‌شود")
         return ""
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
@@ -233,6 +235,7 @@ async def get_weather_line() -> str:
                     "current_weather": "true",
                 }
             )
+            resp.raise_for_status()
             data = resp.json()
             cw = data.get("current_weather", {})
             temp = cw.get("temperature")
@@ -240,7 +243,8 @@ async def get_weather_line() -> str:
             wind = cw.get("windspeed")
             is_day = cw.get("is_day", 1)
             if temp is None:
-                return ""
+                logger.warning("weather: پاسخِ open-meteo بدونِ current_weather بود: %r", data)
+                return cached[0] if cached is not None else ""
 
             emoji = _weather_emoji(code, is_day)
             mood_pool = (_WEATHER_MOOD_NIGHT.get(code) if not is_day else None) or _WEATHER_MOOD.get(code, ["نامشخص"])
@@ -252,39 +256,63 @@ async def get_weather_line() -> str:
                 line += f" 💨 بادش هم شدیده"
             _weather_cache = (line, now)
             return line
-    except Exception:
+    except Exception as e:
+        logger.warning("weather: گرفتنِ آب‌وهوا ناموفق بود: %r", e)
         # اگر شبکه/سرویس در دسترس نبود، حداقل نتیجه‌ی قبلی (even if slightly
         # stale) رو نگه می‌داریم تا پنل خالی از این خط نمونه؛ اگر قبلاً هم
         # چیزی نداشتیم، رشته‌ی خالی برمی‌گرده (رفتار قبلی).
         return cached[0] if cached is not None else ""
 
 
-async def get_weather_line_nowait() -> str:
-    """نسخه‌ی «هرگز منتظر شبکه نمون» برای استفاده در پنل خوش‌آمدگویی.
-    FIX: کشِ آب‌وهوا ۱۵ دقیقه‌ست، ولی همون اولین باری که کش خالی/منقضی
-    می‌شه، get_weather_line تا ۴ ثانیه (timeout) منتظرِ open-meteo.com
-    می‌مونه — دقیقاً همون لحظه‌ای که کاربر منتظرِ باز شدنِ پنله. این نسخه
-    اگه کش معتبر باشه همونو برمی‌گردونه؛ وگرنه گرفتنِ آب‌وهوا رو در
-    پس‌زمینه می‌فرسته (برای دفعه‌ی بعد) و همین الان بدونِ معطلی یا رشته‌ی
-    خالی یا آخرین مقدارِ شناخته‌شده رو برمی‌گردونه.
+_weather_task = None  # تسکِ رفرشِ در جریان (تا چند پنلِ هم‌زمان چندین درخواستِ تکراری نزنن)
+_WEATHER_FIRST_WAIT = 2.0  # وقتی کش خالی/خیلی کهنه‌ست، حداکثر این‌قدر منتظر می‌مونیم
 
-    FIX: قبلاً اینجا با انقضای کش (بعد از ۱۵ دقیقه)، هر چقدر هم که مقدارِ
-    کش‌شده کهنه بود (حتی چند ساعت، اگه مدتی هیچ‌کس پنل رو باز نکرده باشه)
-    بازم همونو فوری برمی‌گرداند — نتیجه‌ش این بود که مثلاً ظهر، خطِ «امشب...»ی
-    که از نیمه‌شب کش شده بود نشون داده می‌شد. الان اگه کش از
-    _WEATHER_STALE_HARD_LIMIT قدیمی‌تر شده باشه، به‌جایِ نشون‌دادنِ اطلاعاتِ
-    گمراه‌کننده، رشته‌ی خالی برمی‌گردونیم (پنل بدونِ خطِ آب‌وهوا نشون داده
-    می‌شه) و بازم رفرشِ پس‌زمینه رو می‌فرستیم تا دفعه‌ی بعد تازه باشه."""
+
+def _kick_weather_refresh():
+    """رفرشِ آب‌وهوا رو در پس‌زمینه شروع می‌کنه (اگه از قبل در جریان نباشه) و تسکش رو برمی‌گردونه."""
+    global _weather_task
+    if _weather_task is None or _weather_task.done():
+        _weather_task = asyncio.create_task(get_weather_line(force=True))
+    return _weather_task
+
+
+async def get_weather_line_nowait() -> str:
+    """نسخه‌ی «تقریباً بدونِ معطلی» برای پنل خوش‌آمدگویی.
+
+    FIX (ریشه‌ی «بعضی روزا آب‌وهوا نشون داده نمی‌شه»): قبلاً وقتی کش خالی بود
+    (بعد از هر ری‌استارت/دیپلوی/خوابِ سرویس) یا بیش از ۴۵ دقیقه از آخرین
+    دریافت گذشته بود، این تابع فقط رشته‌ی خالی برمی‌گردوند و رفرش رو «برای دفعه‌ی
+    بعد» می‌فرستاد؛ یعنی اولین /start بعد از یک وقفه همیشه بدونِ آب‌وهوا بود،
+    ولی وقتی چند نفر/چند بار پشتِ‌سرِهم پنل باز می‌شد (مثلاً شب) کش گرم بود و
+    نشون داده می‌شد. حالا:
+      • کش تازه (< ۱۵ دقیقه) → فوری برمی‌گرده.
+      • کش کهنه ولی نه خیلی (< ۴۵ دقیقه) → مقدارِ قبلی فوری + رفرش در پس‌زمینه.
+      • کش خالی/خیلی کهنه → حداکثر ۲ ثانیه برای رفرش صبر می‌کنه؛ اگه رسید نشون
+        می‌ده، وگرنه رشته‌ی خالی (و رفرش ادامه می‌ده تا دفعه‌ی بعد آماده باشه).
+    علاوه بر این، bot.py یک جابِ دوره‌ای (weather_warm_job) دارد که کش را همیشه
+    گرم نگه می‌دارد، پس در حالتِ عادی مسیرِ صبر کردن اصلاً پیش نمی‌آید.
+    """
     now = time.monotonic()
     cached = _weather_cache
     if cached is not None and (now - cached[1]) < _WEATHER_CACHE_TTL:
         return cached[0]
-    if httpx is not None:
-        asyncio.create_task(get_weather_line())
+    if httpx is None:
+        return ""
+    task = _kick_weather_refresh()
     if cached is not None and (now - cached[1]) < _WEATHER_STALE_HARD_LIMIT:
         return cached[0]
-    return ""
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=_WEATHER_FIRST_WAIT)
+    except Exception:
+        return ""
 
+
+async def weather_warm_job(context=None) -> None:
+    """جابِ دوره‌ای: کشِ آب‌وهوا رو همیشه تازه نگه می‌داره (و موقعِ استارتِ ربات هم گرمش می‌کنه)."""
+    try:
+        await get_weather_line(force=True)
+    except Exception as e:  # هرگز نباید جاب رو بترکونه
+        logger.warning("weather_warm_job failed: %r", e)
 
 
 def _status_line(status: str) -> str:
