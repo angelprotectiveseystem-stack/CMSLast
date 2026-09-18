@@ -167,11 +167,22 @@ async def show_player_elo_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def announce_match_result(bot, match_id: int, result: str,
                                   white_name: str, black_name: str,
                                   elo_change_w: int = 0, elo_change_b: int = 0):
-    """ارسال نتیجه مسابقه به گروه اعلانات و کانال اعلانات (هرکدام که تنظیم و فعال باشد)"""
-    group_id = await db.get_setting("announcement_group_id", "")
-    channel_id = await db.get_setting("announcement_channel_id", "")
-    group_on = await db.get_setting("broadcast_result_group_enabled", "1")
-    channel_on = await db.get_setting("broadcast_result_channel_enabled", "1")
+    """ارسال نتیجه مسابقه به گروه اعلانات و کانال اعلانات (هرکدام که تنظیم و فعال باشد)
+
+    FIX (کندیِ ثبت نتیجه): این ۴ کلید کاملاً مستقلن، ولی قبلاً با ۴ تا
+    get_setting جدا (روی کشِ سرد، ۴ رفت‌وبرگشتِ شبکه‌ی پشتِ‌سرِهم) گرفته
+    می‌شدن. با get_settings_bulk (دقیقاً همون کمکی‌ای که پنلِ تنظیمات
+    استفاده می‌کنه) هر گروه با یک کوئریِ IN(...) میاد."""
+    id_settings = await db.get_settings_bulk(
+        ["announcement_group_id", "announcement_channel_id"], default=""
+    )
+    toggle_settings = await db.get_settings_bulk(
+        ["broadcast_result_group_enabled", "broadcast_result_channel_enabled"], default="1"
+    )
+    group_id = id_settings["announcement_group_id"]
+    channel_id = id_settings["announcement_channel_id"]
+    group_on = toggle_settings["broadcast_result_group_enabled"]
+    channel_on = toggle_settings["broadcast_result_channel_enabled"]
     send_targets = []
     if group_id and group_on == "1":
         send_targets.append(group_id)

@@ -1508,7 +1508,7 @@ async def set_match_result(mid: int, result: str, draw_reason: str, updated_by: 
     _invalidate_matches_cache()
 
 
-async def record_match_result(mid: int, result: str, reason: str, updated_by: int):
+async def record_match_result(mid: int, result: str, reason: str, updated_by: int, match=None):
     """
     ثبت نتیجه‌ی مسابقه + آپدیت آمار بازیکن‌ها، با دو تا محافظ:
 
@@ -1522,8 +1522,16 @@ async def record_match_result(mid: int, result: str, reason: str, updated_by: in
     توجه: چون هر دستور به Turso جداگانه commit می‌شه، این یه rollback
     واقعی نیست - فقط جلوی نوشتن دوباره رو می‌گیره و خرابی‌های واقعی رو
     به‌جای سکوت، بلند اعلام می‌کنه.
+
+    FIX (کندیِ ثبت نتیجه): تقریباً همیشه صدازننده (matches.py) خودش قبلاً
+    یک‌بار get_match(mid) رو برای گرفتنِ اسم/آیدیِ بازیکن‌ها زده — قبلاً
+    اینجا دوباره همون کوئری تکرار می‌شد (یک رفت‌وبرگشتِ کاملاً اضافه‌ی
+    شبکه‌ای). حالا اگه match از قبل در دسترس باشه، از پارامتر match
+    استفاده می‌شه و دوباره از دیتابیس خونده نمی‌شه. همچنین آپدیتِ آمارِ
+    دو بازیکن (که کاملاً مستقلن) با batch در یک رفت‌وبرگشت انجام می‌شه،
+    نه دو رفت‌وبرگشتِ جدا.
     """
-    m = await get_match(mid)
+    m = match if match is not None else await get_match(mid)
     if m is None:
         raise ValueError(f"مسابقه {mid} پیدا نشد")
     if m["result"] is not None:
@@ -1537,14 +1545,24 @@ async def record_match_result(mid: int, result: str, reason: str, updated_by: in
     if result not in stat_map:
         raise ValueError(f"نتیجه‌ی نامعتبر: {result}")
     white_stat, black_stat = stat_map[result]
+    stat_col = {"win": "wins", "loss": "losses", "draw": "draws"}
+    white_col, black_col = stat_col[white_stat], stat_col[black_stat]
 
     step = "set_match_result"
     try:
         await set_match_result(mid, result, reason, updated_by)
-        step = "update_white_stats"
-        await update_player_stats(m["white_player_id"], white_stat)
-        step = "update_black_stats"
-        await update_player_stats(m["black_player_id"], black_stat)
+        step = "update_player_stats"
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.batch():
+                await db.execute(
+                    f"UPDATE players SET {white_col}={white_col}+1 WHERE id=?",
+                    (m["white_player_id"],)
+                )
+                await db.execute(
+                    f"UPDATE players SET {black_col}={black_col}+1 WHERE id=?",
+                    (m["black_player_id"],)
+                )
+        _invalidate_players_cache()
     except Exception as e:
         logger.error(
             f"⚠️ ثبت نتیجه مسابقه {mid} در مرحله '{step}' شکست خورد: {e} — "

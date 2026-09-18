@@ -87,35 +87,48 @@ def get_elo_bar(rating: float) -> str:
 
 
 # ─── عملیات دیتابیس Elo ──────────────────────────────────────
+# FIX (کندیِ ثبت نتیجه‌ی مسابقه): ensure_elo_table قبلاً روی *هر* ثبت‌نتیجه
+# صدا زده می‌شد و هر بار ۲ تا CREATE TABLE IF NOT EXISTS جداگانه (یعنی ۲
+# رفت‌وبرگشتِ شبکه‌ی کامل به Turso) اجرا می‌کرد — با اینکه بعد از اولین بار
+# این جدول‌ها همیشه از قبل وجود دارن و این کار عملاً هیچ‌کاری نمی‌کنه.
+# الان فقط یک‌بار در طولِ اجرای پردازه چک/ساخته می‌شه (و همون یک‌بار هم با
+# batch در یک رفت‌وبرگشت، نه دوتا).
+_elo_tables_ready = False
+
+
 async def ensure_elo_table():
+    global _elo_tables_ready
+    if _elo_tables_ready:
+        return
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS player_elo (
-                player_id INTEGER PRIMARY KEY,
-                rating REAL DEFAULT 1200,
-                peak_rating REAL DEFAULT 1200,
-                games_played INTEGER DEFAULT 0,
-                elo_wins INTEGER DEFAULT 0,
-                elo_losses INTEGER DEFAULT 0,
-                elo_draws INTEGER DEFAULT 0,
-                last_updated TEXT,
-                FOREIGN KEY(player_id) REFERENCES players(id)
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS elo_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                player_id INTEGER,
-                match_id INTEGER,
-                old_rating REAL,
-                new_rating REAL,
-                change REAL,
-                opponent_id INTEGER,
-                result TEXT,
-                recorded_at TEXT
-            )
-        """)
-        await db.commit()
+        async with db.batch():
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS player_elo (
+                    player_id INTEGER PRIMARY KEY,
+                    rating REAL DEFAULT 1200,
+                    peak_rating REAL DEFAULT 1200,
+                    games_played INTEGER DEFAULT 0,
+                    elo_wins INTEGER DEFAULT 0,
+                    elo_losses INTEGER DEFAULT 0,
+                    elo_draws INTEGER DEFAULT 0,
+                    last_updated TEXT,
+                    FOREIGN KEY(player_id) REFERENCES players(id)
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS elo_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_id INTEGER,
+                    match_id INTEGER,
+                    old_rating REAL,
+                    new_rating REAL,
+                    change REAL,
+                    opponent_id INTEGER,
+                    result TEXT,
+                    recorded_at TEXT
+                )
+            """)
+    _elo_tables_ready = True
 
 
 async def get_player_elo(player_id: int) -> dict:
@@ -138,6 +151,24 @@ async def get_player_elo(player_id: int) -> dict:
             }
 
 
+async def get_player_elo_pair(id_a: int, id_b: int) -> tuple:
+    """مثلِ دوبار صدا زدنِ get_player_elo، ولی هر دو بازیکن با یک کوئریِ
+    IN(...) (یک رفت‌وبرگشتِ شبکه‌ی واحد، نه دوتا) گرفته می‌شن — دقیقاً
+    همون الگویی که get_settings_bulk در database.py استفاده می‌کنه."""
+    def _default(pid):
+        return {
+            "player_id": pid, "rating": ELO_DEFAULT, "peak_rating": ELO_DEFAULT,
+            "games_played": 0, "elo_wins": 0, "elo_losses": 0, "elo_draws": 0,
+        }
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM player_elo WHERE player_id IN (?,?)", (id_a, id_b)
+        ) as cur:
+            rows = {row["player_id"]: dict(row) for row in await cur.fetchall()}
+    return rows.get(id_a) or _default(id_a), rows.get(id_b) or _default(id_b)
+
+
 async def update_elo_after_match(
     white_id: int, black_id: int,
     result: str, match_id: int
@@ -146,8 +177,7 @@ async def update_elo_after_match(
     from datetime import datetime
     now = datetime.now().isoformat()
 
-    white_elo = await get_player_elo(white_id)
-    black_elo = await get_player_elo(black_id)
+    white_elo, black_elo = await get_player_elo_pair(white_id, black_id)
 
     new_w, new_b, chg_w, chg_b = calculate_new_ratings(
         white_elo["rating"], black_elo["rating"],
@@ -156,77 +186,76 @@ async def update_elo_after_match(
     )
 
     async with aiosqlite.connect(DB_PATH) as db:
-        # Update/Insert white
-        await db.execute("""
-            INSERT INTO player_elo(player_id, rating, peak_rating, games_played,
-                elo_wins, elo_losses, elo_draws, last_updated)
-            VALUES (?, ?, ?, 1,
-                ?, 0, ?,
-                ?)
-            ON CONFLICT(player_id) DO UPDATE SET
-                rating=?,
-                peak_rating=MAX(peak_rating, ?),
-                games_played=games_played+1,
-                elo_wins=elo_wins+?,
-                elo_losses=elo_losses+?,
-                elo_draws=elo_draws+?,
-                last_updated=?
-        """, (
-            white_id, new_w, new_w,
-            1 if result == "white" else 0,
-            1 if result == "draw" else 0,
-            now,
-            new_w, new_w,
-            1 if result == "white" else 0,
-            1 if result == "black" else 0,
-            1 if result == "draw" else 0,
-            now
-        ))
+        async with db.batch():
+            # Update/Insert white
+            await db.execute("""
+                INSERT INTO player_elo(player_id, rating, peak_rating, games_played,
+                    elo_wins, elo_losses, elo_draws, last_updated)
+                VALUES (?, ?, ?, 1,
+                    ?, 0, ?,
+                    ?)
+                ON CONFLICT(player_id) DO UPDATE SET
+                    rating=?,
+                    peak_rating=MAX(peak_rating, ?),
+                    games_played=games_played+1,
+                    elo_wins=elo_wins+?,
+                    elo_losses=elo_losses+?,
+                    elo_draws=elo_draws+?,
+                    last_updated=?
+            """, (
+                white_id, new_w, new_w,
+                1 if result == "white" else 0,
+                1 if result == "draw" else 0,
+                now,
+                new_w, new_w,
+                1 if result == "white" else 0,
+                1 if result == "black" else 0,
+                1 if result == "draw" else 0,
+                now
+            ))
 
-        # Update/Insert black
-        await db.execute("""
-            INSERT INTO player_elo(player_id, rating, peak_rating, games_played,
-                elo_wins, elo_losses, elo_draws, last_updated)
-            VALUES (?, ?, ?, 1,
-                ?, 0, ?,
-                ?)
-            ON CONFLICT(player_id) DO UPDATE SET
-                rating=?,
-                peak_rating=MAX(peak_rating, ?),
-                games_played=games_played+1,
-                elo_wins=elo_wins+?,
-                elo_losses=elo_losses+?,
-                elo_draws=elo_draws+?,
-                last_updated=?
-        """, (
-            black_id, new_b, new_b,
-            1 if result == "black" else 0,
-            1 if result == "draw" else 0,
-            now,
-            new_b, new_b,
-            1 if result == "black" else 0,
-            1 if result == "white" else 0,
-            1 if result == "draw" else 0,
-            now
-        ))
+            # Update/Insert black
+            await db.execute("""
+                INSERT INTO player_elo(player_id, rating, peak_rating, games_played,
+                    elo_wins, elo_losses, elo_draws, last_updated)
+                VALUES (?, ?, ?, 1,
+                    ?, 0, ?,
+                    ?)
+                ON CONFLICT(player_id) DO UPDATE SET
+                    rating=?,
+                    peak_rating=MAX(peak_rating, ?),
+                    games_played=games_played+1,
+                    elo_wins=elo_wins+?,
+                    elo_losses=elo_losses+?,
+                    elo_draws=elo_draws+?,
+                    last_updated=?
+            """, (
+                black_id, new_b, new_b,
+                1 if result == "black" else 0,
+                1 if result == "draw" else 0,
+                now,
+                new_b, new_b,
+                1 if result == "black" else 0,
+                1 if result == "white" else 0,
+                1 if result == "draw" else 0,
+                now
+            ))
 
-        # History for white
-        await db.execute("""
-            INSERT INTO elo_history(player_id, match_id, old_rating, new_rating,
-                change, opponent_id, result, recorded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (white_id, match_id, white_elo["rating"], new_w, chg_w, black_id,
-              "win" if result == "white" else "loss" if result == "black" else "draw", now))
+            # History for white
+            await db.execute("""
+                INSERT INTO elo_history(player_id, match_id, old_rating, new_rating,
+                    change, opponent_id, result, recorded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (white_id, match_id, white_elo["rating"], new_w, chg_w, black_id,
+                  "win" if result == "white" else "loss" if result == "black" else "draw", now))
 
-        # History for black
-        await db.execute("""
-            INSERT INTO elo_history(player_id, match_id, old_rating, new_rating,
-                change, opponent_id, result, recorded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (black_id, match_id, black_elo["rating"], new_b, chg_b, white_id,
-              "win" if result == "black" else "loss" if result == "white" else "draw", now))
-
-        await db.commit()
+            # History for black
+            await db.execute("""
+                INSERT INTO elo_history(player_id, match_id, old_rating, new_rating,
+                    change, opponent_id, result, recorded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (black_id, match_id, black_elo["rating"], new_b, chg_b, white_id,
+                  "win" if result == "black" else "loss" if result == "white" else "draw", now))
 
     return new_w, new_b, chg_w, chg_b
 

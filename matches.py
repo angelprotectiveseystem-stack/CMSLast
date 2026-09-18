@@ -343,7 +343,7 @@ async def result_white(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     mid = int(query.data.split("_")[-1])
     m = await db.get_match(mid)
     try:
-        recorded = await db.record_match_result(mid, "white", "", query.from_user.id)
+        recorded = await db.record_match_result(mid, "white", "", query.from_user.id, match=m)
     except Exception:
         await safe_edit_message_text(query, 
             "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
@@ -389,7 +389,7 @@ async def result_black(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     mid = int(query.data.split("_")[-1])
     m = await db.get_match(mid)
     try:
-        recorded = await db.record_match_result(mid, "black", "", query.from_user.id)
+        recorded = await db.record_match_result(mid, "black", "", query.from_user.id, match=m)
     except Exception:
         await safe_edit_message_text(query, 
             "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
@@ -451,7 +451,7 @@ async def draw_reason(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     reason = reason_map.get(reason_key, reason_key)
     m = await db.get_match(mid)
     try:
-        recorded = await db.record_match_result(mid, "draw", reason, query.from_user.id)
+        recorded = await db.record_match_result(mid, "draw", reason, query.from_user.id, match=m)
     except Exception:
         await safe_edit_message_text(query, 
             "⚠️ خطایی هنگام ثبت نتیجه پیش اومد. این مسابقه ممکنه دیتای ناقص "
