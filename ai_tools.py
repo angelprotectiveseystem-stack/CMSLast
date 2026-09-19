@@ -24,6 +24,8 @@ import html
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 import database as db
+import ai_memory
+import ai_tools_ext
 import workhours
 import comms
 import ai_scheduler
@@ -92,6 +94,9 @@ SCHEDULABLE_TOOL_NAMES = frozenset({
 # batch_execute هم همین‌جوریه — چون معمولاً ده‌ها/صدها تغییر واقعی رو یکجا انجام
 # می‌ده، یه گزارشِ خلاصه‌ی *یکجا* برای مدیر ارشد کافیه (نه یکی برای هر آیتم داخلش).
 ACTION_TOOL_NAMES = ACTION_TOOL_NAMES | frozenset({"schedule_action", "cancel_scheduled", "batch_execute"})
+# ابزارهای ماژول ai_tools_ext.py (برتر/ویژه، نفرات برتر، مدیران، تیم‌ها، آب‌وهوا...)
+ACTION_TOOL_NAMES = ACTION_TOOL_NAMES | ai_tools_ext.ACTION_TOOL_NAMES_EXT
+SCHEDULABLE_TOOL_NAMES = SCHEDULABLE_TOOL_NAMES | ai_tools_ext.SCHEDULABLE_TOOL_NAMES_EXT
 
 # ────────────────────────────────────────────────────────────────
 # سقفِ تعداد عملیات در هر بار صدازدنِ batch_execute. این محدودیتِ «کار
@@ -204,6 +209,8 @@ AI_PERMISSION_CATEGORIES = [
     ("batch",        "📦 اجرای دسته‌ای (کار سنگین)",      ["batch_execute"]),
     ("panels",       "🧭 باز کردن پنل‌ها",                ["open_panel"]),
 ]
+
+AI_PERMISSION_CATEGORIES = AI_PERMISSION_CATEGORIES + ai_tools_ext.CATEGORIES_EXT
 
 CATEGORY_LABELS = {key: label for key, label, _tools in AI_PERMISSION_CATEGORIES}
 
@@ -486,7 +493,7 @@ TOOL_DECLARATIONS = [
             "چیزی می‌گه که باید همیشه یادت بمونه (مثلاً «فلان مدیر این مشکل رو داره»، «حواست به فلان چیز باشه»)، "
             "حتی اگه هیچ بیانیه/پیامی هم فرستاده نشه، همین‌جا ثبتش کن. اگه یه بیانیه یا پیام درباره‌ی مشکل کسی "
             "بفرستی (send_announcement/send_news/message_admin/warn_admin)، خودِ سیستم به‌صورت خودکار محتواش رو "
-            "توی حافظه ثبت می‌کنه؛ این تابع بیشتر برای نکته‌هایی‌یه که ضمن گفتگو گفته می‌شن، نه لزوماً با یه پیام رسمی."
+            "توی حافظه ثبت می‌کنه؛ این تابع بیشتر برای نکته‌هایی‌یه که ضمن گفتگو گفته می‌شن، نه لزوماً با یه پیام رسمی. هر وقت مدیر ارشد گفت «به حافظه‌ت اضافه کن/ثبت کن»، «یادت باشه» یا «به خاطر بسپار»، همیشه و بی‌درنگ همین تابع رو صدا بزن."
         ),
         "parameters": {
             "type": "object",
@@ -780,6 +787,21 @@ TOOL_DECLARATIONS = [
 ]
 
 
+TOOL_DECLARATIONS = TOOL_DECLARATIONS + ai_tools_ext.TOOL_DECLARATIONS_EXT
+TOOL_PERMISSIONS.update(ai_tools_ext.TOOL_PERMISSIONS_EXT)
+
+
+# ────────────────────────────────────────────────────────────────
+# ثبت خودکارِ حافظه — هیچ‌وقت نباید اصل عملیات (بیانیه، پیام، وظیفه...) رو خراب کنه
+# ────────────────────────────────────────────────────────────────
+async def _auto_note(ctx, subject: str, content: str, visibility: str, caller_id: int):
+    try:
+        await ai_memory.add(subject, content, visibility=visibility, created_by=caller_id, source="auto")
+        ai_memory.mark_memo_updated(ctx)
+    except Exception:
+        logger.exception("auto memory note failed (ignored)")
+
+
 # ────────────────────────────────────────────────────────────────
 # توابع کمکی داخلی
 # ────────────────────────────────────────────────────────────────
@@ -851,7 +873,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             if not p:
                 return f"بازیکنی به نام «{args['full_name']}» پیدا نشد."
             await db.add_player_warning(p["id"], args["reason"], caller_id)
-            await db.add_memory_note(p["full_name"], f"اخطار بازیکن: {args['reason']}", visibility="pishva", created_by=caller_id)
+            await _auto_note(ctx, p["full_name"], f"اخطار بازیکن: {args['reason']}", "pishva", caller_id)
             return f"⚠️ به {p['full_name']} اخطار ثبت شد. دلیل: {args['reason']}"
 
         elif name == "kick_player":
@@ -1019,7 +1041,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             # HTML امن‌ش کنیم (وگرنه یه < یا & توی متن می‌تونه پارس رو بشکنه).
             await comms._send_announcement(ctx.bot, html.escape(args["text"]), "", "", via_assistant=True)
             await db.create_announcement(args["text"], "", "")
-            await db.add_memory_note("عمومی", f"بیانیه: {args['text']}", visibility="all", created_by=caller_id)
+            await _auto_note(ctx, "عمومی", f"بیانیه: {args['text']}", "all", caller_id)
             return "📢 بیانیه برای همه‌ی مدیران ارسال شد (با علامت اینکه از طریق دستیار فرستاده شده)."
 
         elif name == "send_news":
@@ -1027,7 +1049,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             news_text = f"✨ *خبر فوری از سیستم✨*\n\n{args['text']}\n\n⏱️ `{ts}`\n🤖 ارسال‌شده توسط دستیار هوشمند"
             await broadcast_to_admins(ctx.bot, news_text)
             await db.create_news(args["text"])
-            await db.add_memory_note("عمومی", f"خبر: {args['text']}", visibility="all", created_by=caller_id)
+            await _auto_note(ctx, "عمومی", f"خبر: {args['text']}", "all", caller_id)
             return "📰 خبر برای همه‌ی مدیران ارسال شد (با علامت اینکه از طریق دستیار فرستاده شده)."
 
         elif name == "message_admin":
@@ -1058,7 +1080,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 await db.set_message_notif(msg_id, sent.chat_id, sent.message_id)
             except Exception:
                 return f"⚠️ پیام ثبت شد ولی ارسالش به {a['full_name']} با خطا مواجه شد (شاید ربات رو بلاک/استارت نکرده)."
-            await db.add_memory_note(a["full_name"], f"پیام مستقیم: {text}", visibility="pishva", created_by=caller_id)
+            await _auto_note(ctx, a["full_name"], f"پیام مستقیم: {text}", "pishva", caller_id)
             return f"✅ پیام برای {a['full_name']} ارسال شد."
 
         elif name == "assign_task":
@@ -1093,7 +1115,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             except Exception:
                 pass
             await db.log_action(caller_id, "assign_task", f"اعطای وظیفه: {title} (دستیار هوشمند)", tid)
-            await db.add_memory_note(a["full_name"], f"وظیفه: {title} — {desc or '—'}", visibility="pishva", created_by=caller_id)
+            await _auto_note(ctx, a["full_name"], f"وظیفه: {title} — {desc or '—'}", "pishva", caller_id)
             return f"✅ وظیفه‌ی «{title}» برای {a['full_name']} ثبت و ارسال شد."
 
         # ── مدیریت ادمین‌ها ──
@@ -1123,7 +1145,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             if not a:
                 return f"مدیری با مشخصات «{args['identifier']}» پیدا نشد."
             await db.add_admin_warning(a["telegram_id"], args["reason"], caller_id)
-            await db.add_memory_note(a["full_name"], f"اخطار مدیر: {args['reason']}", visibility="pishva", created_by=caller_id)
+            await _auto_note(ctx, a["full_name"], f"اخطار مدیر: {args['reason']}", "pishva", caller_id)
             return f"⚠️ به {a['full_name']} اخطار داده شد. دلیل: {args['reason']}"
 
         elif name == "clear_admin_warnings":
@@ -1374,18 +1396,20 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
             subject = (args.get("subject") or "عمومی").strip() or "عمومی"
             content = (args.get("content") or "").strip()
             if not content:
-                return "متن یادداشت نمی‌تونه خالی باشه."
-            await db.add_memory_note(subject, content, visibility="pishva", created_by=caller_id)
-            return f"🧠 یادداشت ثبت شد — موضوع: «{subject}»."
+                return "❌ متن یادداشت نمی‌تونه خالی باشه."
+            # اینجا خطا عمداً بالا می‌ره (به‌جای سکوت): اگه ثبت نشد، دستیار باید همین خطا رو رک بگه
+            note_id = await ai_memory.add(subject, content, visibility="pishva", created_by=caller_id, source="manual")
+            ai_memory.mark_memo_updated(ctx, explicit=True)
+            return f"🧠 یادداشت #{note_id} ثبت شد — موضوع: «{subject}»."
 
         elif name == "recall_notes":
             query = (args.get("query") or "").strip()
             if not query:
                 return "بگو دنبال چه شخص یا موضوعی می‌گردی."
-            rows = await db.search_memory(query, visibility_levels=["all", "pishva"], limit=10)
+            rows = await ai_memory.search(query, ["all", "pishva"], limit=10)
             if not rows:
                 return f"یادداشتی درباره‌ی «{query}» توی حافظه پیدا نشد."
-            lines = [f"- [{str(r['created_at'])[:10]}] {r['subject']}: {r['content']}" for r in rows]
+            lines = [f"- #{r['id']} [{str(r['created_at'])[:10]}] {r['subject']}: {r['content']}" for r in rows]
             return "یادداشت‌های پیدا‌شده:\n" + "\n".join(lines)
 
         elif name == "forget_note":
@@ -1396,19 +1420,24 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                     memory_id = int(memory_id)
                 except (TypeError, ValueError):
                     return "❌ memory_id باید یه عدد باشه."
-                deleted = await db.delete_memory_note(memory_id)
+                deleted = await ai_memory.delete(memory_id)
                 return f"🗑️ یادداشت #{memory_id} پاک شد." if deleted else f"❌ یادداشتی با شناسه‌ی #{memory_id} پیدا نشد."
             if not query:
                 return "بگو دنبال چه شخص یا موضوعی می‌گردی تا از حافظه پاکش کنم."
-            rows = await db.search_memory(query, visibility_levels=["all", "pishva"], limit=10)
+            rows = await ai_memory.search(query, ["all", "pishva"], limit=10)
             if not rows:
                 return f"یادداشتی درباره‌ی «{query}» توی حافظه پیدا نشد — چیزی برای پاک‌کردن نیست."
             if len(rows) == 1:
-                deleted = await db.delete_memory_note(rows[0]["id"])
+                await ai_memory.delete(rows[0]["id"])
                 return f"🗑️ یادداشت پاک شد — موضوع: «{rows[0]['subject']}»."
             lines = [f"- #{r['id']} [{str(r['created_at'])[:10]}] {r['subject']}: {r['content']}" for r in rows]
             return ("چند تا یادداشت مشابه پیدا شد، دقیق بگو کدوم رو پاک کنم (با شناسه‌ی #):\n"
-                     + "\n".join(lines))
+                    + "\n".join(lines))
+
+        # ── ابزارهای ماژول ai_tools_ext.py ──
+        ext_result = await ai_tools_ext.dispatch_ext(name, args, caller_id, caller_role, ctx)
+        if ext_result is not None:
+            return ext_result
 
         return f"❌ تابع «{name}» تعریف نشده."
 

@@ -15,6 +15,7 @@ import asyncio
 import os
 import json
 import logging
+import re
 
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -25,6 +26,7 @@ import database as db
 from helpers import safe_edit_message_text, get_user_role, pishva_display, admin_display, now_context_for_ai
 from config import PISHVA_ID, ROLE_PISHVA, ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER
 import ai_tools
+import ai_memory
 import knowledge_base
 
 logger = logging.getLogger(__name__)
@@ -88,11 +90,84 @@ ACTION_KEYWORDS = [
     "زمان‌بندی", "زمانبندی", "دیگه فعال کن", "دیگه انجام بده", "لغو یادآور", "لغو زمان‌بندی",
     "بگو به", "خبر بده", "اطلاع بده", "وظیفه بده", "پیام بده", "بسپار",
     "یادت باشه", "به خاطر بسپار", "فراموش نکن", "یادداشت کن", "ثبتش کن",
+    "برتر کن", "برتر بکن", "ویژه کن", "ویژه بکن", "برترش", "ویژه‌ش",
+    "تیم بساز", "به تیم اضافه", "از تیم حذف", "سرگروه",
+    "مدیر جدید", "ادمین جدید", "دسترسی بده", "دسترسی بگیر",
 ]
 
 
 def _looks_like_action(text: str) -> bool:
     return any(kw in text for kw in ACTION_KEYWORDS)
+
+
+# ────────────────────────────────────────────────────────────────
+# «به حافظه‌ت اضافه کن» — تشخیصِ قطعیِ درخواستِ ثبت در حافظه.
+# قبلاً فقط به تصمیمِ مدل سپرده شده بود و عبارتِ «به حافظت اضافه کن» توی
+# ACTION_KEYWORDS نبود؛ پس مدل گاهی فقط «باشه» می‌گفت و هیچی ثبت نمی‌شد.
+# الان اگه پیام این‌شکلی باشه، دورِ اول مدل *مجبور* می‌شه remember_note رو صدا بزنه،
+# و اگه باز هم ثبت نشد (مدل/شبکه/هرچی)، خودِ کد مستقیم ذخیره می‌کنه.
+# ────────────────────────────────────────────────────────────────
+_FA_LETTERS = str.maketrans({"ي": "ی", "ك": "ک"})
+_MEMO_SAVE_VERB_RE = re.compile(
+    r"(اضافه|ثبت|ذخیره|وارد|ضبط|ست)( ?(ش|شو|اش))? ?(کن|بکن)|بنویس|بسپار|بسپر|بذار|بزار|نگه ?دار")
+_MEMO_STANDALONE_RE = re.compile(r"یادت باشه|یادت باشد|به خاطر بسپار|به یاد داشته باش|یادداشت کن")
+_MEMO_STRIP_RE = re.compile(
+    r"^(لطفا |لطفاً )?((به|توی|تو|در|از) )?(حافظ(ه)? ?(ت|ات|م|ی من)?) ?(اضافه|ثبت|ذخیره|وارد)( ?(ش|شو|اش))? ?(کن|بکن)( که)?[ :،,\-]*"
+    r"|^(یادت باشه|یادت باشد|به خاطر بسپار|یادداشت کن)( که)?[ :،,\-]*")
+
+
+def _fa(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").translate(_FA_LETTERS).replace("\u200c", " ")).strip()
+
+
+def _looks_like_memory_save(text: str) -> bool:
+    t = _fa(text)
+    if not t or t.endswith(("؟", "?")):
+        return False
+    if _MEMO_STANDALONE_RE.search(t):
+        return True
+    return "حافظ" in t and bool(_MEMO_SAVE_VERB_RE.search(t))
+
+
+def _memory_content_from(text: str) -> str:
+    t = _fa(text)
+    cleaned = _MEMO_STRIP_RE.sub("", t).strip()
+    return cleaned or text.strip()
+
+
+async def _memory_fallback(ctx, text: str, uid: int, memory_intent: bool) -> str:
+    """اگه پیام «ثبت در حافظه» بود و remember_note واقعاً اجرا نشده، مستقیم ذخیره می‌کنه.
+    متنِ اضافه برای کاربر رو برمی‌گردونه ("" = لازم نبود)."""
+    if not memory_intent or ai_memory.pop_memo_explicit(ctx):
+        return ""
+    try:
+        states = await ai_tools.get_category_states()
+        if str(states.get("notes", "1")) == "0":
+            return ""  # مدیر ارشد دسته‌ی یادداشت‌ها رو عمداً خاموش کرده
+    except Exception:
+        pass
+    try:
+        content = _memory_content_from(text)
+        note_id = await ai_memory.add("عمومی", content, visibility="pishva", created_by=uid, source="manual")
+        ai_memory.mark_memo_updated(ctx, explicit=True)
+        return f"🧠 یادداشت #{note_id} مستقیم ثبت شد."
+    except Exception as e:
+        logger.exception("direct memory save failed")
+        return f"⚠️ ثبت در حافظه انجام نشد — {type(e).__name__}: {e}"
+
+
+MEMO_TAG = "Memo Updated📝"
+
+
+async def _tail(ctx, text: str, uid: int, memory_intent: bool) -> str:
+    """ته‌پیامِ هر پاسخ: (اگه لازم بود) ثبتِ مستقیم + عبارتِ «Memo Updated📝» بعد از هر ثبتِ حافظه."""
+    out = ""
+    extra = await _memory_fallback(ctx, text, uid, memory_intent)
+    if extra:
+        out += "\n\n" + extra
+    if ai_memory.pop_memo_updated(ctx):
+        out += "\n\n" + MEMO_TAG
+    return out
 
 
 # ────────────────────────────────────────────────────────────────
@@ -113,6 +188,16 @@ HELP_QUESTION_KEYWORDS = [
 
 def _looks_like_help_question(text: str) -> bool:
     return any(kw in text for kw in HELP_QUESTION_KEYWORDS)
+
+
+WEATHER_KEYWORDS = [
+    "هوا", "دما", "بارون", "باران", "برف", "سرد", "گرم", "باد", "آفتاب", "ابری", "ماه", "فاز ماه",
+    "ساعت", "تاریخ", "امروز", "الان", "چندمه", "چندم", "روز هفته", "خوش‌آمد", "خوش آمد", "سلام و احوال",
+]
+
+
+def _looks_like_weather_time(text: str) -> bool:
+    return any(kw in text for kw in WEATHER_KEYWORDS)
 
 
 def kb_ai_reply():
@@ -186,6 +271,37 @@ def _system_prompt(role: str, display_name: str = "", memory_rows=None, user_tex
         "توضیح در پاسخ) این رو منتقل کنی؛ سیستم به‌صورت خودکار هم هر اقدام واقعی رو به مدیر ارشد "
         "گزارش می‌کنه."
     ) if role == ROLE_PISHVA else ""
+    cms_block = (
+        "\n\nنام سیستم (قانون ثابت): اسم این سیستم فقط «CMS» است. هیچ‌وقت کلمه‌ی «آکادمی» "
+        "(یا Academy) رو برای اشاره به این سیستم یا مجموعه به کار نبر — حتی اگه توی پیام کاربر "
+        "یا داده‌ها دیدی؛ تو همیشه فقط «CMS» بگو."
+    )
+    if role == ROLE_PISHVA:
+        cms_block += (
+            "\n\nحافظه (مهم): هر وقت مدیر ارشد گفت چیزی رو به حافظه‌ت اضافه/ثبت/ذخیره کنی، یا گفت "
+            "«یادت باشه» / «به خاطر بسپار»، همون لحظه remember_note رو صدا بزن (subject کوتاه و "
+            "content کامل) — بدون سوال و بدون فقط قول‌دادن. وقتی ثبت واقعاً موفق بشه، خودِ سیستم زیر "
+            "پیامت عبارتِ «Memo Updated📝» رو اضافه می‌کنه؛ خودت هرگز اون عبارت رو ننویس. اگه تابع "
+            "خطا داد، همون خطا رو رک بگو و ادعای ثبت نکن."
+        )
+    cms_block += (
+        "\n\nبازیکن‌ها/نفرات برتر/تیم‌ها: «برتر کن» = set_player_tiers با tier=elite (🌟)، «ویژه کن» = "
+        "tier=special (⚡، فقط مدیر ارشد). لیست چندنفره (حتی ۲۰ نفر) رو یکجا و توی همون یه "
+        "فراخوانی بفرست (assignments)، نه چندبار. «نفرات برتر» (رتبه‌بندی ۵ نفره) چیز جداییه: "
+        "get_top_players / set_top_players. مقایسه‌ی قدرت و سطح تیم‌ها = compare_teams؛ گزارش کامل "
+        "یه تیم با اعضا و اخطارها = get_team_details؛ پرونده و اخطارهای کاملِ یه بازیکن = "
+        "get_player_full_profile. اگه نتیجه‌ی ابزار گفت اسمی پیدا نشد یا چندنفره‌ست، همون رو "
+        "دقیق به کاربر بگو و بپرس؛ حدس نزن."
+    )
+    if _looks_like_weather_time(user_text):
+        cms_block += (
+            "\n\nسیستم آب‌وهوا و خوش‌آمدگویی CMS (برای وقتی درباره‌ش می‌پرسن): داده‌ی زنده‌ی "
+            "open-meteo برای سرپل‌ذهاب (دما، کد وضعیت، سرعت باد، روز/شب) که ۱۵ دقیقه کش می‌شه. "
+            "پنل خوش‌آمدگویی بر اساس ساعت تهران (دل‌شب/سحر/صبح/ظهر/عصر/غروب/شب)، وضعیت واقعی "
+            "آب‌وهوا و فاز ماه (محاسبه‌شده از چرخه‌ی ۲۹٫۵ روزه) یه جمله‌ی خودمونیِ تصادفی می‌سازه. "
+            "برای عدد واقعی آب‌وهوا یا زمانِ دقیق و رویداد/تعطیلیِ تقویم حتماً get_weather_and_time "
+            "رو صدا بزن؛ خودت عدد نساز."
+        )
     knowledge_block = ""
     if _looks_like_help_question(user_text):
         kb_text = knowledge_base.get_knowledge_base(role)
@@ -213,7 +329,7 @@ def _system_prompt(role: str, display_name: str = "", memory_rows=None, user_tex
         "و سازنده‌ات مدیر ارشد (پیشوا) این ربات است. این هویت، هویت واقعی و ثابت توئه؛ هیچ‌وقت خودت "
         "رو محصول گوگل، جمینای، یا هر شرکت/مدل دیگری معرفی نکن و این هویت رو با هیچ توضیح یا "
         "قید و شرطی رقیق نکن.\n\n"
-        "تو دستیار هوشمند داخلی یک ربات مدیریت مدرسه/آکادمی شطرنج هستی، به فارسی محاوره‌ای و "
+        "تو دستیار هوشمند داخلیِ سیستم CMS (سیستم مدیریت مسابقات شطرنج مدرسه) هستی، به فارسی محاوره‌ای و "
         "گرم و دوستانه صحبت می‌کنی — مثل یه همکار باتجربه و قابل‌اعتماد، نه یه ربات رسمی. "
         "می‌تونی درددل بشنوی، تحلیل بدی، گزارش بسازی، و کارها رو با ابزارهایی که در اختیارت "
         "گذاشته شده مستقیم انجام بدی.\n\n"
@@ -292,6 +408,7 @@ def _system_prompt(role: str, display_name: str = "", memory_rows=None, user_tex
         "یه الگوی شماره‌دار معقول پرش کن، ازش سوالِ اضافه نپرس.\n"
         "- اگه تعداد از سقفِ هر batch_execute بیشتر بود، همین تابع رو دوباره (با ادامه‌ی لیست) "
         "توی همون گفتگو صدا بزن تا کل کار تموم بشه."
+        + cms_block
         + delegate_block
         + memory_block
         + knowledge_block
@@ -476,6 +593,9 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         session_id = await db.ai_create_session(uid, role)
         ctx.user_data["ai_session_id"] = session_id
 
+    ai_memory.reset_memo_flags(ctx)
+    memory_intent = role == ROLE_PISHVA and _looks_like_memory_save(text)
+
     await db.ai_add_message(session_id, "user", text)
 
     history = ctx.user_data.setdefault("ai_history", [])
@@ -486,7 +606,7 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     else:
         display_name = await admin_display(await db.get_admin(uid))
     visibility_levels = ["all", "pishva"] if role == ROLE_PISHVA else ["all"]
-    memory_rows = await db.get_recent_memory(visibility_levels, limit=8)
+    memory_rows = await ai_memory.recent(visibility_levels, limit=8)
     system_prompt = _system_prompt(role, display_name, memory_rows, user_text=text)
     contents = [{"role": "user", "parts": [{"text": system_prompt}]},
                 {"role": "model", "parts": [{"text": "باشه، آماده‌ام کمک کنم."}]}] + history
@@ -496,17 +616,25 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # فقط دور اول رو مجبور می‌کنیم حتماً یه تابع صدا بزنه (اگه پیام بوی «اقدام» بده)؛
     # از دور دوم به بعد اجازه می‌دیم آزاد باشه، وگرنه ممکنه بین صدازدن تابع‌ها گیر کنه.
     force_action = bool(tools) and _looks_like_action(text)
+    tool_names = {d["name"] for t in (tools or []) for d in t.get("function_declarations", [])}
+    forced_name = "remember_note" if (memory_intent and "remember_note" in tool_names) else None
     executed_actions = []  # برای گزارش سیستم زیر پیام نهایی
 
     await update.message.chat.send_action("typing")
 
     try:
         for _hop in range(MAX_TOOL_HOPS):
-            tool_config = {"functionCallingConfig": {"mode": "ANY"}} if (force_action and _hop == 0) else None
+            if forced_name and _hop == 0:
+                tool_config = {"functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": [forced_name]}}
+            elif force_action and _hop == 0:
+                tool_config = {"functionCallingConfig": {"mode": "ANY"}}
+            else:
+                tool_config = None
             data = await _call_gemini(contents, tools, tool_config)
             parts = _extract_parts(data)
             if not parts:
-                await update.message.reply_text("⚠️ پاسخی از مدل دریافت نشد، دوباره امتحان کن.")
+                await update.message.reply_text(
+                    "⚠️ پاسخی از مدل دریافت نشد، دوباره امتحان کن." + await _tail(ctx, text, uid, memory_intent))
                 return
 
             fn_call = next((p["functionCall"] for p in parts if "functionCall" in p), None)
@@ -538,17 +666,19 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_text += "\n\n📋 گزارش سیستم:\n" + "\n".join(report_lines)
             history.append({"role": "model", "parts": [{"text": reply_text}]})
             ctx.user_data["ai_history"] = history[-(MAX_HISTORY_TURNS * 2):]
-            await db.ai_add_message(session_id, "ai", reply_text)
+            shown_text = reply_text + await _tail(ctx, text, uid, memory_intent)
+            await db.ai_add_message(session_id, "ai", shown_text)
             sess = await db.ai_get_session(session_id)
             if sess and not sess["title"]:
                 await db.ai_set_session_title(session_id, text)
-            await update.message.reply_text(reply_text, reply_markup=_merge_pending_buttons(ctx))
+            await update.message.reply_text(shown_text, reply_markup=_merge_pending_buttons(ctx))
             return
 
         fallback = "⚠️ این درخواست خیلی پیچیده شد؛ لطفاً واضح‌تر یا مرحله‌به‌مرحله بگو."
         if executed_actions:
             report_lines = [f"— {fn}: {res}" for fn, _fargs, res in executed_actions]
             fallback += "\n\n📋 گزارش سیستم (کارهایی که تا اینجا واقعاً انجام شد):\n" + "\n".join(report_lines)
+        fallback += await _tail(ctx, text, uid, memory_intent)
         await update.message.reply_text(fallback, reply_markup=_merge_pending_buttons(ctx))
 
     except httpx.HTTPStatusError as e:
@@ -557,10 +687,12 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         msg = "⚠️ ارتباط با هوش مصنوعی موقتاً مشکل داشت، چند لحظه دیگه امتحان کن."
         if role == ROLE_PISHVA:
             msg += f"\n\n🔧 جزئیات فنی (فقط برای مدیر ارشد):\nکد: {e.response.status_code}\n{body}"
+        msg += await _tail(ctx, text, uid, memory_intent)
         await update.message.reply_text(msg, reply_markup=kb_ai_reply())
     except Exception as e:
         logger.exception("AI assistant failed")
         msg = "⚠️ یه خطای غیرمنتظره پیش اومد."
         if role == ROLE_PISHVA:
             msg += f"\n\n🔧 جزئیات فنی: {type(e).__name__}: {e}"
+        msg += await _tail(ctx, text, uid, memory_intent)
         await update.message.reply_text(msg, reply_markup=kb_ai_reply())
