@@ -12,7 +12,7 @@ const VIEW_TITLES = {
   players: "بازیکن‌ها",
   matches: "مسابقات",
   top: "نفرات برتر",
-  assistant: "دستیار",
+  assistant: "رهگشا",
 };
 
 let currentView = "home";
@@ -488,8 +488,8 @@ const ASSISTANT_SUGGESTIONS = [
   "روند مسابقات اخیر چطور بوده؟",
 ];
 
-// تاریخچه‌ی گفتگو فقط توی حافظه‌ی همین صفحه می‌مونه (نه دیتابیس، نه سرور) —
-// با رفرش صفحه پاک می‌شه، دقیقاً هم‌راستا با فقط‌خواندنی‌بودنِ کل این پنل.
+// تاریخچه‌ای که مدیر توی این صفحه می‌بینه فقط توی حافظه‌ی همین صفحه می‌مونه و با رفرش پاک می‌شه؛
+// نسخه‌ی ثبت‌شده‌ی گفتگو سمت سرور نگه داشته می‌شه و فقط توی «پنل ادمین ← رهگشا» دیده می‌شه.
 const assistantState = { history: [], sending: false, sessionId: null };  // sessionId فقط توی حافظه‌ست و هیچ‌جای UI دیده نمی‌شه
 
 function renderAssistant() {
@@ -498,8 +498,8 @@ function renderAssistant() {
       <div class="assistant-intro">
         <span class="assistant-avatar">🤖</span>
         <div>
-          <div class="main-txt">دستیار پنل مدیر</div>
-          <div class="sub-txt">راهنما و مشاورِ شماست؛ فقط دربارهٔ وضعیت و بخش‌های همین پنل توضیح می‌دهد.</div>
+          <div class="main-txt">رهگشا <span style="letter-spacing:2.5px;font-size:11px;font-weight:600;color:var(--amber);margin-inline-start:8px;">RAHGOSHA</span></div>
+          <div class="sub-txt">دستیار هوشمند LUX؛ راهنما و مشاورِ شماست و فقط دربارهٔ وضعیت و بخش‌های همین پنل توضیح می‌دهد.</div>
         </div>
       </div>
       <div id="assistant-log" class="assistant-log"></div>
@@ -558,7 +558,7 @@ function renderAssistant() {
   if (assistantState.history.length) {
     assistantState.history.forEach(turn => addBubble(turn.role === "user" ? "user" : "bot", turn.text, false));
   } else {
-    addBubble("bot", "سلام! من دستیار همین پنل هستم. هر سوالی درباره‌ی آمار یا بخش‌های پنل دارید، خوشحال می‌شوم کمک کنم 🙌", false);
+    addBubble("bot", "سلام! من رهگشا، دستیار هوشمند LUX هستم. هر سوالی درباره‌ی آمار یا بخش‌های پنل دارید، خوشحال می‌شوم کمک کنم 🙌", false);
   }
 
   suggEl.innerHTML = ASSISTANT_SUGGESTIONS.map(s => `<button type="button" class="sugg-chip">${esc(s)}</button>`).join("");
