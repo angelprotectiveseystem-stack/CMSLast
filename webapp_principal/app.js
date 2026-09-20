@@ -465,7 +465,7 @@ const ASSISTANT_SUGGESTIONS = [
 
 // تاریخچه‌ی گفتگو فقط توی حافظه‌ی همین صفحه می‌مونه (نه دیتابیس، نه سرور) —
 // با رفرش صفحه پاک می‌شه، دقیقاً هم‌راستا با فقط‌خواندنی‌بودنِ کل این پنل.
-const assistantState = { history: [], sending: false };
+const assistantState = { history: [], sending: false, sessionId: null };  // sessionId فقط توی حافظه‌ست و هیچ‌جای UI دیده نمی‌شه
 
 function renderAssistant() {
   viewBodyEl.innerHTML = `
@@ -563,9 +563,10 @@ function renderAssistant() {
       const res = await fetch(url.toString(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history: assistantState.history.slice(0, -1) }),
+        body: JSON.stringify({ message: text, history: assistantState.history.slice(0, -1), session_id: assistantState.sessionId }),
       });
       const data = await res.json();
+      if (data && data.session_id) assistantState.sessionId = data.session_id;
       typingBubble.remove();
       const reply = (data && data.ok && data.reply) ? data.reply : "⚠️ پاسخی دریافت نشد. لطفاً دوباره تلاش کنید.";
       addBubble("bot", reply);
