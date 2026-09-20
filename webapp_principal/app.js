@@ -421,7 +421,27 @@ function lineChartSVG(data, opts = {}) {
 
 function shorten(s) {
   s = String(s ?? "");
-  return s.length > 6 ? s.slice(5) : s; // برای تاریخ‌های ISO فقط روز/ماه رو نشون بده
+  // فقط تاریخ‌های ISO (مثل 2026-09-01) به روز/ماه کوتاه می‌شن؛ متن‌های دیگه (مثل نام کلاس) دست‌نخورده می‌مونن.
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.slice(5) : s;
+}
+
+// نمودار میله‌ایِ افقی برای دسته‌هایی که برچسبشون متنِ فارسیِ بلنده (نام کلاس، نوع نتیجه):
+// برچسب کنارِ میله می‌آد، پس هرچقدر دسته زیاد یا اسم طولانی باشه روی هم نمی‌افته.
+function hBarChartHTML(data, opts = {}) {
+  if (!data || !data.length) return CHART_EMPTY_HTML;
+  const max = Math.max(1, ...data.map(d => d.value));
+  const color = opts.color || "var(--amber)";
+  const rows = data.map(d => {
+    const pct = d.value > 0 ? Math.max(3, Math.round((d.value / max) * 100)) : 0;
+    return `<div style="display:flex;align-items:center;gap:10px;margin:8px 0;">
+      <div style="flex:0 0 38%;max-width:38%;font-size:12.5px;line-height:1.5;color:var(--ivory);overflow-wrap:anywhere;">${esc(d.label)}</div>
+      <div style="flex:1;height:10px;background:var(--panel-2);border-radius:6px;overflow:hidden;">
+        <div style="width:${pct}%;height:100%;background:${color};border-radius:6px;"></div>
+      </div>
+      <div style="flex:0 0 auto;min-width:22px;text-align:left;font-size:12px;color:var(--ivory-dim);font-variant-numeric:tabular-nums;">${d.value}</div>
+    </div>`;
+  }).join("");
+  return `<div>${rows}</div>`;
 }
 
 function trendsChartsHTML(data) {
@@ -436,11 +456,11 @@ function trendsChartsHTML(data) {
     </div>
     <div class="chart-card">
       <h4>🏫 توزیع بازیکنان بر اساس کلاس</h4>
-      ${barChartSVG(data.players_by_class, { color: "var(--amber)" })}
+      ${hBarChartHTML(data.players_by_class, { color: "var(--amber)" })}
     </div>
     <div class="chart-card">
       <h4>♟️ توزیع نتایج مسابقات</h4>
-      ${barChartSVG(data.results_distribution, { color: "var(--brick)" })}
+      ${hBarChartHTML(data.results_distribution, { color: "var(--brick)" })}
     </div>
   `;
 }
