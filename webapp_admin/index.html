@@ -35,27 +35,34 @@
       <span class="brand-text">پنل مسابقات</span>
     </div>
 
+    <div class="nav-search-wrap">
+      <svg class="nav-search-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M19.5 19.5 15 15"/></svg>
+      <input type="text" id="nav-search" class="nav-search" placeholder="جستجوی بخش‌ها…" autocomplete="off">
+      <kbd class="nav-search-kbd">/</kbd>
+    </div>
     <nav id="nav">
-      <span class="nav-group-label">کلی</span>
+      <div class="nav-indicator" aria-hidden="true"></div>
+      <span class="nav-group-label" data-group="کلی">کلی</span>
       <button class="nav-item active" data-view="home"><span class="nav-coord">e1</span><span class="nav-ic">🏠</span><span class="nav-label">خانه</span></button>
 
-      <span class="nav-group-label">مسابقات</span>
+      <span class="nav-group-label" data-group="مسابقات">مسابقات</span>
       <button class="nav-item" data-view="matches"><span class="nav-coord">a2</span><span class="nav-ic">♟️</span><span class="nav-label">مسابقات شطرنج</span></button>
       <button class="nav-item" data-view="live"><span class="nav-coord">d4</span><span class="nav-ic">🔴</span><span class="nav-label">شطرنج زنده</span></button>
       <button class="nav-item" data-view="players"><span class="nav-coord">b1</span><span class="nav-ic">🧑‍🤝‍🧑</span><span class="nav-label">مسابقه‌دهنده‌ها</span></button>
       <button class="nav-item" data-view="elo"><span class="nav-coord">h8</span><span class="nav-ic">📊</span><span class="nav-label">سطح پیشرفت / ELO</span></button>
 
-      <span class="nav-group-label">مدیریت</span>
+      <span class="nav-group-label" data-group="مدیریت">مدیریت</span>
       <button class="nav-item" data-view="admins"><span class="nav-coord">c1</span><span class="nav-ic">🛡️</span><span class="nav-label">مدیر‌ها</span></button>
-      <button class="nav-item" data-view="online"><span class="nav-coord">g1</span><span class="nav-ic">🟢</span><span class="nav-label">آنلاین‌ها</span></button>
+      <button class="nav-item" data-view="online"><span class="nav-coord">g1</span><span class="nav-ic">🟢</span><span class="nav-label">آنلاین‌ها</span><span class="nav-badge hidden" id="nav-badge-online">0</span></button>
       <button class="nav-item" data-view="messages"><span class="nav-coord">f1</span><span class="nav-ic">✉️</span><span class="nav-label">پیام‌های ارسالی</span></button>
       <button class="nav-item" data-view="activity"><span class="nav-coord">a8</span><span class="nav-ic">🧾</span><span class="nav-label">فعالیت‌ها</span></button>
       <button class="nav-item" data-view="principal-devices"><span class="nav-coord">b8</span><span class="nav-ic">🖥️</span><span class="nav-label">ورودهای مدیر مدرسه</span></button>
 
-      <span class="nav-group-label">سیستم</span>
+      <span class="nav-group-label" data-group="سیستم">سیستم</span>
       <button class="nav-item" data-view="charts"><span class="nav-coord">d1</span><span class="nav-ic">📈</span><span class="nav-label">نمودارها</span></button>
       <button class="nav-item" data-view="assistant"><span class="nav-coord">h1</span><span class="nav-ic">🤖</span><span class="nav-label">رهگشا</span></button>
       <button class="nav-item" data-view="settings"><span class="nav-coord">a1</span><span class="nav-ic">⚙️</span><span class="nav-label">تنظیمات</span></button>
+      <div class="nav-empty hidden" id="nav-empty">چیزی با این عنوان پیدا نشد</div>
     </nav>
 
     <div class="sidebar-foot">
@@ -77,6 +84,7 @@
 
   <!-- ── ناوبری پایین صفحه (فقط موبایل) — قاب بیضی شناور ───── -->
   <nav id="bottom-nav" class="bottom-nav">
+    <div class="bn-indicator" aria-hidden="true"></div>
     <button class="bn-item active" data-view="home">
       <span class="bn-ic">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.2 12 4l9 7.2"/><path d="M5.2 9.8V19a1 1 0 0 0 1 1H9.6v-5.6h4.8V20H17.8a1 1 0 0 0 1-1V9.8"/></svg>
@@ -109,6 +117,41 @@
     </button>
   </nav>
 
+</div>
+
+<!-- ── منوی «بیشتر» (فقط موبایل) — شیت پایین با گروه‌بندی و انیمیشن پلکانی ── -->
+<div id="more-backdrop" class="more-backdrop"></div>
+<div id="more-sheet" class="more-sheet" role="dialog" aria-modal="true" aria-label="منوی بیشتر">
+  <div class="more-sheet-handle" aria-hidden="true"></div>
+  <div class="more-sheet-head">
+    <span class="more-sheet-title">بخش‌های بیشتر</span>
+  </div>
+  <div class="more-sheet-body">
+    <div class="more-group">
+      <span class="more-group-label">مسابقات</span>
+      <div class="more-grid cols-2">
+        <button class="more-tile" data-view="live"><span class="more-tile-ic">🔴</span><span class="more-tile-label">شطرنج زنده</span></button>
+        <button class="more-tile" data-view="elo"><span class="more-tile-ic">📊</span><span class="more-tile-label">سطح پیشرفت</span></button>
+      </div>
+    </div>
+    <div class="more-group">
+      <span class="more-group-label">مدیریت</span>
+      <div class="more-grid">
+        <button class="more-tile" data-view="admins"><span class="more-tile-ic">🛡️</span><span class="more-tile-label">مدیر‌ها</span></button>
+        <button class="more-tile" data-view="online"><span class="more-tile-ic">🟢</span><span class="more-tile-label">آنلاین‌ها</span><span class="more-tile-badge hidden" id="more-badge-online">0</span></button>
+        <button class="more-tile" data-view="messages"><span class="more-tile-ic">✉️</span><span class="more-tile-label">پیام‌ها</span></button>
+        <button class="more-tile" data-view="activity"><span class="more-tile-ic">🧾</span><span class="more-tile-label">فعالیت‌ها</span></button>
+        <button class="more-tile" data-view="principal-devices"><span class="more-tile-ic">🖥️</span><span class="more-tile-label">ورود مدیر مدرسه</span></button>
+      </div>
+    </div>
+    <div class="more-group">
+      <span class="more-group-label">سیستم</span>
+      <div class="more-grid cols-2">
+        <button class="more-tile" data-view="assistant"><span class="more-tile-ic">🤖</span><span class="more-tile-label">رهگشا</span></button>
+        <button class="more-tile" data-view="settings"><span class="more-tile-ic">⚙️</span><span class="more-tile-label">تنظیمات</span></button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ── نشانگر موس سفارشی (فقط برای دسکتاپ با موس واقعی؛ با app.js فعال می‌شود) ── -->

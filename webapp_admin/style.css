@@ -199,6 +199,7 @@ a { color: var(--amber); }
 .brand-text { font-size: 14.5px; font-weight: 700; letter-spacing: .2px; }
 
 #nav {
+  position: relative;
   flex: 1; overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
@@ -213,6 +214,7 @@ a { color: var(--amber); }
 }
 .nav-group-label:first-child { padding-top: 6px; }
 .nav-item {
+  position: relative; z-index: 1;
   display: flex; align-items: center; gap: 10px;
   width: 100%; text-align: right;
   background: transparent; border: none; border-inline-start: 2px solid transparent; border-radius: var(--radius);
@@ -225,8 +227,70 @@ a { color: var(--amber); }
   .nav-item:hover { background: var(--panel-2); color: var(--ivory); transform: translateX(-2px); }
   html[dir="rtl"] .nav-item:hover { transform: translateX(2px); }
 }
-.nav-item.active { background: var(--panel-2); color: var(--ivory); border-inline-start-color: var(--amber); }
+.nav-item.active { color: var(--ivory); border-inline-start-color: var(--amber); }
 .nav-item.active .nav-coord { color: var(--ink); background: var(--amber); }
+
+/* ── نوار جستجوی سریع بخش‌ها ─────────────────────────────── */
+.nav-search-wrap {
+  position: relative; margin: 12px 14px 4px;
+  display: flex; align-items: center;
+}
+.nav-search-ic {
+  position: absolute; inset-inline-start: 11px;
+  width: 15px; height: 15px; color: var(--ivory-dim);
+  pointer-events: none; transition: color .15s ease;
+}
+.nav-search {
+  width: 100%; box-sizing: border-box;
+  background: var(--ink); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--ivory); font-family: inherit; font-size: 12.8px;
+  padding: 8px 34px 8px 30px;
+  outline: none; transition: border-color .15s ease, box-shadow .15s ease;
+}
+.nav-search::placeholder { color: var(--ivory-dim); }
+.nav-search:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(201,154,70,.14); }
+.nav-search:focus + .nav-search-ic, .nav-search-wrap:has(.nav-search:focus) .nav-search-ic { color: var(--amber); }
+.nav-search-kbd {
+  position: absolute; inset-inline-end: 9px;
+  font-family: var(--font); font-size: 10px; color: var(--ivory-dim);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px;
+  padding: 1px 6px; pointer-events: none;
+}
+.nav-search:focus ~ .nav-search-kbd { opacity: 0; }
+.nav-empty {
+  text-align: center; color: var(--ivory-dim); font-size: 12.5px;
+  padding: 22px 10px;
+}
+
+/* ── نشانگر لغزان آیتم فعال در منوی اول ──────────────────── */
+.nav-indicator {
+  position: absolute; inset-inline-start: 10px;
+  width: calc(100% - 20px); height: 0; border-radius: var(--radius);
+  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 0 var(--amber);
+  opacity: 0; z-index: 0;
+  transition: transform .32s cubic-bezier(.2,.8,.2,1), height .32s cubic-bezier(.2,.8,.2,1), opacity .2s ease;
+  pointer-events: none;
+  will-change: transform;
+}
+.nav-indicator.ready { opacity: 1; }
+html[dir="rtl"] .nav-indicator { box-shadow: inset -2px 0 0 0 var(--amber); }
+#nav.filtering .nav-indicator { opacity: 0; }
+
+/* ── نشان تعداد (بج) کنار آیتم‌های منو ────────────────────── */
+.nav-badge {
+  margin-inline-start: auto; flex-shrink: 0;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 700; font-family: monospace;
+  background: var(--sage); color: #0c150f; border-radius: 999px;
+  transition: transform .25s cubic-bezier(.4,1.6,.5,1);
+  animation: badge-pop .3s cubic-bezier(.4,1.6,.5,1);
+}
+@keyframes badge-pop {
+  from { transform: scale(.4); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
 .nav-coord {
   font-family: monospace; font-size: 10.5px; font-weight: 700;
   color: var(--amber-dim);
@@ -438,11 +502,25 @@ body.no-scroll { overflow: hidden; }
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
+/* پیل کهربایی که زیر آیتم فعال می‌لغزد؛ موقعیت/عرضش را app.js با
+   transform تنظیم می‌کند تا انیمیشن روی GPU و روان باشد. */
+.bn-indicator {
+  position: absolute; top: 7px; bottom: 7px; left: 0;
+  width: 0; border-radius: 999px;
+  background: var(--amber);
+  box-shadow: 0 3px 10px rgba(201,154,70,.35);
+  transform: translateX(0);
+  transition: transform .38s cubic-bezier(.34,1.35,.4,1), width .3s cubic-bezier(.2,.8,.2,1), opacity .2s ease;
+  opacity: 0;
+  pointer-events: none; z-index: 0;
+}
+.bn-indicator.ready { opacity: 1; }
 .bn-item {
+  position: relative; z-index: 1;
   background: none; border: none; color: var(--ivory-dim);
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 7px 8px; border-radius: 999px; flex: 1; min-width: 0;
-  transition: color .18s ease, background .22s cubic-bezier(.2,.8,.2,1), transform .18s ease;
+  transition: color .18s ease, transform .18s cubic-bezier(.34,1.35,.4,1);
 }
 .bn-ic {
   width: 20px; height: 20px; line-height: 1;
@@ -455,11 +533,12 @@ body.no-scroll { overflow: hidden; }
   max-width: 0; opacity: 0; overflow: hidden;
   transition: max-width .22s ease, opacity .18s ease, margin-top .22s ease;
 }
-.bn-item.active { color: var(--ink); background: var(--amber); }
-.bn-item.active .bn-ic { transform: scale(1.05); }
+.bn-item.active { color: var(--ink); }
+.bn-item.active .bn-ic { transform: scale(1.08) translateY(-1px); }
 .bn-item.active .bn-label { max-width: 60px; opacity: 1; margin-top: 1px; }
-.bn-item:active { transform: scale(.92); }
-.bn-item.bn-more.menu-open .bn-ic { transform: rotate(90deg); }
+.bn-item:active { transform: scale(.9); }
+.bn-item.bn-more.menu-open { color: var(--amber); }
+.bn-item.bn-more.menu-open .bn-ic { transform: rotate(135deg); }
 
 @media (max-width: 860px) {
   .sidebar {
@@ -761,3 +840,95 @@ html.custom-cursor.cursor-text .cursor-dot { opacity: 0; }
 .device-btn-delete { color: var(--ivory-dim); }
 .device-detail { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
 .device-detail table { min-width: 0; }
+
+/* ── منوی «بیشتر» — شیت پایین با گروه‌بندی و ورود پلکانی ─────────────
+   ساختار: پس‌زمینه‌ی محو (more-backdrop) + شیت (more-sheet) که از پایین
+   با یک فنر ملایم بالا می‌آید. کاشی‌های داخل شیت با تاخیرِ پلکانی
+   (nth-child) یکی‌یکی ظاهر می‌شوند تا حس زنده و لذت‌بخشی داشته باشد. */
+.more-backdrop {
+  position: fixed; inset: 0; z-index: 29;
+  background: rgba(4,7,5,.55);
+  backdrop-filter: blur(2px);
+  opacity: 0; visibility: hidden;
+  transition: opacity .28s ease, visibility 0s linear .28s;
+}
+.more-backdrop.show {
+  opacity: 1; visibility: visible;
+  transition: opacity .28s ease, visibility 0s linear 0s;
+}
+.more-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  max-height: min(78vh, 640px);
+  background: var(--panel);
+  border: 1px solid var(--line); border-bottom: none;
+  border-radius: 22px 22px 0 0;
+  padding: 10px 8px calc(14px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -18px 40px rgba(0,0,0,.45);
+  transform: translateY(102%);
+  transition: transform .38s cubic-bezier(.19,1.02,.32,1);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.more-sheet.show { transform: translateY(0); }
+.more-sheet-handle {
+  width: 38px; height: 4px; border-radius: 3px;
+  background: var(--line); margin: 2px auto 8px;
+}
+.more-sheet-head { padding: 0 14px 8px; }
+.more-sheet-title { font-size: 13.5px; font-weight: 700; color: var(--ivory-dim); }
+.more-sheet-body {
+  overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding: 2px 12px 4px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.more-group-label {
+  display: block; font-size: 11px; font-weight: 700; color: var(--amber-dim);
+  text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px;
+}
+.more-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.more-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.more-tile {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px;
+  padding: 14px 6px 10px; min-height: 78px;
+  color: var(--ivory-dim); font-family: inherit;
+  opacity: 0; transform: translateY(10px) scale(.94);
+}
+.more-sheet.show .more-tile {
+  animation: tile-in .38s cubic-bezier(.2,.8,.2,1) forwards;
+}
+@keyframes tile-in {
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* تاخیرِ پلکانی: هر کاشی کمی دیرتر از قبلی می‌رسد */
+.more-group:nth-of-type(1) .more-tile:nth-child(1) { animation-delay: .05s; }
+.more-group:nth-of-type(1) .more-tile:nth-child(2) { animation-delay: .09s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(1) { animation-delay: .13s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(2) { animation-delay: .17s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(3) { animation-delay: .21s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(4) { animation-delay: .25s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(5) { animation-delay: .29s; }
+.more-group:nth-of-type(3) .more-tile:nth-child(1) { animation-delay: .33s; }
+.more-group:nth-of-type(3) .more-tile:nth-child(2) { animation-delay: .37s; }
+.more-tile-ic { font-size: 22px; line-height: 1; transition: transform .2s cubic-bezier(.4,1.6,.5,1); }
+.more-tile-label { font-size: 11px; font-weight: 600; color: var(--ivory-dim); text-align: center; line-height: 1.35; }
+.more-tile:active { background: var(--panel); transform: scale(.95) !important; }
+.more-tile:active .more-tile-ic { transform: scale(.88); }
+@media (hover: hover) {
+  .more-tile:hover { border-color: var(--amber-dim); }
+  .more-tile:hover .more-tile-label { color: var(--ivory); }
+}
+.more-tile-badge {
+  position: absolute; top: 8px; inset-inline-end: 8px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 700; font-family: monospace;
+  background: var(--sage); color: #0c150f; border-radius: 999px;
+}
+
+@media (min-width: 861px) {
+  .more-backdrop, .more-sheet { display: none !important; }
+}

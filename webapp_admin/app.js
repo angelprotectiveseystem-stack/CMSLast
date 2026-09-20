@@ -100,6 +100,9 @@
     });
     document.getElementById("view-title").textContent = VIEW_TITLES[view];
     closeSidebar();
+    closeMoreSheet();
+    updateNavIndicator();
+    updateBnIndicator();
 
     // ۲) بارگذاری محتوا در فریم بعدی: با یک تیک فاصله از تغییرات بالا،
     //    ریفلوی سنگین (تعویض کامل view-body + شروع انیمیشن) با
@@ -120,8 +123,7 @@
     bottomNavEl.addEventListener("click", function (e) {
       var moreBtn = e.target.closest(".bn-more");
       if (moreBtn) {
-        var sb = document.querySelector(".sidebar");
-        if (sb.classList.contains("open")) closeSidebar(); else openSidebar();
+        if (document.getElementById("more-sheet").classList.contains("show")) closeMoreSheet(); else openMoreSheet();
         return;
       }
       var btn = e.target.closest(".bn-item[data-view]");
@@ -129,6 +131,39 @@
       goToView(btn.getAttribute("data-view"));
     });
   }
+
+  // ── منوی «بیشتر»: شیت پایین با گروه‌بندی، جای درآور کاملِ سایدبار ──
+  var moreSheetEl = document.getElementById("more-sheet");
+  var moreBackdropEl = document.getElementById("more-backdrop");
+  function openMoreSheet() {
+    if (!moreSheetEl) return;
+    moreSheetEl.classList.add("show");
+    moreBackdropEl.classList.add("show");
+    document.body.classList.add("no-scroll");
+    var moreBtn = document.querySelector(".bn-more");
+    if (moreBtn) moreBtn.classList.add("menu-open");
+  }
+  function closeMoreSheet() {
+    if (!moreSheetEl) return;
+    moreSheetEl.classList.remove("show");
+    moreBackdropEl.classList.remove("show");
+    document.body.classList.remove("no-scroll");
+    var moreBtn = document.querySelector(".bn-more");
+    if (moreBtn) moreBtn.classList.remove("menu-open");
+    // با هر بار بسته‌شدن، انیمیشنِ ورودِ کاشی‌ها دوباره ری‌ست بشه تا
+    // دفعه‌ی بعد که باز می‌شه دوباره پلکانی و زنده اجرا بشه.
+    document.querySelectorAll(".more-tile").forEach(function (t) {
+      t.style.animation = "none"; void t.offsetWidth; t.style.animation = "";
+    });
+  }
+  if (moreSheetEl) {
+    moreSheetEl.addEventListener("click", function (e) {
+      var tile = e.target.closest(".more-tile[data-view]");
+      if (!tile) return;
+      goToView(tile.getAttribute("data-view"));
+    });
+  }
+  if (moreBackdropEl) moreBackdropEl.addEventListener("click", closeMoreSheet);
 
   // ── Mobile toggle / سایدبار موبایل (باز می‌شود از دکمه «بیشتر») ──
   function closeSidebar() {
@@ -154,13 +189,95 @@
 
   // بستن با کلید Escape
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") closeSidebar();
+    if (e.key === "Escape") { closeSidebar(); closeMoreSheet(); }
   });
   // اگر صفحه بزرگ‌تر از حالت موبایل شد (چرخش صفحه یا تغییر اندازه)،
   // هر باقیمانده‌ای از حالت باز/بک‌دراپ رو پاک کن تا قفل چیدمان دسکتاپ رو نگیره
   window.addEventListener("resize", function () {
-    if (window.innerWidth > 860) closeSidebar();
+    if (window.innerWidth > 860) { closeSidebar(); closeMoreSheet(); }
+    updateNavIndicator();
+    updateBnIndicator();
   });
+
+  // ── نشانگرهای لغزان: هایلایتِ آیتم فعال در «منوی اول» و نوار کپسولی ──
+  // به‌جای رنگ‌آمیزیِ لحظه‌ای، یک پیل/نوار همراه با انتقال نرم (transform)
+  // بین آیتم‌ها جابه‌جا می‌شود تا حس یک ناوبری زنده و یک‌پارچه بدهد.
+  function updateNavIndicator() {
+    var nav = document.getElementById("nav");
+    var indicator = nav ? nav.querySelector(".nav-indicator") : null;
+    if (!nav || !indicator) return;
+    var active = nav.querySelector(".nav-item.active");
+    if (!active || nav.classList.contains("filtering")) { indicator.classList.remove("ready"); return; }
+    var y = active.offsetTop, h = active.offsetHeight;
+    indicator.style.transform = "translateY(" + y + "px)";
+    indicator.style.height = h + "px";
+    indicator.classList.add("ready");
+  }
+  function updateBnIndicator() {
+    var bar = document.getElementById("bottom-nav");
+    var indicator = bar ? bar.querySelector(".bn-indicator") : null;
+    if (!bar || !indicator) return;
+    var active = bar.querySelector(".bn-item.active[data-view]");
+    if (!active) { indicator.classList.remove("ready"); return; }
+    var x = active.offsetLeft, w = active.offsetWidth;
+    var barBox = bar.getBoundingClientRect();
+    if (barBox.width === 0) { indicator.classList.remove("ready"); return; } // پنهانه (دسکتاپ)، محاسبه بی‌فایده‌ست
+    indicator.style.transform = "translateX(" + x + "px)";
+    indicator.style.width = w + "px";
+    indicator.classList.add("ready");
+  }
+
+  // ── جستجوی سریع بخش‌ها در «منوی اول» ─────────────────────────────
+  var navSearchEl = document.getElementById("nav-search");
+  if (navSearchEl) {
+    navSearchEl.addEventListener("input", function () {
+      var q = navSearchEl.value.trim().toLowerCase();
+      var nav = document.getElementById("nav");
+      var emptyEl = document.getElementById("nav-empty");
+      nav.classList.toggle("filtering", !!q);
+      updateNavIndicator();
+      if (!q) {
+        document.querySelectorAll(".nav-item, .nav-group-label").forEach(function (n) { n.classList.remove("hidden"); });
+        if (emptyEl) emptyEl.classList.add("hidden");
+        return;
+      }
+      var anyVisible = false;
+      var groups = document.querySelectorAll(".nav-group-label");
+      groups.forEach(function (g) {
+        var groupVisible = false;
+        var el = g.nextElementSibling;
+        while (el && el.classList.contains("nav-item")) {
+          var match = el.textContent.toLowerCase().indexOf(q) !== -1;
+          el.classList.toggle("hidden", !match);
+          if (match) { groupVisible = true; anyVisible = true; }
+          el = el.nextElementSibling;
+        }
+        g.classList.toggle("hidden", !groupVisible);
+      });
+      if (emptyEl) emptyEl.classList.toggle("hidden", anyVisible);
+    });
+    // میانبر «/» برای فوکوس سریع روی جستجو (وقتی داخل ورودی دیگه‌ای نیستیم)
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "/") return;
+      var tag = (e.target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+      if (window.innerWidth <= 860) return; // روی موبایل سایدبار پنهانه
+      e.preventDefault();
+      navSearchEl.focus();
+    });
+    navSearchEl.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { navSearchEl.value = ""; navSearchEl.dispatchEvent(new Event("input")); navSearchEl.blur(); }
+    });
+  }
+
+  // ── بج‌های زنده: تعداد مدیرانِ آنلاین کنار آیتم «آنلاین‌ها» ─────────
+  function updateOnlineBadge(count) {
+    [document.getElementById("nav-badge-online"), document.getElementById("more-badge-online")].forEach(function (b) {
+      if (!b) return;
+      b.textContent = count;
+      b.classList.toggle("hidden", !count);
+    });
+  }
 
   // ── Clock ─────────────────────────────────────────────
   function tickClock() {
@@ -288,6 +405,7 @@
       api("/api/panel/overview").then(function (d) {
         if (!d.ok) return;
         var s = d.stats;
+        updateOnlineBadge(s.admins_online);
         var onlineList = d.online_admins.map(function (a) {
           return '<div class="msg-item"><strong>' + esc(a.name) + '</strong> <span class="msg-meta">' + roleLabel(a.role) + '</span></div>';
         }).join("") || '<div class="empty-state">هیچ مدیری آنلاین نیست</div>';
@@ -427,6 +545,7 @@
     online: function () {
       api("/api/panel/online").then(function (d) {
         if (!d.ok) return;
+        updateOnlineBadge(d.online.length);
         if (!d.online.length) { setBody('<div class="section"><div class="empty-state">در حال حاضر کسی آنلاین نیست</div></div>'); return; }
         var rows = d.online.map(function (a) {
           return '<tr>' +
@@ -992,6 +1111,14 @@
     render();
     if (state.timer) clearInterval(state.timer);
     state.timer = setInterval(poll, POLL_MS);
+    // بعد از این‌که app از حالت hidden درومد و چیدمانش قطعی شد، اندازه‌ی
+    // واقعیِ آیتم‌ها رو بخون تا نشانگرهای لغزان از همون اول جای درستی باشن.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        updateNavIndicator();
+        updateBnIndicator();
+      });
+    });
   }
 
   // ── نشانگر موس سفارشی (فقط دسکتاپ با موس واقعی) ────────
