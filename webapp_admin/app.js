@@ -69,7 +69,7 @@
     home: "خانه", matches: "مسابقات شطرنج", live: "شطرنج زنده",
     players: "مسابقه‌دهنده‌ها", elo: "سطح پیشرفت / ELO", admins: "مدیر‌ها",
     online: "آنلاین‌ها", messages: "پیام‌های ارسالی", activity: "فعالیت‌ها",
-    charts: "نمودارها", assistant: "دستیار", settings: "تنظیمات",
+    charts: "نمودارها", assistant: "رهگشا", settings: "تنظیمات",
   };
 
   // مرکز فعال‌سازی ویو: چه از ساید‌بار بیاد چه از نوار پایین موبایل،
@@ -575,7 +575,7 @@
           '<input type="text" id="assistant-search" placeholder="جستجو در عنوان و متن گفتگوها…" autocomplete="off" value="' + esc(state.assistantQuery) + '">' +
           '<span class="search-ic">🔍</span>' +
         '</div>' +
-        '<div class="section-head"><h3>گفتگوهای دستیار هوش مصنوعی</h3><span class="count" id="assistant-count"></span></div>' +
+        '<div class="section-head"><h3>گفتگوهای رهگشا</h3><span class="count" id="assistant-count"></span></div>' +
         '<div class="card-list" id="assistant-list"><div class="loading-state"><span class="spinner"></span></div></div>' +
       '</div>');
 
@@ -594,7 +594,7 @@
         countEl.textContent = d.sessions.length + " گفتگو";
         if (!d.sessions.length) {
           listEl.innerHTML = '<div class="empty-state">' +
-            (state.assistantQuery ? "گفتگویی با این جستجو پیدا نشد" : "گفتگویی با دستیار ثبت نشده") + '</div>';
+            (state.assistantQuery ? "گفتگویی با این جستجو پیدا نشد" : "گفتگویی با رهگشا ثبت نشده") + '</div>';
           return;
         }
         listEl.innerHTML = d.sessions.map(function (x) {
@@ -660,7 +660,7 @@
     api("/api/panel/assistant/" + sid).then(function (d) {
       if (!d.ok) { state.assistantSession = null; render(); return; }
       var sess = d.session;
-      document.getElementById("view-title").textContent = "گفتگوی دستیار";
+      document.getElementById("view-title").textContent = "گفتگوی رهگشا";
       setBody(
         '<button class="back-btn" id="assistant-back">→ بازگشت به فهرست گفتگوها</button>' +
         '<div class="settings-card chat-head">' +
