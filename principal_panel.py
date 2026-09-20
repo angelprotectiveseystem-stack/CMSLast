@@ -464,6 +464,10 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 ASSISTANT_MODEL_CHAIN = [GEMINI_MODEL, "gemini-3.6-flash", "gemini-2.5-flash-lite"]
 ASSISTANT_MODEL_CHAIN = list(dict.fromkeys(ASSISTANT_MODEL_CHAIN))  # حذف تکراری با حفظ ترتیب
 ASSISTANT_REQUEST_TIMEOUT = 30
+# خطاهای گذرای Gemini (شلوغیِ سرور / محدودیتِ نرخ) معمولاً با یک تلاشِ مجدد و کمی صبر
+# برطرف می‌شن؛ قبلاً همون لحظه می‌رفتیم سراغِ مدلِ بعدی یا پیامِ خطا می‌دادیم.
+ASSISTANT_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
+ASSISTANT_RETRY_DELAY = 1.2  # ثانیه
 ASSISTANT_MAX_OUTPUT_TOKENS = 1024
 ASSISTANT_MAX_HISTORY_TURNS = 6  # چند رفت‌وبرگشت آخر (برای اینکه هر بار کل تاریخچه از کلاینت زیاد نشه)
 ASSISTANT_MAX_TOOL_HOPS = 4      # حداکثر چندبار پشتِ‌سرهم اجازه‌ی صدازدنِ تابع (فقط گزارش‌گیریه، نیازی به عدد بزرگ نیست)
@@ -629,7 +633,10 @@ async def _dispatch_assistant_tool(name: str, args: dict) -> str:
         return await fn(args or {})
     except Exception as e:
         logger.exception(f"Principal assistant tool '{name}' failed")
-        return f"⚠️ خطا در اجرای {name}: {type(e).__name__}"
+        # نامِ خطای فنی فقط توی لاگ سرور می‌مونه؛ متنی که به مدل می‌رسه (و ممکنه به مدیر منتقل بشه)
+        # عمداً غیرفنی‌ست تا مدیر با عبارت‌هایی مثل KeyError روبه‌رو نشه.
+        return ("دریافت این اطلاعات با مشکل مواجه شد. بدون ذکر هیچ جزئیات فنی، مؤدبانه پوزش بخواه "
+                "و از مدیر بخواه لحظاتی بعد مجدداً بپرسد.")
 
 PANEL_GUIDE = (
     "راهنمای بخش‌های همین پنل (دقیقاً بر همین اساس راهنمایی کن، نه چیز دیگه‌ای):\n"
@@ -697,6 +704,7 @@ async def _call_assistant_gemini(contents: list, tools=None):
     if not GEMINI_API_KEY:
         return None
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
+    last_empty = None
     async with httpx.AsyncClient(timeout=ASSISTANT_REQUEST_TIMEOUT) as client:
         for model in ASSISTANT_MODEL_CHAIN:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -712,16 +720,37 @@ async def _call_assistant_gemini(contents: list, tools=None):
             }
             if tools:
                 payload["tools"] = tools
-            try:
-                resp = await client.post(url, headers=headers, json=payload)
-                resp.raise_for_status()
-                return resp.json()
-            except httpx.HTTPStatusError as e:
-                logger.warning(f"Principal assistant: model {model} failed ({e.response.status_code})")
-                continue
-            except Exception as e:
-                logger.warning(f"Principal assistant: model {model} failed ({e})")
-                continue
+            data = None
+            for attempt in range(2):  # حداکثر یک تلاشِ مجدد برای خطاهای گذرا
+                try:
+                    resp = await client.post(url, headers=headers, json=payload)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    break
+                except httpx.HTTPStatusError as e:
+                    code = e.response.status_code
+                    logger.warning(
+                        f"Principal assistant: model {model} failed ({code}) "
+                        f"attempt {attempt + 1}: {e.response.text[:200]}"
+                    )
+                    if code in ASSISTANT_TRANSIENT_STATUS and attempt == 0:
+                        await asyncio.sleep(ASSISTANT_RETRY_DELAY)
+                        continue
+                    break
+                except Exception as e:
+                    logger.warning(f"Principal assistant: model {model} failed ({e!r})")
+                    break
+            if data is None:
+                continue  # مدلِ بعدی
+            if _extract_assistant_parts(data):
+                return data
+            # پاسخِ بدونِ متن/تابع (مثلاً قطع‌شدن به‌خاطر سقفِ توکن یا فیلترِ ایمنی) —
+            # قبلاً همین‌جا به کاربر «متوجه نشدم» می‌گفتیم؛ اول مدلِ بعدی رو امتحان می‌کنیم.
+            fr = ((data.get("candidates") or [{}])[0]).get("finishReason")
+            logger.warning(f"Principal assistant: model {model} returned an empty reply (finishReason={fr})")
+            last_empty = data
+    if last_empty is not None:
+        return last_empty
     logger.error("Principal assistant: all models failed")
     return None
 
@@ -794,7 +823,7 @@ async def principal_assistant(request):
                 history.append({"role": role, "parts": [{"text": text[:1500]}]})
 
     if not GEMINI_API_KEY:
-        no_key_reply = "⚠️ کلید هوش مصنوعی روی سرور تنظیم نشده؛ لطفاً به مدیر سیستم اطلاع دهید."
+        no_key_reply = "سرویس دستیار در حال حاضر در دسترس نیست. لطفاً موضوع را به مدیر سیستم اطلاع دهید."
         await _principal_chat_log(sid, "system", no_key_reply)
         return _json({"ok": True, "reply": no_key_reply, "session_id": sid})
 
@@ -826,7 +855,7 @@ async def principal_assistant(request):
     )
     tools = [{"function_declarations": ASSISTANT_TOOL_DECLARATIONS}]
 
-    reply = "⚠️ ارتباط با دستیار هوشمند موقتاً برقرار نشد؛ چند لحظه‌ی دیگر دوباره امتحان کنید."
+    reply = "متأسفانه در حال حاضر امکان پاسخ‌گویی وجود ندارد. لطفاً لحظاتی بعد مجدداً تلاش فرمایید."
     reply_ok = False  # فقط پاسخِ واقعیِ مدل «ai» ثبت می‌شه؛ پیام‌های خطا «system»
     for _hop in range(ASSISTANT_MAX_TOOL_HOPS):
         data = await _call_assistant_gemini(contents, tools)
@@ -834,7 +863,7 @@ async def principal_assistant(request):
             break
         parts = _extract_assistant_parts(data)
         if not parts:
-            reply = "متوجه نشدم؛ می‌شه یه‌جور دیگه بپرسید؟"
+            reply = "پوزش می‌خواهم، منظور پرسش برایم روشن نشد. خواهشمندم آن را به شکل دیگری مطرح فرمایید."
             break
 
         fn_call = next((p["functionCall"] for p in parts if "functionCall" in p), None)
@@ -857,7 +886,7 @@ async def principal_assistant(request):
         reply_ok = True
         break
     else:
-        reply = "⚠️ این سوال خیلی پیچیده شد؛ لطفاً واضح‌تر یا مرحله‌به‌مرحله بپرسید."
+        reply = "این پرسش نیازمند بررسی چندمرحله‌ای است. خواهشمندم آن را در قالب پرسش‌های کوتاه‌تر مطرح فرمایید."
 
     await _principal_chat_log(sid, "ai" if reply_ok else "system", reply)
     return _json({"ok": True, "reply": reply, "session_id": sid})
