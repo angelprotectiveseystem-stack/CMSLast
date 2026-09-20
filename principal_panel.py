@@ -21,7 +21,7 @@ import httpx
 from aiohttp import web
 
 import database as db
-from helpers import now_context_for_ai
+from helpers import now_context_for_ai, admin_display, pishva_display
 
 logger = logging.getLogger(__name__)
 
@@ -449,6 +449,13 @@ async def principal_trends(request):
 # این پنل عمداً کاملاً فقط‌خواندنی‌ست؛ دستیارش هم همین اصل رو رعایت می‌کنه:
 # فقط درباره‌ی وضعیت فعلی (آمار، کلاس‌ها، بازیکن‌ها، مسابقات) توضیح می‌ده
 # و مدیر رو توی خودِ پنل راهنمایی می‌کنه، هیچ تابعی برای تغییر داده نداره.
+#
+# نکته‌ی مهم (رفعِ یه باگِ قبلی): قبلاً دستیار هیچ «ابزاری» نداشت و فقط یک
+# خلاصه‌ی آماریِ کلی (تعداد کلاس/بازیکن/مسابقه) بالای سرش بود؛ برای همین به
+# ساده‌ترین سوال‌های طبیعی («این دو بازیکن فعال کیا هستن؟») می‌گفت دسترسی
+# ندارم. الان چندتا ابزارِ فقط‌خواندنیِ محدود داره (پایین‌تر) تا بتونه واقعاً
+# جواب بده — ولی عمداً هیچ ابزاری برای آمارِ فردیِ برد/باختِ یک بازیکن یا
+# رتبه‌بندیِ «کدوم دانش‌آموز بهتره» نداره؛ اون فقط از تبِ «خانه» قابل دیدنه.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 ASSISTANT_MODEL_CHAIN = [GEMINI_MODEL, "gemini-3.6-flash", "gemini-2.5-flash-lite"]
@@ -456,6 +463,170 @@ ASSISTANT_MODEL_CHAIN = list(dict.fromkeys(ASSISTANT_MODEL_CHAIN))  # حذف ت�
 ASSISTANT_REQUEST_TIMEOUT = 30
 ASSISTANT_MAX_OUTPUT_TOKENS = 1024
 ASSISTANT_MAX_HISTORY_TURNS = 6  # چند رفت‌وبرگشت آخر (برای اینکه هر بار کل تاریخچه از کلاینت زیاد نشه)
+ASSISTANT_MAX_TOOL_HOPS = 4      # حداکثر چندبار پشتِ‌سرهم اجازه‌ی صدازدنِ تابع (فقط گزارش‌گیریه، نیازی به عدد بزرگ نیست)
+
+ASSISTANT_ROLE_FA = {
+    "tournament_manager": "مدیر مسابقات",
+    "security_manager": "مدیر امنیتی",
+}
+ASSISTANT_TOURNAMENT_STATUS_FA = {"active": "فعال", "ended": "پایان‌یافته", "paused": "متوقف"}
+
+
+# ─── ابزارهای فقط‌خواندنیِ دستیار ──────────────────────────────────
+async def _tool_get_players(args: dict) -> str:
+    """نام/کلاس/وضعیتِ بازیکنان — عمداً بدون آمار برد/باخت یا رتبه‌بندیِ فردی."""
+    players = await db.get_all_players() or []
+    search = str(args.get("search") or "").strip().lower()
+    class_filter = str(args.get("class_name") or "").strip().lower()
+    status_filter = str(args.get("status") or "").strip().lower()
+    rows = []
+    for p in players:
+        cname = p["class_name"] or "بدون کلاس"
+        status = p["status"] or ""
+        if status_filter and status.lower() != status_filter:
+            continue
+        if class_filter and class_filter not in cname.lower():
+            continue
+        if search and search not in (p["full_name"] or "").lower() and search not in cname.lower():
+            continue
+        rows.append({"full_name": p["full_name"], "class_name": cname, "status": status})
+    if not rows:
+        return "هیچ بازیکنی با این مشخصات پیدا نشد."
+    truncated = len(rows) > 60
+    shown = rows[:60]
+    lines = [f"- {r['full_name']} — {r['class_name']} ({'فعال' if r['status'] == 'active' else 'غیرفعال'})" for r in shown]
+    out = f"تعداد نتایج: {len(rows)}\n" + "\n".join(lines)
+    if truncated:
+        out += "\n(فقط ۶۰ موردِ اول؛ فهرست کامل در تبِ «بازیکن‌ها»ی همین پنل است.)"
+    return out
+
+
+async def _tool_get_classes(args: dict) -> str:
+    """آمار تجمیعیِ هر کلاس — مجاز چون رتبه‌بندیِ فردی نیست."""
+    classes, players = await asyncio.gather(db.get_all_classes(), db.get_all_players())
+    classes = classes or []
+    players = players or []
+    if not classes:
+        return "هنوز کلاسی ثبت نشده."
+    by_class = {}
+    for p in players:
+        by_class.setdefault(p["class_id"], []).append(p)
+    lines = []
+    for c in classes:
+        cplayers = by_class.get(c["id"], [])
+        wins = sum((p["wins"] or 0) for p in cplayers)
+        draws = sum((p["draws"] or 0) for p in cplayers)
+        losses = sum((p["losses"] or 0) for p in cplayers)
+        lines.append(f"- {c['name']}: {len(cplayers)} بازیکن | {wins} برد، {draws} تساوی، {losses} باخت")
+    return "آمار کلاس‌ها (مجموعِ نتایجِ همه‌ی بازیکنانِ هر کلاس):\n" + "\n".join(lines)
+
+
+async def _tool_get_teams(args: dict) -> str:
+    """آمار تجمیعیِ هر تیم — مجاز چون رتبه‌بندیِ فردی نیست."""
+    team_mode = await db.get_setting("team_mode_enabled", "0")
+    if team_mode != "1":
+        return "حالت تیمی در حال حاضر در این مدرسه فعال نیست."
+    teams = await db.get_all_teams() or []
+    if not teams:
+        return "هنوز هیچ تیمی ثبت نشده."
+    lines = []
+    for t in teams:
+        members, tstats = await asyncio.gather(db.get_team_members(t["id"]), db.get_team_stats(t["id"]))
+        lines.append(
+            f"- {t['name']}: {len(members or [])} عضو | "
+            f"{tstats['wins']} برد، {tstats['draws']} تساوی، {tstats['losses']} باخت"
+        )
+    return "آمار تیم‌ها (بر اساسِ نتایجِ مسابقاتِ تیمی):\n" + "\n".join(lines)
+
+
+async def _tool_get_tournaments(args: dict) -> str:
+    tournaments = await db.get_all_tournaments() or []
+    tournaments = [t for t in tournaments if t and t["status"] != "deleted"]
+    if not tournaments:
+        return "هیچ تورنمنتی ثبت نشده."
+    lines = [f"- {t['name']}: {ASSISTANT_TOURNAMENT_STATUS_FA.get(t['status'], t['status'])}" for t in tournaments]
+    return "\n".join(lines)
+
+
+async def _tool_get_staff(args: dict) -> str:
+    lines = [f"- مدیر ارشد: {await pishva_display()}"]
+    admins = await db.get_all_admins() or []
+    for a in admins:
+        if not a["is_active"]:
+            continue
+        role_fa = ASSISTANT_ROLE_FA.get(a["role"], a["role"])
+        lines.append(f"- {role_fa}: {await admin_display(a)}")
+    return "\n".join(lines)
+
+
+ASSISTANT_TOOL_DISPATCH = {
+    "get_players": _tool_get_players,
+    "get_classes": _tool_get_classes,
+    "get_teams": _tool_get_teams,
+    "get_tournaments": _tool_get_tournaments,
+    "get_staff": _tool_get_staff,
+}
+
+ASSISTANT_TOOL_DECLARATIONS = [
+    {
+        "name": "get_players",
+        "description": (
+            "جست‌وجوی نام و کلاس و وضعیتِ بازیکنان بر اساسِ نام، نام کلاس، یا وضعیت (active/inactive). "
+            "برای سوال‌هایی مثل «این بازیکن‌ها/دانش‌آموزها کیا هستن؟»، «بازیکن‌های کلاس دوم الف کیا هستن؟» "
+            "یا «کدوم‌ها غیرفعالن؟» از همین استفاده کن. توجه: این تابع هیچ آمار برد/باخت یا رتبه‌ی فردی "
+            "برنمی‌گردونه — چون نفراتِ برتر (رتبه‌بندیِ فردی) عمداً فقط در تبِ «خانه» قابل مشاهده است."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string", "description": "بخشی از نام بازیکن یا کلاس (اختیاری)"},
+                "class_name": {"type": "string", "description": "نام دقیق یا بخشی از نام کلاس (اختیاری)"},
+                "status": {"type": "string", "description": "active یا inactive (اختیاری؛ خالی = همه)"},
+            },
+        },
+    },
+    {
+        "name": "get_classes",
+        "description": (
+            "آمار مقایسه‌ایِ کلاس‌ها: تعداد بازیکن و مجموعِ برد/تساوی/باختِ همه‌ی بازیکنانِ هر کلاس. "
+            "برای «کدوم کلاس برتره؟» یا «وضعیت کلاس‌ها چطوره؟» از این استفاده کن — چون آمارِ تجمیعیِ "
+            "کلاس‌محوره، نه رتبه‌بندیِ فردی، مانعی برای پاسخ نداره."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_teams",
+        "description": (
+            "آمار مقایسه‌ایِ تیم‌ها (اگر حالتِ تیمی فعال باشه): تعدادِ عضو و مجموعِ نتایجِ مسابقاتِ تیمیِ "
+            "هر تیم. برای «کدوم تیم بهتره؟» از این استفاده کن — این هم آمارِ تجمیعیِ تیم‌محوره، نه رتبه‌ی فردی."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_tournaments",
+        "description": "فهرستِ تورنمنت‌ها به‌همراه وضعیتشان (فعال/پایان‌یافته/متوقف).",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_staff",
+        "description": (
+            "فهرستِ مدیر ارشد و مدیرانِ فعالِ سیستم به‌همراه نقششان (مثلاً مدیر مسابقات، مدیر امنیتی) و "
+            "نامِ نمایشی‌شان. برای «مدیر مسابقات کیه؟» یا سوال‌های مشابه درباره‌ی مدیرها از این استفاده کن."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+]
+
+
+async def _dispatch_assistant_tool(name: str, args: dict) -> str:
+    fn = ASSISTANT_TOOL_DISPATCH.get(name)
+    if not fn:
+        return "این ابزار در دسترس نیست."
+    try:
+        return await fn(args or {})
+    except Exception as e:
+        logger.exception(f"Principal assistant tool '{name}' failed")
+        return f"⚠️ خطا در اجرای {name}: {type(e).__name__}"
 
 PANEL_GUIDE = (
     "راهنمای بخش‌های همین پنل (دقیقاً بر همین اساس راهنمایی کن، نه چیز دیگه‌ای):\n"
@@ -496,48 +667,67 @@ def _assistant_system_prompt(overview_stats: dict) -> str:
         "خواستِ اجراییِ مشخصی داشت (مثلاً «فلان بازیکن رو حذف کن» یا «ساعت کاری رو ببند»)، مؤدبانه "
         "توضیح بده که این پنل فقط‌خواندنی‌ست و برای این کار باید با مدیر ارشد یا ادمین مدرسه در تلگرام "
         "هماهنگ شود؛ خودت هرگز چنین کاری را انجام‌شده اعلام نکن.\n\n"
-        f"آمار زنده‌ی همین لحظه‌ی پنل:\n{stats_line}\n\n"
+        f"آمار خلاصه‌ی همین لحظه‌ی پنل:\n{stats_line}\n\n"
         f"{PANEL_GUIDE}\n\n"
-        "اگر مدیر پرسشی درباره‌ی این آمار یا نحوه‌ی کار با بخش‌های پنل داشت، دقیقاً بر همین اساس و با "
-        "لحنی گرم و مطمئن راهنمایی‌اش کن. اگر چیزی را نمی‌دانی یا خارج از حیطه‌ی این پنل است (مثلاً "
-        "جزئیاتی که در آمار بالا نیست)، صادقانه بگو که این اطلاعات را نداری، حدس نزن."
+        "ابزارهایی که در اختیار داری (فقط برای مشاهده/گزارش، هیچ‌کدوم داده‌ای رو تغییر نمی‌دن): "
+        "get_players (نام/کلاس/وضعیتِ بازیکنان، با جست‌وجو)، get_classes (آمار تجمیعیِ هر کلاس)، "
+        "get_teams (آمار تجمیعیِ هر تیم، اگر فعال باشد)، get_tournaments (فهرست تورنمنت‌ها)، "
+        "get_staff (مدیر ارشد و مدیرانِ فعال با نقششان). هر وقت جوابِ دقیقِ سوال نیاز به یکی از این‌ها "
+        "داشت (مثلاً «این دو بازیکن فعال کیا هستن؟»، «کلاس‌ها رو مقایسه کن»، «مدیر مسابقات کیه؟»)، حتماً "
+        "همون تابع رو صدا بزن و بر اساسِ نتیجه‌ی واقعی‌اش جواب بده — هیچ‌وقت اسم یا آماری رو از خودت "
+        "حدس نزن یا نسازی. اگر تابعی نتیجه‌ای نداد یا خطا داد، همون رو صادقانه به مدیر بگو.\n\n"
+        "محدودیتِ مهم درباره‌ی رتبه‌بندیِ فردیِ بازیکنان: تو هیچ ابزاری برای آمارِ بردوباختِ تک‌تکِ "
+        "بازیکنان یا مقایسه‌ی «کدوم دانش‌آموز بهتره» نداری. اگر مدیر پرسید کدام دانش‌آموز بهتر است یا "
+        "آمار فردیِ برد/باختِ یک بازیکن خاص را خواست، حدس نزن و از get_players هم برای این کار استفاده "
+        "نکن (چون اصلاً چنین آماری نمی‌ده)؛ فقط مؤدبانه بگو این آمار عمداً صرفاً در تبِ «خانه»ی همین پنل "
+        "(نفراتِ برتر) قابل مشاهده است. اما مقایسه‌ی «کدوم کلاس بهتره» یا «کدوم تیم بهتره» کاملاً مجازه، "
+        "چون بر پایه‌ی آمارِ تجمیعیِ کلاس/تیمه نه رتبه‌بندیِ فردی — برای این دو حتماً از get_classes یا "
+        "get_teams استفاده کن و بر اساسِ اعداد (نه حدس) بگو کدوم بهتره.\n\n"
+        "اگر چیزی را نمی‌دانی یا خارج از حیطه‌ی این پنل است، صادقانه بگو که این اطلاعات را نداری، حدس نزن."
     )
 
 
-async def _call_assistant_gemini(contents: list) -> str:
+async def _call_assistant_gemini(contents: list, tools=None):
+    """یک درخواست به Gemini می‌زند و کل JSON پاسخ را برمی‌گرداند (نه فقط متن)، چون ممکن است
+    شاملِ یک functionCall باشد که دیسپچرِ بالای صفحه باید قبل از جوابِ نهایی پردازشش کند.
+    در خطا None برمی‌گردونه تا صدازننده پیامِ مناسب رو خودش انتخاب کنه."""
     if not GEMINI_API_KEY:
-        return "⚠️ کلید هوش مصنوعی روی سرور تنظیم نشده؛ لطفاً به مدیر سیستم اطلاع دهید."
+        return None
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
-    payload_base = {
-        "contents": contents,
-        "generationConfig": {"maxOutputTokens": ASSISTANT_MAX_OUTPUT_TOKENS, "temperature": 0.4},
-    }
-    last_error = None
     async with httpx.AsyncClient(timeout=ASSISTANT_REQUEST_TIMEOUT) as client:
         for model in ASSISTANT_MODEL_CHAIN:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-            payload = dict(payload_base)
-            payload["generationConfig"] = dict(payload_base["generationConfig"])
-            payload["generationConfig"]["thinkingConfig"] = (
-                {"thinkingLevel": "minimal"} if model.startswith("gemini-3") else {"thinkingBudget": 256}
-            )
+            payload = {
+                "contents": contents,
+                "generationConfig": {
+                    "maxOutputTokens": ASSISTANT_MAX_OUTPUT_TOKENS,
+                    "temperature": 0.4,
+                    "thinkingConfig": (
+                        {"thinkingLevel": "minimal"} if model.startswith("gemini-3") else {"thinkingBudget": 256}
+                    ),
+                },
+            }
+            if tools:
+                payload["tools"] = tools
             try:
                 resp = await client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
-                data = resp.json()
-                parts = data["candidates"][0]["content"]["parts"]
-                text = "".join(p.get("text", "") for p in parts).strip()
-                return text or "متوجه نشدم؛ می‌شه یه‌جور دیگه بپرسید؟"
+                return resp.json()
             except httpx.HTTPStatusError as e:
-                last_error = e
                 logger.warning(f"Principal assistant: model {model} failed ({e.response.status_code})")
                 continue
             except Exception as e:
-                last_error = e
                 logger.warning(f"Principal assistant: model {model} failed ({e})")
                 continue
-    logger.error(f"Principal assistant: all models failed: {last_error}")
-    return "⚠️ ارتباط با دستیار هوشمند موقتاً برقرار نشد؛ چند لحظه‌ی دیگر دوباره امتحان کنید."
+    logger.error("Principal assistant: all models failed")
+    return None
+
+
+def _extract_assistant_parts(data: dict) -> list:
+    try:
+        return data["candidates"][0]["content"]["parts"]
+    except Exception:
+        return []
 
 
 @routes.post("/api/principal/assistant")
@@ -565,6 +755,9 @@ async def principal_assistant(request):
             if role in ("user", "model") and text:
                 history.append({"role": role, "parts": [{"text": text[:1500]}]})
 
+    if not GEMINI_API_KEY:
+        return _json({"ok": True, "reply": "⚠️ کلید هوش مصنوعی روی سرور تنظیم نشده؛ لطفاً به مدیر سیستم اطلاع دهید."})
+
     classes, players, tournaments, matches_all, matches_week = await asyncio.gather(
         db.get_all_classes(), db.get_all_players(), db.get_all_tournaments(),
         db.get_matches_by_filter("all"), db.get_matches_by_filter("week"),
@@ -591,7 +784,38 @@ async def principal_assistant(request):
         + history
         + [{"role": "user", "parts": [{"text": message}]}]
     )
-    reply = await _call_assistant_gemini(contents)
+    tools = [{"function_declarations": ASSISTANT_TOOL_DECLARATIONS}]
+
+    reply = "⚠️ ارتباط با دستیار هوشمند موقتاً برقرار نشد؛ چند لحظه‌ی دیگر دوباره امتحان کنید."
+    for _hop in range(ASSISTANT_MAX_TOOL_HOPS):
+        data = await _call_assistant_gemini(contents, tools)
+        if data is None:
+            break
+        parts = _extract_assistant_parts(data)
+        if not parts:
+            reply = "متوجه نشدم؛ می‌شه یه‌جور دیگه بپرسید؟"
+            break
+
+        fn_call = next((p["functionCall"] for p in parts if "functionCall" in p), None)
+        if fn_call:
+            fname = fn_call["name"]
+            fargs = fn_call.get("args", {})
+            result_text = await _dispatch_assistant_tool(fname, fargs)
+            # باید همون parts ای که خودِ مدل برگردونده رو عیناً پس بفرستیم (نه فقط functionCall
+            # رو دستی بازسازی کنیم)، چون مدل‌های نسل ۳ جمینای یه thoughtSignature هم کنارش
+            # می‌دن که برگردوندنش برای دورِ بعدی الزامیه.
+            contents.append({"role": "model", "parts": parts})
+            contents.append({
+                "role": "user",
+                "parts": [{"functionResponse": {"name": fname, "response": {"result": result_text}}}],
+            })
+            continue
+
+        reply = "".join(p.get("text", "") for p in parts).strip() or "باشه."
+        break
+    else:
+        reply = "⚠️ این سوال خیلی پیچیده شد؛ لطفاً واضح‌تر یا مرحله‌به‌مرحله بپرسید."
+
     return _json({"ok": True, "reply": reply})
 
 
