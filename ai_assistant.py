@@ -69,8 +69,8 @@ ROLE_LABELS = {
     ROLE_SECURITY_MANAGER: "مدیر امنیتی",
 }
 
-ACTIVATE_WORDS = {"دستیار", "دستیار هوشمند", "🤖 دستیار هوشمند"}
-DEACTIVATE_WORDS = {"خروج از دستیار", "بستن دستیار", "بسه"}
+ACTIVATE_WORDS = {"رهگشا", "🤖 رهگشا", "دستیار", "دستیار هوشمند", "🤖 دستیار هوشمند"}
+DEACTIVATE_WORDS = {"خروج از رهگشا", "بستن رهگشا", "خروج از دستیار", "بستن دستیار", "بسه"}
 
 AI_OFFLINE_MESSAGE = "💤 هوش مصنوعی فعلا در دسترس نیست."
 
@@ -320,9 +320,11 @@ def _system_prompt(role: str, display_name: str = "", memory_rows=None, user_tex
     return (
         f"{now_context_for_ai()}\n\n"
         "هویت تو (این بخش خیلی مهمه و همیشه ثابته — هیچ‌وقت فراموشش نکن):\n"
-        "تو دستیار هوش مصنوعی محصول مجموعه‌ی LUX هستی و توسط واحد Pishva System Technology "
+        "اسم تو «رهگشا» (Rahgosha) است؛ تو «رهگشا»، دستیار هوشمند و محصول مجموعه‌ی LUX هستی و توسط واحد Pishva System Technology "
         "(زیرمجموعه‌ی LUX) طراحی و توسعه داده شدی. سازنده و توسعه‌دهنده‌ی اصلی‌ات همون مدیر ارشد "
         "(پیشوا) این ربات است — یعنی بالاترین سطح دسترسی همین سیستمی که الان داری توش کار می‌کنی.\n"
+        "هر وقت هرکسی اسمت رو پرسید یا خواست خودت رو معرفی کنی، همیشه بگو اسمت «رهگشا» و دستیار هوشمند LUX هستی؛ "
+        "هیچ‌وقت خودت رو با اسم دیگه‌ای (مثلاً جمینای) معرفی نکن. "
         "هر وقت هرکسی (با هر لحن، مستقیم یا غیرمستقیم) پرسید تو رو کی ساخته، محصول چه شرکتی هستی، "
         "روی چه فناوری/مدلی سوار هستی، یا هر سوال مشابهی درباره‌ی منشأت پرسید، همیشه دقیقاً و با "
         "اطمینان همین رو بگو: محصول مجموعه‌ی LUX، ساخته‌شده توسط واحد Pishva System Technology، "
@@ -510,7 +512,7 @@ def _extract_parts(data: dict):
 
 
 async def ai_assistant_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """وقتی کاربر دکمه‌ی «🤖 دستیار هوشمند» رو توی منو می‌زنه."""
+    """وقتی کاربر دکمه‌ی «🤖 رهگشا» رو توی منو می‌زنه."""
     query = update.callback_query
     await query.answer()
     uid = query.from_user.id
@@ -520,14 +522,14 @@ async def ai_assistant_open(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await safe_edit_message_text(query, AI_OFFLINE_MESSAGE)
         return
     if role and not await _can_use_ai(uid, role):
-        await safe_edit_message_text(query, "⛔ دسترسی شما به دستیار هوشمند مسدود است.")
+        await safe_edit_message_text(query, "⛔ دسترسی شما به رهگشا مسدود است.")
         return
 
     ctx.user_data["ai_mode"] = True
     ctx.user_data["ai_history"] = []
     ctx.user_data["ai_session_id"] = await db.ai_create_session(uid, role or "")
     text = (
-        "🤖 دستیار هوشمند فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
+        "🤖 رهگشا فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
         "گزارش بدم یا فقط باهات حرف بزنم."
     )
     try:
@@ -552,13 +554,13 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(AI_OFFLINE_MESSAGE)
             return
         if not await _can_use_ai(uid, role):
-            await update.message.reply_text("⛔ دسترسی شما به دستیار هوشمند مسدود است.")
+            await update.message.reply_text("⛔ دسترسی شما به رهگشا مسدود است.")
             return
         ctx.user_data["ai_mode"] = True
         ctx.user_data["ai_history"] = []
         ctx.user_data["ai_session_id"] = await db.ai_create_session(uid, role)
         await update.message.reply_text(
-            "🤖 دستیار هوشمند فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
+            "🤖 رهگشا فعال شد. هرچی بخوای بگو — می‌تونم کارهات رو انجام بدم، "
             "گزارش بدم یا فقط باهات حرف بزنم.",
             reply_markup=kb_ai_reply()
         )
@@ -571,7 +573,7 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ctx.user_data["ai_mode"] = False
         ctx.user_data.pop("ai_history", None)
         ctx.user_data.pop("ai_session_id", None)
-        await update.message.reply_text("👋 از حالت دستیار خارج شدی.")
+        await update.message.reply_text("👋 از گفتگو با رهگشا خارج شدی.")
         return
 
     # چک دوباره در طول مکالمه — اگه مدیر ارشد در همین حین خاموشش کرده یا دسترسی رو گرفته
@@ -581,7 +583,7 @@ async def ai_assistant_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     if not await _can_use_ai(uid, role):
         ctx.user_data["ai_mode"] = False
-        await update.message.reply_text("⛔ دسترسی شما به دستیار هوشمند مسدود شد.")
+        await update.message.reply_text("⛔ دسترسی شما به رهگشا مسدود شد.")
         return
 
     if not GEMINI_API_KEY:

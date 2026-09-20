@@ -44,7 +44,7 @@ async def ai_exit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
         pass
-    await query.message.reply_text("👋 از حالت دستیار خارج شدی. هر وقت خواستی بنویس «دستیار».")
+    await query.message.reply_text("👋 از گفتگو با رهگشا خارج شدی. هر وقت خواستی بنویس «رهگشا».")
 
 
 async def ai_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -56,7 +56,7 @@ async def ai_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🚪 خروج از چت", callback_data="ai_exit")],
         [InlineKeyboardButton("🔙 بستن این منو", callback_data="ai_menu_close")],
     ])
-    await query.message.reply_text("🤖 منوی دستیار — چه کاری انجام بدم؟", reply_markup=kb)
+    await query.message.reply_text("🤖 منوی رهگشا — چه کاری انجام بدم؟", reply_markup=kb)
 
 
 async def ai_menu_close(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -99,7 +99,7 @@ async def ai_hist_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = query.from_user.id
     sessions = await db.ai_get_sessions_for_user(uid, limit=15)
     if not sessions:
-        await query.message.reply_text("📭 هنوز چتی با دستیار نداشتی.")
+        await query.message.reply_text("📭 هنوز چتی با رهگشا نداشتی.")
         return
     rows = [[InlineKeyboardButton(_session_label(s), callback_data=f"ai_hist_open_{s['id']}")] for s in sessions]
     rows.append([InlineKeyboardButton("🔙 بستن", callback_data="ai_menu_close")])
@@ -253,7 +253,7 @@ async def ai_admlog_view(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if m["sender"] == "user":
             lines.append(f"👤 *{name}:* {m['text']}")
         elif m["sender"] == "ai":
-            lines.append(f"🤖 *دستیار:* {m['text']}")
+            lines.append(f"🤖 *رهگشا:* {m['text']}")
         else:  # tool
             lines.append(f"🔧 _{m['text']}_")
     text = "\n".join(lines)

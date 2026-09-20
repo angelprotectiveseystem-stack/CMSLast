@@ -43,7 +43,7 @@ def kb_pishva_main():
         [InlineKeyboardButton("🗄️ وضعیت دیتابیس", callback_data="pishva_dbstatus")],
         [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu"),
         InlineKeyboardButton("📅 تقویم", callback_data="menu_calendar")],
-        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open"),
+        [InlineKeyboardButton("🤖 رهگشا", callback_data="ai_assistant_open"),
         InlineKeyboardButton("🧑‍💻 مدیریت دستیار", callback_data="ai_manage_menu_main")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
@@ -59,7 +59,7 @@ def kb_tournament_manager_main():
         InlineKeyboardButton("❓ راهنما", callback_data="menu_help")],
         [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu"),
         InlineKeyboardButton("📅 تقویم", callback_data="menu_calendar")],
-        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
+        [InlineKeyboardButton("🤖 رهگشا", callback_data="ai_assistant_open")],
         [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
     ])
 
@@ -74,7 +74,7 @@ def kb_security_manager_main():
         InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
         [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu"),
         InlineKeyboardButton("📅 تقویم", callback_data="menu_calendar")],
-        [InlineKeyboardButton("🤖 دستیار هوشمند", callback_data="ai_assistant_open")],
+        [InlineKeyboardButton("🤖 رهگشا", callback_data="ai_assistant_open")],
     ])
 
 # ─── مدیریت مسابقات (همه چیز اینجاست) ──────────────────────

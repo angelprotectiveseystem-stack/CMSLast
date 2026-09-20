@@ -1046,7 +1046,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
 
         elif name == "send_news":
             ts = now_shamsi()
-            news_text = f"✨ *خبر فوری از سیستم✨*\n\n{args['text']}\n\n⏱️ `{ts}`\n🤖 ارسال‌شده توسط دستیار هوشمند"
+            news_text = f"✨ *خبر فوری از سیستم✨*\n\n{args['text']}\n\n⏱️ `{ts}`\n🤖 ارسال‌شده توسط رهگشا"
             await broadcast_to_admins(ctx.bot, news_text)
             await db.create_news(args["text"])
             await _auto_note(ctx, "عمومی", f"خبر: {args['text']}", "all", caller_id)
@@ -1069,7 +1069,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 f"👤 از: {pname}\n"
                 f"⏱️ `{ts}`\n\n"
                 f"💬 متن: _{text}_\n\n"
-                f"🤖 این پیام از طریق دستیار هوشمند ارسال شده"
+                f"🤖 این پیام از طریق رهگشا ارسال شده"
             )
             try:
                 sent = await ctx.bot.send_message(
@@ -1101,7 +1101,7 @@ async def _dispatch_impl(name: str, args: dict, caller_id: int, caller_role: str
                 f"📌 عنوان: *{title}*\n"
                 f"📝 توضیح: _{desc or '—'}_\n"
                 f"⏱️ زمان اعطا: `{ts}`\n\n"
-                f"🤖 این وظیفه از طریق دستیار هوشمند ثبت شده"
+                f"🤖 این وظیفه از طریق رهگشا ثبت شده"
             )
             try:
                 await ctx.bot.send_message(
@@ -1470,7 +1470,7 @@ async def dispatch(name: str, args: dict, caller_id: int, caller_role: str, ctx)
             actor = await _actor_label(caller_id, caller_role)
             args_str = ", ".join(f"{k}={v}" for k, v in (args or {}).items())
             notif = (
-                "📣 گزارش اقدام دستیار هوشمند\n"
+                "📣 گزارش اقدام رهگشا\n"
                 f"👤 انجام‌دهنده: {actor}\n"
                 f"🛠 عملیات: {name}"
                 + (f"\n📝 ورودی: {args_str}" if args_str else "")
