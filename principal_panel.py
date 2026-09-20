@@ -17,9 +17,11 @@ import os
 import asyncio
 from datetime import datetime, timedelta
 
+import httpx
 from aiohttp import web
 
 import database as db
+from helpers import now_context_for_ai
 
 logger = logging.getLogger(__name__)
 
@@ -441,6 +443,156 @@ async def principal_trends(request):
             {"label": result_fa_map.get(r["result"], r["result"]), "value": r["cnt"]} for r in result_rows
         ],
     })
+
+
+# ─── دستیار هوشمند (فقط مشاوره/راهنما — هیچ ابزار اجرایی‌ای نداره) ──
+# این پنل عمداً کاملاً فقط‌خواندنی‌ست؛ دستیارش هم همین اصل رو رعایت می‌کنه:
+# فقط درباره‌ی وضعیت فعلی (آمار، کلاس‌ها، بازیکن‌ها، مسابقات) توضیح می‌ده
+# و مدیر رو توی خودِ پنل راهنمایی می‌کنه، هیچ تابعی برای تغییر داده نداره.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
+ASSISTANT_MODEL_CHAIN = [GEMINI_MODEL, "gemini-3.6-flash", "gemini-2.5-flash-lite"]
+ASSISTANT_MODEL_CHAIN = list(dict.fromkeys(ASSISTANT_MODEL_CHAIN))  # حذف تکراری با حفظ ترتیب
+ASSISTANT_REQUEST_TIMEOUT = 30
+ASSISTANT_MAX_OUTPUT_TOKENS = 1024
+ASSISTANT_MAX_HISTORY_TURNS = 6  # چند رفت‌وبرگشت آخر (برای اینکه هر بار کل تاریخچه از کلاینت زیاد نشه)
+
+PANEL_GUIDE = (
+    "راهنمای بخش‌های همین پنل (دقیقاً بر همین اساس راهنمایی کن، نه چیز دیگه‌ای):\n"
+    "- «خانه»: خلاصه‌ی کلی — تعداد کلاس‌ها، بازیکن‌ها (فعال/کل)، مسابقات ثبت‌شده، "
+    "مسابقات این هفته، مسابقات با نتیجه، تورنمنت‌های فعال، و ۵ نفر برتر همین هفته.\n"
+    "- «کلاس‌ها»: فهرست کلاس‌ها با تعداد بازیکن هر کلاس و مجموع برد/تساوی/باخت آن کلاس.\n"
+    "- «بازیکن‌ها»: فهرست همه‌ی بازیکنان با جستجو (نام/کلاس) و فیلتر همه/فعال؛ آمار بازی/برد/"
+    "تساوی/باخت هرکدوم و ستاره‌ی ⭐ برای بازیکنان ویژه (elite).\n"
+    "- «مسابقات»: فهرست مسابقات با جستجوی نام بازیکن و فیلتر بازه‌ی زمانی (همه/امروز/این هفته/این ماه).\n"
+    "- «نفرات برتر»: رتبه‌بندی ۵ (یا بیشتر) نفر برتر؛ یا خودکار بر اساس امتیاز مسابقات هر بازه "
+    "(هفته/ماه/کل)، یا در حالت دستی، فهرستی که مدیر ارشد شخصاً از تلگرام انتخاب کرده — این حالت "
+    "فقط از تلگرام (تنظیمات ربات) قابل تغییره، نه از این پنل.\n"
+    "- «روندها»: چهار نمودار — تعداد مسابقات ۳۰ روز اخیر (روزانه)، تعداد مسابقات ۸ هفته اخیر، "
+    "توزیع بازیکنان بر اساس کلاس، و توزیع نتایج مسابقات (برد/تساوی/باخت/لغو).\n"
+    "این پنل کاملاً فقط‌خواندنی است: مدیر مدرسه از اینجا هیچ داده‌ای را نمی‌تواند ثبت، ویرایش یا "
+    "حذف کند؛ صرفاً نظارت و مشاهده. برای هرگونه تغییر واقعی (ثبت مسابقه، افزودن بازیکن، تغییر "
+    "حالت نفرات برتر، ارسال اطلاعیه و…) باید از طریق مدیر ارشد یا ادمین‌های مدرسه در تلگرام اقدام شود."
+)
+
+
+def _assistant_system_prompt(overview_stats: dict) -> str:
+    stats_line = (
+        f"کلاس‌ها: {overview_stats.get('classes_total', 0)} | "
+        f"بازیکنان: {overview_stats.get('players_total', 0)} "
+        f"(فعال: {overview_stats.get('players_active', 0)}) | "
+        f"مسابقات ثبت‌شده: {overview_stats.get('matches_total', 0)} | "
+        f"مسابقات این هفته: {overview_stats.get('matches_this_week', 0)} | "
+        f"مسابقات با نتیجه: {overview_stats.get('matches_decided', 0)} | "
+        f"تورنمنت‌های فعال: {overview_stats.get('tournaments_active', 0)}"
+    )
+    return (
+        f"{now_context_for_ai()}\n\n"
+        "تو دستیار هوشمند «پنل مدیر مدرسه» در سامانه‌ی CMS (سیستم مدیریت مسابقات شطرنج مدرسه) هستی. "
+        "مخاطبت مدیر مدرسه است — با احترام کامل، مؤدبانه، گرم و صمیمی (نه رسمی و خشک، ولی همیشه با ادب) "
+        "به فارسی صحبت کن. جمله‌ها کوتاه، روشن و مناسب صفحه‌ی موبایل باشند.\n\n"
+        "نقش تو صرفاً «مشاوره و راهنمایی» است — نه اجرای هیچ کاری. تو هیچ ابزاری برای ثبت، ویرایش یا "
+        "حذف چیزی نداری و نباید وانمود کنی که کاری را برای مدیر انجام داده‌ای یا خواهی داد. اگر مدیر "
+        "خواستِ اجراییِ مشخصی داشت (مثلاً «فلان بازیکن رو حذف کن» یا «ساعت کاری رو ببند»)، مؤدبانه "
+        "توضیح بده که این پنل فقط‌خواندنی‌ست و برای این کار باید با مدیر ارشد یا ادمین مدرسه در تلگرام "
+        "هماهنگ شود؛ خودت هرگز چنین کاری را انجام‌شده اعلام نکن.\n\n"
+        f"آمار زنده‌ی همین لحظه‌ی پنل:\n{stats_line}\n\n"
+        f"{PANEL_GUIDE}\n\n"
+        "اگر مدیر پرسشی درباره‌ی این آمار یا نحوه‌ی کار با بخش‌های پنل داشت، دقیقاً بر همین اساس و با "
+        "لحنی گرم و مطمئن راهنمایی‌اش کن. اگر چیزی را نمی‌دانی یا خارج از حیطه‌ی این پنل است (مثلاً "
+        "جزئیاتی که در آمار بالا نیست)، صادقانه بگو که این اطلاعات را نداری، حدس نزن."
+    )
+
+
+async def _call_assistant_gemini(contents: list) -> str:
+    if not GEMINI_API_KEY:
+        return "⚠️ کلید هوش مصنوعی روی سرور تنظیم نشده؛ لطفاً به مدیر سیستم اطلاع دهید."
+    headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
+    payload_base = {
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": ASSISTANT_MAX_OUTPUT_TOKENS, "temperature": 0.4},
+    }
+    last_error = None
+    async with httpx.AsyncClient(timeout=ASSISTANT_REQUEST_TIMEOUT) as client:
+        for model in ASSISTANT_MODEL_CHAIN:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            payload = dict(payload_base)
+            payload["generationConfig"] = dict(payload_base["generationConfig"])
+            payload["generationConfig"]["thinkingConfig"] = (
+                {"thinkingLevel": "minimal"} if model.startswith("gemini-3") else {"thinkingBudget": 256}
+            )
+            try:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                parts = data["candidates"][0]["content"]["parts"]
+                text = "".join(p.get("text", "") for p in parts).strip()
+                return text or "متوجه نشدم؛ می‌شه یه‌جور دیگه بپرسید؟"
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                logger.warning(f"Principal assistant: model {model} failed ({e.response.status_code})")
+                continue
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Principal assistant: model {model} failed ({e})")
+                continue
+    logger.error(f"Principal assistant: all models failed: {last_error}")
+    return "⚠️ ارتباط با دستیار هوشمند موقتاً برقرار نشد؛ چند لحظه‌ی دیگر دوباره امتحان کنید."
+
+
+@routes.post("/api/principal/assistant")
+async def principal_assistant(request):
+    _require_auth(request)
+    await _require_enabled(request)
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text=json.dumps({"ok": False, "error": "invalid_json"}))
+
+    message = str(body.get("message", "")).strip()
+    if not message:
+        raise web.HTTPBadRequest(text=json.dumps({"ok": False, "error": "empty_message"}))
+    if len(message) > 1500:
+        message = message[:1500]
+
+    raw_history = body.get("history") or []
+    history = []
+    if isinstance(raw_history, list):
+        for turn in raw_history[-(ASSISTANT_MAX_HISTORY_TURNS * 2):]:
+            role = turn.get("role")
+            text = str(turn.get("text", "")).strip()
+            if role in ("user", "model") and text:
+                history.append({"role": role, "parts": [{"text": text[:1500]}]})
+
+    classes, players, tournaments, matches_all, matches_week = await asyncio.gather(
+        db.get_all_classes(), db.get_all_players(), db.get_all_tournaments(),
+        db.get_matches_by_filter("all"), db.get_matches_by_filter("week"),
+    )
+    classes = classes or []; players = players or []; tournaments = tournaments or []
+    matches_all = matches_all or []; matches_week = matches_week or []
+    players_active = sum(1 for p in players if p and p["status"] == "active")
+    decided = [m for m in matches_all if m and m["result"] in ("white", "black", "draw")]
+    active_tournaments = [t for t in tournaments if t and t["status"] == "active"]
+    stats = {
+        "classes_total": len(classes),
+        "players_total": len(players),
+        "players_active": players_active,
+        "matches_total": len(matches_all),
+        "matches_this_week": len(matches_week),
+        "matches_decided": len(decided),
+        "tournaments_active": len(active_tournaments),
+    }
+
+    system_prompt = _assistant_system_prompt(stats)
+    contents = (
+        [{"role": "user", "parts": [{"text": system_prompt}]},
+         {"role": "model", "parts": [{"text": "بله، در خدمتم. هر سوالی درباره‌ی پنل دارید بفرمایید."}]}]
+        + history
+        + [{"role": "user", "parts": [{"text": message}]}]
+    )
+    reply = await _call_assistant_gemini(contents)
+    return _json({"ok": True, "reply": reply})
 
 
 def register_principal_routes(app: web.Application):
