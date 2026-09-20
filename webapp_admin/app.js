@@ -4,7 +4,8 @@
   var TOKEN_KEY = "chess_panel_token";
   var POLL_MS = 4000; // زنده بدون فشار به سرور: هر ۴ ثانیه فقط GET های سبک
   var state = { view: "home", timer: null, activityPage: 0, topManualView: false,
-                assistantSession: null, assistantSource: "all", assistantQuery: "" };
+                assistantSession: null, assistantSource: "all", assistantQuery: "",
+                principalDeviceOpen: null };
 
   // ── HTTP ──────────────────────────────────────────────
   function api(path, opts) {
@@ -69,6 +70,7 @@
     home: "خانه", matches: "مسابقات شطرنج", live: "شطرنج زنده",
     players: "مسابقه‌دهنده‌ها", elo: "سطح پیشرفت / ELO", admins: "مدیر‌ها",
     online: "آنلاین‌ها", messages: "پیام‌های ارسالی", activity: "فعالیت‌ها",
+    "principal-devices": "ورودهای مدیر مدرسه",
     charts: "نمودارها", assistant: "رهگشا", settings: "تنظیمات",
   };
 
@@ -479,6 +481,8 @@
       });
     },
 
+    "principal-devices": function () { renderPrincipalDevices(); },
+
     charts: function () {
       setBody('<div class="loading-state">در حال بارگذاری نمودارها…</div>');
       api("/api/panel/charts").then(function (d) {
@@ -551,6 +555,121 @@
       });
     },
   };
+
+  // ── ورودهای مدیر مدرسه: دستگاه‌ها + لاگِ ورود (بلاک/آنبلاک/حذف) ──────
+  // برخلافِ بقیه‌ی تب‌ها، این یکی می‌نویسه (بلاک/آنبلاک/حذفِ سوابق)، پس
+  // «دستگاه» رو با ترکیبِ IP+User-Agent می‌شناسه (principal_panel.py این
+  // شناسه رو ساخته)، نه با حسابِ کاربری — چون پنل مدیر مدرسه حساب نداره.
+  function deviceIcon(type) {
+    if (type === "mobile") return "📱";
+    if (type === "tablet") return "📱";
+    return "🖥️";
+  }
+  function deviceLocation(d) {
+    var parts = [d.city, d.region, d.country].filter(Boolean);
+    return parts.length ? parts.join("، ") : "نامشخص";
+  }
+  function deviceCard(d) {
+    var open = state.principalDeviceOpen === d.device_id;
+    return (
+      '<div class="row-card device-card' + (d.is_blocked ? ' device-blocked' : '') + '" data-did="' + esc(d.device_id) + '">' +
+        '<div class="device-card-top">' +
+          '<div class="main-txt">' + deviceIcon(d.device_type) + ' ' + esc(d.browser) + ' روی ' + esc(d.os) + '</div>' +
+          '<div class="badge-group">' + (d.is_blocked ? '<span class="badge loss">بلاک‌شده</span>' : '<span class="badge win">آزاد</span>') + '</div>' +
+        '</div>' +
+        '<div class="sub-txt">🌐 ' + esc(d.ip || "نامشخص") + ' · 📍 ' + esc(deviceLocation(d)) + '</div>' +
+        '<div class="sub-txt">' + d.visits + ' بازدید · آخرین: ' + fmtDate(d.last_seen) + ' · اولین: ' + fmtDate(d.first_seen) + '</div>' +
+        (d.is_blocked ? '<div class="sub-txt device-block-reason">دلیلِ بلاک: ' + esc(d.block_reason || "—") + '</div>' : '') +
+        '<div class="device-actions">' +
+          '<button class="tab-btn device-btn-detail" data-act="detail">' + (open ? '▲ بستن جزئیات' : '▼ بازدیدهای اخیر') + '</button>' +
+          (d.is_blocked
+            ? '<button class="tab-btn device-btn-unblock" data-act="unblock">✅ آنبلاک</button>'
+            : '<button class="tab-btn device-btn-block" data-act="block">🚫 بلاک دستگاه</button>') +
+          '<button class="tab-btn device-btn-delete" data-act="delete">🗑 حذف دسترسی</button>' +
+        '</div>' +
+        (open ? '<div class="device-detail" id="device-detail-' + esc(d.device_id) + '"><div class="loading-state"><span class="spinner"></span></div></div>' : '') +
+      '</div>'
+    );
+  }
+
+  function loadPrincipalDeviceDetail(deviceId) {
+    var el = document.getElementById("device-detail-" + deviceId);
+    if (!el) return;
+    api("/api/panel/principal-log?device_id=" + encodeURIComponent(deviceId) + "&page=0").then(function (d) {
+      if (!d.ok) return;
+      if (!d.log.length) { el.innerHTML = '<div class="empty-state">بازدیدی ثبت نشده</div>'; return; }
+      el.innerHTML = '<table><thead><tr><th>زمان</th><th>مسیر</th><th>وضعیت</th></tr></thead><tbody>' +
+        d.log.map(function (l) {
+          return '<tr><td data-label="زمان">' + fmtDate(l.created_at) + '</td>' +
+            '<td data-label="مسیر">' + esc(l.path || "—") + '</td>' +
+            '<td data-label="وضعیت">' + (l.allowed ? '<span class="badge win">موفق</span>' : '<span class="badge loss">ناموفق</span>') + '</td></tr>';
+        }).join("") + '</tbody></table>';
+    }).catch(function () { el.innerHTML = '<div class="empty-state">خطا در بارگذاری</div>'; });
+  }
+
+  function renderPrincipalDevices() {
+    api("/api/panel/principal-devices").then(function (d) {
+      if (!d.ok) return;
+      if (!d.devices.length) { setBody('<div class="section"><div class="empty-state">هنوز ورودی از پنل مدیر مدرسه ثبت نشده</div></div>'); return; }
+      var blockedCount = d.devices.filter(function (x) { return x.is_blocked; }).length;
+      var cards = d.devices.map(deviceCard).join("");
+      setBody(
+        '<div class="section">' +
+          '<div class="section-head"><h3>دستگاه‌های واردشده به پنل مدیر مدرسه</h3>' +
+            '<span class="count">' + d.devices.length + ' دستگاه' + (blockedCount ? ' · ' + blockedCount + ' بلاک‌شده' : '') + '</span></div>' +
+          '<div class="card-list">' + cards + '</div>' +
+        '</div>'
+      );
+      var listEl = document.querySelector(".view-body .card-list") || body;
+      listEl.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-act]");
+        if (!btn) return;
+        var card = btn.closest(".device-card");
+        var did = card.getAttribute("data-did");
+        var act = btn.getAttribute("data-act");
+
+        if (act === "detail") {
+          state.principalDeviceOpen = state.principalDeviceOpen === did ? null : did;
+          renderPrincipalDevices();
+          if (state.principalDeviceOpen === did) {
+            // بارگذاریِ جزئیات بعد از رندرِ مجددِ کارت‌ها انجام می‌شه
+            setTimeout(function () { loadPrincipalDeviceDetail(did); }, 0);
+          }
+          return;
+        }
+        if (act === "block") {
+          var reason = prompt("دلیلِ بلاک‌کردنِ این دستگاه (اختیاری):", "");
+          if (reason === null) return; // انصراف
+          apiPost("/api/panel/principal-devices/block", { device_id: did, reason: reason })
+            .then(function (res) {
+              if (!res.ok) { alert("خطا در بلاک‌کردن دستگاه."); return; }
+              renderPrincipalDevices();
+            }).catch(function () { alert("ارتباط با سرور برقرار نشد."); });
+          return;
+        }
+        if (act === "unblock") {
+          if (!confirm("این دستگاه دوباره به پنل مدیر مدرسه دسترسی پیدا کند؟")) return;
+          apiPost("/api/panel/principal-devices/unblock", { device_id: did })
+            .then(function (res) {
+              if (!res.ok) { alert("خطا در آنبلاک‌کردن دستگاه."); return; }
+              renderPrincipalDevices();
+            }).catch(function () { alert("ارتباط با سرور برقرار نشد."); });
+          return;
+        }
+        if (act === "delete") {
+          if (!confirm("سوابقِ ورودِ این دستگاه از فهرست حذف شود؟ (این دستگاه بلاک نمی‌شود و در صورتِ بازدیدِ دوباره، از نو ثبت می‌شود)")) return;
+          apiPost("/api/panel/principal-devices/delete", { device_id: did })
+            .then(function (res) {
+              if (!res.ok) { alert("خطا در حذف سوابق."); return; }
+              state.principalDeviceOpen = null;
+              renderPrincipalDevices();
+            }).catch(function () { alert("ارتباط با سرور برقرار نشد."); });
+          return;
+        }
+      });
+      if (state.principalDeviceOpen) loadPrincipalDeviceDetail(state.principalDeviceOpen);
+    });
+  }
 
   // ── دستیار: فهرست گفتگوها + نمای هر گفتگو (فقط‌خواندنی) ──────────
   var ASSISTANT_SOURCES = [

@@ -748,3 +748,16 @@ html.custom-cursor.cursor-text .cursor-dot { opacity: 0; }
 .chat-refresh { margin-top: 10px; }
 
 @media (max-width: 860px) { .chat-msg { max-width: 94%; } }
+
+/* ── دستگاه‌های پنل مدیر مدرسه (لاگ ورود + بلاک/آنبلاک/حذف) ────── */
+.device-card { flex-direction: column; align-items: stretch; gap: 6px; }
+.device-card.device-blocked { border-color: var(--brick); }
+.device-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.device-block-reason { color: var(--brick); }
+.device-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.device-actions .tab-btn { padding: 6px 12px; }
+.device-btn-block { color: var(--brick); border-color: rgba(178,83,74,0.4); }
+.device-btn-unblock { color: var(--sage); border-color: rgba(122,155,114,0.4); }
+.device-btn-delete { color: var(--ivory-dim); }
+.device-detail { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.device-detail table { min-width: 0; }
