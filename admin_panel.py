@@ -718,6 +718,120 @@ async def panel_assistant_session(request):
     })
 
 
+# ─── دستگاه‌های پنل مدیر مدرسه (لاگ ورود + بلاک/آنبلاک/حذف) ────────
+# پنل مدیر مدرسه حساب‌کاربری نداره (فقط یک کلیدِ ثابت در لینک)، برای همین
+# «دستگاه» چیزی جز ترکیبِ IP+User-Agent نیست (device_id، در
+# principal_panel.py ساخته می‌شه). این بخش فقط‌خواندنی نیست: تنها جایی از
+# پنل ادمینه که واقعاً روی دیتابیس می‌نویسه (بلاک/آنبلاک/حذفِ لاگ).
+@routes.get("/api/panel/principal-devices")
+async def panel_principal_devices(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    devices = await db.get_principal_devices()
+    out = [{
+        "device_id": d["device_id"],
+        "ip": d["ip"],
+        "browser": d["browser"],
+        "os": d["os"],
+        "device_type": d["device_type"],
+        "city": d["city"],
+        "region": d["region"],
+        "country": d["country"],
+        "visits": d["visits"],
+        "first_seen": d["first_seen"],
+        "last_seen": d["last_seen"],
+        "is_blocked": bool(d["is_blocked"]),
+        "block_reason": d["block_reason"],
+        "blocked_at": d["blocked_at"],
+    } for d in (devices or [])]
+    return _json({"ok": True, "devices": out})
+
+
+# ─── لاگ خامِ ورودها (برای دیدنِ جزئیاتِ هر بازدید، نه فقط خلاصه‌ی دستگاه) ──
+@routes.get("/api/panel/principal-log")
+async def panel_principal_log(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    page = int(request.query.get("page", "0"))
+    device_id = request.query.get("device_id") or None
+    logs, total = await db.get_principal_access_log(page=page, page_size=40, device_id=device_id)
+    out = [{
+        "id": l["id"],
+        "device_id": l["device_id"],
+        "ip": l["ip"],
+        "browser": l["browser"],
+        "os": l["os"],
+        "device_type": l["device_type"],
+        "city": l["city"],
+        "region": l["region"],
+        "country": l["country"],
+        "path": l["path"],
+        "allowed": bool(l["allowed"]),
+        "created_at": l["created_at"],
+    } for l in (logs or [])]
+    return _json({"ok": True, "log": out, "total": total, "page": page})
+
+
+@routes.post("/api/panel/principal-devices/block")
+async def panel_principal_device_block(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    device_id = (body.get("device_id") or "").strip()
+    reason = (body.get("reason") or "").strip() or "بدون دلیلِ ثبت‌شده"
+    if not device_id:
+        return _json({"ok": False, "error": "invalid_input"})
+    devices = await db.get_principal_devices()
+    match = next((d for d in (devices or []) if d["device_id"] == device_id), None)
+    if not match:
+        return _json({"ok": False, "error": "device_not_found"})
+    await db.block_principal_device(
+        device_id, match["ip"], match["user_agent"], match["browser"], match["os"], reason
+    )
+    await db.log_action(_ADMIN_PANEL_LOG_ID, "principal_device_block",
+                         f"بلاکِ دستگاهِ #{device_id} در پنل مدیر مدرسه — دلیل: {reason} (از پنل ادمین)")
+    return _json({"ok": True})
+
+
+@routes.post("/api/panel/principal-devices/unblock")
+async def panel_principal_device_unblock(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    device_id = (body.get("device_id") or "").strip()
+    if not device_id:
+        return _json({"ok": False, "error": "invalid_input"})
+    await db.unblock_principal_device(device_id)
+    await db.log_action(_ADMIN_PANEL_LOG_ID, "principal_device_unblock",
+                         f"آنبلاکِ دستگاهِ #{device_id} در پنل مدیر مدرسه (از پنل ادمین)")
+    return _json({"ok": True})
+
+
+@routes.post("/api/panel/principal-devices/delete")
+async def panel_principal_device_delete(request):
+    """«حذفِ دسترسی»: فقط سوابقِ لاگِ این دستگاه از فهرست پاک می‌شه، بدونِ
+    بلاک‌کردنش — برای پاک‌سازیِ فهرست، نه محدودکردنِ دسترسیِ آینده."""
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    device_id = (body.get("device_id") or "").strip()
+    if not device_id:
+        return _json({"ok": False, "error": "invalid_input"})
+    await db.delete_principal_device_log(device_id)
+    await db.log_action(_ADMIN_PANEL_LOG_ID, "principal_device_delete",
+                         f"حذفِ سوابقِ دستگاهِ #{device_id} از لاگِ پنل مدیر مدرسه (از پنل ادمین)")
+    return _json({"ok": True})
+
+
 def register_panel_routes(app: web.Application):
     """این تابع رو صدا بزن تا route های پنل به یک اپلیکیشنِ aiohttp اضافه
     بشن. panel_server.py این تابع رو روی اپلیکیشنِ مستقلِ خودش صدا می‌زنه —

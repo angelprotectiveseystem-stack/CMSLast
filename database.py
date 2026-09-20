@@ -104,6 +104,12 @@ _matches_cache = {}      # period -> (rows, expires_at_monotonic)
 # (که خودِ ادمین همون لحظه انجامش داده و نتیجه رو می‌بینه) قابل‌قبوله.
 _blocked_cache = {}   # telegram_id -> (row_or_None, expires_at_monotonic)
 
+# ─── کش «بلاک بودن دستگاه» پنل مدیر مدرسه ───────────────────────────
+# همون دلیلِ _blocked_cache بالا: این چک روی *هر بارگذاریِ صفحه* و هر
+# درخواستِ API پنل مدیر مدرسه اجرا می‌شه، پس نباید هر بار یک رفت‌وبرگشتِ
+# شبکه‌ای تازه به Turso باشه.
+_principal_blocked_cache = {}   # device_id -> (bool, expires_at_monotonic)
+
 # مجموعه‌ای برای نگه‌داشتنِ رفرنسِ تسک‌های پس‌زمینه (fire-and-forget)
 # تا گاربیج‌کالکتور وسط کار نابودشون نکنه («Task was destroyed but it
 # is pending»)؛ با پایان هر تسک خودش از این ست حذف می‌شه.
@@ -162,6 +168,13 @@ def _invalidate_blocked_cache(telegram_id=None):
         _blocked_cache.clear()
     else:
         _blocked_cache.pop(telegram_id, None)
+
+
+def _invalidate_principal_blocked_cache(device_id=None):
+    if device_id is None:
+        _principal_blocked_cache.clear()
+    else:
+        _principal_blocked_cache.pop(device_id, None)
 
 
 def _invalidate_continuing_players_cache():
@@ -461,6 +474,32 @@ async def init_db():
             ts TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_stranger_log_tid_ts ON stranger_log(telegram_id, ts);
+        CREATE TABLE IF NOT EXISTS principal_access_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT,
+            ip TEXT,
+            user_agent TEXT,
+            browser TEXT,
+            os TEXT,
+            device_type TEXT,
+            city TEXT,
+            region TEXT,
+            country TEXT,
+            path TEXT,
+            allowed INTEGER DEFAULT 1,
+            created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_principal_access_log_device ON principal_access_log(device_id, created_at);
+        CREATE TABLE IF NOT EXISTS principal_blocked_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT UNIQUE,
+            ip TEXT,
+            user_agent TEXT,
+            browser TEXT,
+            os TEXT,
+            reason TEXT,
+            blocked_at TEXT
+        );
         CREATE TABLE IF NOT EXISTS ai_memory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             subject TEXT,
@@ -3057,6 +3096,136 @@ async def ai_list_sessions_overview(source: str = "all", q: str = "", limit: int
         db.row_factory = aiosqlite.Row
         async with db.execute(sql, params) as cur:
             return await cur.fetchall()
+
+
+# ─── پنل مدیر مدرسه — لاگ ورود و مدیریت دستگاه‌ها ──────────────────
+# پنل مدیر مدرسه لاگینِ حساب‌محور نداره (فقط یک کلیدِ ثابت در خودِ لینک)،
+# برای همین «دستگاه» چیزی نیست که خودش را معرفی کند؛ به‌جایش از ترکیبِ
+# IP + User-Agent یک شناسه‌ی پایدار (device_id) ساخته می‌شه (هش، در
+# principal_panel.py). این شناسه کامل نیست — چند نفر پشتِ یک IP مشترک
+# (مثلاً وای‌فای مدرسه) ممکنه یک «دستگاه» دیده بشن، یا عوض‌شدنِ IP همون
+# گوشی به‌عنوانِ دستگاهِ تازه ثبت بشه — ولی در نبودِ حساب‌کاربری، عملی‌ترین
+# راهیه که بدونِ اضافه‌کردنِ یک سیستمِ لاگینِ کامل به این پنل، دستگاه‌ها را
+# از هم متمایز می‌کنه.
+async def log_principal_access(device_id: str, ip: str, user_agent: str, browser: str,
+                                os_name: str, device_type: str, path: str, allowed: bool,
+                                city: str = None, region: str = None, country: str = None):
+    now = _now_tehran_iso()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO principal_access_log(device_id,ip,user_agent,browser,os,device_type,"
+            "city,region,country,path,allowed,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (device_id, ip, user_agent, browser, os_name, device_type, city, region, country,
+             path, 1 if allowed else 0, now)
+        )
+        await db.commit()
+
+
+async def get_principal_access_log(page: int = 0, page_size: int = 40, device_id: str = None):
+    """لاگِ خام (هر ردیف = یک بارگذاریِ صفحه)، صفحه‌بندی‌شده، جدیدترین اول.
+    اگر device_id داده بشه، فقط لاگِ همون یک دستگاه برمی‌گرده (برای صفحه‌ی
+    جزئیاتِ یک دستگاهِ خاص)."""
+    offset = page * page_size
+    where = "WHERE device_id=?" if device_id else ""
+    params = [device_id] if device_id else []
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"SELECT * FROM principal_access_log {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+            params + [page_size, offset]
+        ) as cur:
+            rows = await cur.fetchall()
+        async with db.execute(
+            f"SELECT COUNT(*) AS c FROM principal_access_log {where}", params
+        ) as cur:
+            total_row = await cur.fetchone()
+    return rows, (total_row["c"] if total_row else 0)
+
+
+async def get_principal_devices():
+    """فهرستِ دستگاه‌های یکتا (بر اساسِ device_id) با اولین/آخرین‌بازدید،
+    تعدادِ بازدید، و وضعیتِ بلاک — برای بخشِ «دستگاه‌ها»ی پنل ادمین.
+    آخرین IP/مرورگر/سیستم‌عامل/موقعیتِ دیده‌شده هم برای هر دستگاه گزارش
+    می‌شه (چون این‌ها می‌تونن بینِ دو بازدیدِ یک دستگاه کمی فرق کنن)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT device_id, "
+            "  (SELECT ip FROM principal_access_log a2 WHERE a2.device_id=a1.device_id ORDER BY a2.id DESC LIMIT 1) AS ip, "
+            "  (SELECT user_agent FROM principal_access_log a2 WHERE a2.device_id=a1.device_id ORDER BY a2.id DESC LIMIT 1) AS user_agent, "
+            "  (SELECT browser FROM principal_access_log a2 WHERE a2.device_id=a1.device_id ORDER BY a2.id DESC LIMIT 1) AS browser, "
+            "  (SELECT os FROM principal_access_log a2 WHERE a2.device_id=a1.device_id ORDER BY a2.id DESC LIMIT 1) AS os, "
+            "  (SELECT device_type FROM principal_access_log a2 WHERE a2.device_id=a1.device_id ORDER BY a2.id DESC LIMIT 1) AS device_type, "
+            "  (SELECT city FROM principal_access_log a2 WHERE a2.device_id=a1.device_id ORDER BY a2.id DESC LIMIT 1) AS city, "
+            "  (SELECT region FROM principal_access_log a2 WHERE a2.device_id=a1.device_id ORDER BY a2.id DESC LIMIT 1) AS region, "
+            "  (SELECT country FROM principal_access_log a2 WHERE a2.device_id=a1.device_id ORDER BY a2.id DESC LIMIT 1) AS country, "
+            "  COUNT(*) AS visits, MIN(created_at) AS first_seen, MAX(created_at) AS last_seen "
+            "FROM principal_access_log a1 GROUP BY device_id ORDER BY last_seen DESC"
+        ) as cur:
+            devices = await cur.fetchall()
+        async with db.execute(
+            "SELECT device_id, reason, blocked_at FROM principal_blocked_devices"
+        ) as cur:
+            blocked_rows = await cur.fetchall()
+    blocked = {r["device_id"]: r for r in blocked_rows}
+    out = []
+    for d in devices:
+        d = dict(d)
+        b = blocked.get(d["device_id"])
+        d["is_blocked"] = b is not None
+        d["block_reason"] = b["reason"] if b else None
+        d["blocked_at"] = b["blocked_at"] if b else None
+        out.append(d)
+    return out
+
+
+async def block_principal_device(device_id: str, ip: str, user_agent: str, browser: str,
+                                  os_name: str, reason: str):
+    now = _now_tehran_iso()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO principal_blocked_devices"
+            "(device_id,ip,user_agent,browser,os,reason,blocked_at) VALUES (?,?,?,?,?,?,?)",
+            (device_id, ip, user_agent, browser, os_name, reason, now)
+        )
+        await db.commit()
+    _invalidate_principal_blocked_cache(device_id)
+
+
+async def unblock_principal_device(device_id: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM principal_blocked_devices WHERE device_id=?", (device_id,))
+        await db.commit()
+    _invalidate_principal_blocked_cache(device_id)
+
+
+async def is_principal_device_blocked(device_id: str) -> bool:
+    """این تابع روی *هر بارگذاریِ صفحه* و هر درخواستِ API پنل مدیر مدرسه،
+    قبل از هر چیز دیگه‌ای صدا زده می‌شه — پس مثلِ get_blocked_user کش
+    می‌شه تا کاربرِ مجاز معطلِ یک رفت‌وبرگشتِ شبکه‌ایِ اضافه به Turso نمونه.
+    چند ثانیه تاخیر در دیدنِ یک بلاکِ تازه قابل‌قبوله (خودِ بلاک هم فوری
+    invalidate می‌شه)."""
+    cached = _cache_get(_principal_blocked_cache, device_id)
+    if cached is not _CACHE_MISS:
+        return cached
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT 1 FROM principal_blocked_devices WHERE device_id=?", (device_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    result = row is not None
+    _cache_set(_principal_blocked_cache, device_id, result)
+    return result
+
+
+async def delete_principal_device_log(device_id: str):
+    """«حذفِ دسترسیِ» یک دستگاه: فقط سوابقِ لاگِ اون دستگاه از فهرست پاک
+    می‌شه (بلاکش نمی‌کنه — اگه دوباره سر بزنه، به‌عنوانِ دستگاهِ تازه از نو
+    ثبت می‌شه). برای پاک‌سازیِ فهرست، مثلاً بعدِ یک بازدیدِ اشتباهی/آزمایشی."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM principal_access_log WHERE device_id=?", (device_id,))
+        await db.commit()
 
 
 # ─── Chess mini-app ─────────────────────────────────────────────

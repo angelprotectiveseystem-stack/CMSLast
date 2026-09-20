@@ -1,9 +1,14 @@
 """
 principal_panel.py — پنل فقط‌خواندنیِ مدیر مدرسه.
 
-این ماژول جز یک مورد هیچ نوشتنی روی دیتابیس نداره (بقیه‌ی کارش فقط SELECT ـه):
-گفتگوهای دستیارِ هوشمند توی جدول‌های ai_chat_* ذخیره می‌شن تا مدیر ارشد از «پنل
-ادمین ← دستیار» ببینتشون. اثری از این تاریخچه توی خودِ پنل مدیر مدرسه نیست.
+این ماژول جز دو مورد هیچ نوشتنی روی دیتابیس نداره (بقیه‌ی کارش فقط SELECT ـه):
+۱) گفتگوهای دستیارِ هوشمند توی جدول‌های ai_chat_* ذخیره می‌شن تا مدیر ارشد از
+«پنل ادمین ← دستیار» ببینتشون. اثری از این تاریخچه توی خودِ پنل مدیر مدرسه نیست.
+۲) هر بارگذاریِ صفحه (یعنی هر «ورود») توی principal_access_log ثبت می‌شه —
+با IP، User-Agent، و (در صورتِ موفقیت) موقعیتِ جغرافیاییِ IP — تا مدیر ارشد از
+«پنل ادمین ← دستگاه‌های مدیر مدرسه» ببینتش و بتونه یک دستگاهِ خاص رو بلاک/آنبلاک
+کنه. این لاگ‌نویسی در پس‌زمینه انجام می‌شه (fire-and-forget) و هیچ‌وقت باعثِ
+معطلیِ بارگذاریِ صفحه برای مدیر مدرسه نمی‌شه.
 مستقل از منطق ربات
 و از admin_panel.py هست، ولی درست مثل همون، روی همون اپلیکیشن aiohttp ای
 که game_server.py می‌سازه سوار میشه (نه یک سرور جدا).
@@ -11,12 +16,19 @@ principal_panel.py — پنل فقط‌خواندنیِ مدیر مدرسه.
 احراز هویت: بدون فرم ورود و بدون رمز — فقط یک کلید ثابت (env: PRINCIPAL_KEY)
 که در خودِ لینک به‌صورت ?k=... قرار می‌گیره. هر درخواستی (چه صفحه، چه API)
 باید این کلید رو با پارامتر k بفرسته.
+
+دستگاه‌ها: چون این پنل حسابِ کاربری نداره، «دستگاه» با هشِ IP+User-Agent
+شناسایی می‌شه (_device_id). اگر مدیر ارشد از پنل ادمین یک دستگاه رو بلاک کنه،
+همون دستگاه—even با کلیدِ درست—دیگه نه صفحه باز می‌کنه نه هیچ API‌ای جواب
+می‌گیره (_require_auth این رو قبل از هر چیز دیگه‌ای چک می‌کنه).
 """
 
+import hashlib
 import hmac
 import json
 import logging
 import os
+import re
 import asyncio
 from datetime import datetime, timedelta
 
@@ -48,10 +60,120 @@ async def _panel_enabled() -> bool:
     return (await db.get_setting("principal_panel_enabled", "1")) == "1"
 
 
+# ─── شناساییِ دستگاه (IP + User-Agent) ──────────────────────────────
+def _client_ip(request) -> str:
+    """روی Railway (و هر استقرارِ پشتِ پراکسی) request.remote آدرسِ خودِ
+    پراکسیه، نه کاربر؛ IP واقعیِ کاربر توی هدرِ X-Forwarded-For (اولین
+    آیتمِ لیست) می‌شینه. اگه این هدر نبود (مثلاً اجرای محلی)، به
+    request.remote برمی‌گردیم."""
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        first = fwd.split(",")[0].strip()
+        if first:
+            return first
+    return request.remote or ""
+
+
+_UA_BROWSER_PATTERNS = [
+    ("Edge", re.compile(r"Edg(e|A|iOS)?/")),
+    ("Instagram", re.compile(r"Instagram")),
+    ("Telegram", re.compile(r"Telegram")),
+    ("Firefox", re.compile(r"Firefox/")),
+    ("Chrome", re.compile(r"(Chrome|CriOS)/")),
+    ("Safari", re.compile(r"Safari/")),
+    ("Opera", re.compile(r"(OPR|Opera)/")),
+]
+_UA_OS_PATTERNS = [
+    ("Windows", re.compile(r"Windows")),
+    ("Android", re.compile(r"Android")),
+    ("iOS", re.compile(r"(iPhone|iPad|iPod)")),
+    ("macOS", re.compile(r"Mac OS X")),
+    ("Linux", re.compile(r"Linux")),
+]
+
+
+def _parse_user_agent(ua: str):
+    """یک پارسرِ سبکِ دستی (بدونِ وابستگیِ تازه) برای استخراجِ نام مرورگر،
+    سیستم‌عامل، و نوعِ دستگاه از رشته‌ی User-Agent — فقط برای نمایشِ خواناتر
+    توی پنل ادمین، نه یک شناساییِ دقیقِ فنی."""
+    ua = ua or ""
+    browser = next((name for name, pat in _UA_BROWSER_PATTERNS if pat.search(ua)), "نامشخص")
+    os_name = next((name for name, pat in _UA_OS_PATTERNS if pat.search(ua)), "نامشخص")
+    if re.search(r"Mobi|Android.*Mobile|iPhone", ua):
+        device_type = "mobile"
+    elif re.search(r"iPad|Tablet", ua):
+        device_type = "tablet"
+    else:
+        device_type = "desktop"
+    return browser, os_name, device_type
+
+
+def _device_id(ip: str, ua: str) -> str:
+    raw = f"{ip}::{ua}"
+    return hashlib.sha256(raw.encode("utf-8", "ignore")).hexdigest()[:24]
+
+
+# ─── موقعیتِ جغرافیاییِ IP (اختیاری، بهترین‌تلاش) ───────────────────
+# فقط برای نمایشِ «آدرس» (شهر/کشور) در پنل ادمین؛ اگه این سرویس در دسترس
+# نباشه یا کند باشه، اصلاً جلوی ثبتِ لاگ یا بارگذاریِ صفحه رو نمی‌گیره —
+# چون خودِ این تابع فقط توسط تسکِ پس‌زمینه‌ی لاگ صدا زده می‌شه، نه مسیرِ
+# اصلیِ رندرِ صفحه.
+_PRIVATE_IP_RE = re.compile(r"^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|::1$|localhost$)")
+
+
+async def _geolocate_ip(ip: str):
+    if not ip or _PRIVATE_IP_RE.match(ip):
+        return None, None, None
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get(
+                f"http://ip-api.com/json/{ip}",
+                params={"fields": "status,city,regionName,country"},
+            )
+        data = r.json()
+        if data.get("status") == "success":
+            return data.get("city"), data.get("regionName"), data.get("country")
+    except Exception:
+        logger.debug("Geolocation lookup failed for %s", ip, exc_info=True)
+    return None, None, None
+
+
+async def _log_access(request, path: str, allowed: bool):
+    """ثبتِ یک «ورود» به پنل مدیر مدرسه، کاملاً در پس‌زمینه — درخواستِ
+    اصلیِ کاربر هیچ‌وقت منتظرِ این تابع (و مخصوصاً منتظرِ درخواستِ شبکه‌ایِ
+    ژئولوکیشن) نمی‌مونه."""
+    try:
+        ip = _client_ip(request)
+        ua = request.headers.get("User-Agent", "")
+        browser, os_name, device_type = _parse_user_agent(ua)
+        dev_id = _device_id(ip, ua)
+        city, region, country = await _geolocate_ip(ip)
+        await db.log_principal_access(
+            dev_id, ip, ua, browser, os_name, device_type, path, allowed,
+            city=city, region=region, country=country,
+        )
+    except Exception:
+        logger.exception("principal access logging failed")
+
+
 def _require_auth(request):
     if not _authed(request):
         raise web.HTTPUnauthorized(
             text=json.dumps({"ok": False, "error": "unauthorized"}),
+            content_type="application/json",
+        )
+
+
+async def _require_not_blocked(request):
+    """اگه مدیر ارشد این دستگاهِ خاص رو از «پنل ادمین ← دستگاه‌ها» بلاک
+    کرده باشه، حتی با کلیدِ درست هم نه صفحه باز می‌شه نه هیچ API‌ای جواب
+    می‌ده — دقیقاً هم‌سطحِ چکِ خاموش/روشنِ کلِ پنل (_require_enabled)."""
+    ip = _client_ip(request)
+    ua = request.headers.get("User-Agent", "")
+    dev_id = _device_id(ip, ua)
+    if await db.is_principal_device_blocked(dev_id):
+        raise web.HTTPForbidden(
+            text=json.dumps({"ok": False, "error": "device_blocked"}),
             content_type="application/json",
         )
 
@@ -64,6 +186,25 @@ async def _require_enabled(request):
             text=json.dumps({"ok": False, "error": "panel_disabled"}),
             content_type="application/json",
         )
+
+
+def _blocked_page():
+    html = (
+        "<!doctype html><html lang='fa' dir='rtl'><head><meta charset='utf-8'>"
+        "<title>دسترسی مسدود است</title>"
+        "<style>body{font-family:Tahoma,sans-serif;background:#111;color:#eee;"
+        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"
+        "text-align:center;padding:20px}"
+        ".title{font-size:28px;font-weight:bold;margin-bottom:18px;display:block}"
+        ".msg{font-size:17px;line-height:1.9}</style></head><body>"
+        "<div>"
+        "<span class='title'>🚫 دسترسی مسدود است</span>"
+        "<div class='msg'>"
+        "دسترسیِ این دستگاه به پنل مدیر مدرسه محدود شده است.<br>"
+        "در صورتی که این اشتباه است، با پارسا کریمی در ارتباط باشید."
+        "</div></div></body></html>"
+    )
+    return web.Response(text=html, content_type="text/html", charset="utf-8", status=403)
 
 
 def _disabled_page():
@@ -133,7 +274,19 @@ def _asset_version():
         return "0"
 
 
-def _render_index(request):
+async def _render_index(request):
+    # هر بارگذاریِ صفحه‌ی اصلی = یک «ورود»؛ اول چکِ بلاک (چون دستگاهِ
+    # بلاک‌شده اصلاً نباید حتی پوسته‌ی برنامه رو ببینه)، بعد ثبتِ لاگ در
+    # پس‌زمینه — بدونِ اینکه درخواستِ کاربر منتظرِ ژئولوکیشن/نوشتنِ دیتابیس
+    # بمونه.
+    ip = _client_ip(request)
+    ua = request.headers.get("User-Agent", "")
+    dev_id = _device_id(ip, ua)
+    if await db.is_principal_device_blocked(dev_id):
+        asyncio.create_task(_log_access(request, request.path, allowed=False))
+        return _blocked_page()
+    asyncio.create_task(_log_access(request, request.path, allowed=_authed(request)))
+
     index_path = os.path.join(PANEL_DIR, "index.html")
     with open(index_path, "r", encoding="utf-8") as f:
         html = f.read()
@@ -155,7 +308,7 @@ async def principal_static(request):
     if not path.startswith(PANEL_DIR):
         raise web.HTTPForbidden()
     if os.path.isdir(path) or not os.path.isfile(path) or path.endswith("index.html"):
-        return _render_index(request)
+        return await _render_index(request)
     resp = web.FileResponse(path)
     resp.headers["Cache-Control"] = "public, max-age=3600"
     return resp
@@ -165,7 +318,7 @@ async def principal_static(request):
 async def principal_root(request):
     if not await _panel_enabled():
         return _disabled_page()
-    return _render_index(request)
+    return await _render_index(request)
 
 
 @routes.get("/principal-assets/{tail:.*}")
@@ -202,6 +355,7 @@ def _result_fa(m):
 @routes.get("/api/principal/overview")
 async def principal_overview(request):
     _require_auth(request)
+    await _require_not_blocked(request)
     await _require_enabled(request)
     # قبلاً این ۵ کوئری پشتِ‌سرِهم (نه هم‌زمان) اجرا می‌شدن — یعنی ۵ رفت‌وبرگشتِ
     # کاملِ شبکه‌ای به Turso، یکی بعد از اون یکی. چون کاملاً مستقل از همدیگه‌ن،
@@ -242,6 +396,7 @@ async def principal_overview(request):
 @routes.get("/api/principal/classes")
 async def principal_classes(request):
     _require_auth(request)
+    await _require_not_blocked(request)
     await _require_enabled(request)
     # قبلاً برای هر کلاس یک کوئری جدا (get_players_by_class) زده می‌شد — یعنی
     # با N کلاس، N رفت‌وبرگشتِ شبکه‌ایِ اضافه، پشتِ‌سرِهم. چون get_all_players
@@ -270,6 +425,7 @@ async def principal_classes(request):
 @routes.get("/api/principal/players")
 async def principal_players(request):
     _require_auth(request)
+    await _require_not_blocked(request)
     await _require_enabled(request)
     players = await db.get_all_players() or []
     out = []
@@ -292,6 +448,7 @@ async def principal_players(request):
 @routes.get("/api/principal/matches")
 async def principal_matches(request):
     _require_auth(request)
+    await _require_not_blocked(request)
     await _require_enabled(request)
     period = request.query.get("period", "all")
     matches = await db.get_matches_by_filter(period) or []
@@ -355,6 +512,7 @@ async def _period_stats(period: str):
 @routes.get("/api/principal/top")
 async def principal_top(request):
     _require_auth(request)
+    await _require_not_blocked(request)
     await _require_enabled(request)
     mode = await _top_mode()
 
@@ -388,6 +546,7 @@ async def principal_top(request):
 @routes.get("/api/principal/trends")
 async def principal_trends(request):
     _require_auth(request)
+    await _require_not_blocked(request)
     await _require_enabled(request)
     import turso_db as _a
 
@@ -800,6 +959,7 @@ async def _principal_chat_log(sid, sender: str, text: str):
 @routes.post("/api/principal/assistant")
 async def principal_assistant(request):
     _require_auth(request)
+    await _require_not_blocked(request)
     await _require_enabled(request)
 
     try:
