@@ -13,6 +13,7 @@ const VIEW_TITLES = {
   matches: "مسابقات",
   top: "نفرات برتر",
   trends: "روندها",
+  assistant: "دستیار",
 };
 
 let currentView = "home";
@@ -41,16 +42,33 @@ function bindNav() {
 }
 
 async function switchView(view) {
+  const changed = currentView !== view;
   currentView = view;
   setActiveNav(view);
   viewTitleEl.textContent = VIEW_TITLES[view] || "";
   window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+
+  // یه فِیدِ کوتاهِ خروج/ورود بینِ ویوها، تا جابه‌جایی به‌جای «پرش» خشک، نرم و روون حس بشه.
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (changed && !reduceMotion) {
+    viewBodyEl.classList.add("view-fade-out");
+    await new Promise(r => setTimeout(r, 110));
+  }
+
   viewBodyEl.innerHTML = `<div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>`;
   try {
     await RENDERERS[view]();
   } catch (e) {
     viewBodyEl.innerHTML = `<div class="empty-state">⚠️ خطا در دریافت اطلاعات.<br>لطفاً دوباره تلاش کنید.</div>`;
     console.error(e);
+  }
+
+  if (!reduceMotion) {
+    viewBodyEl.classList.remove("view-fade-out");
+    viewBodyEl.classList.add("view-fade-in");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => viewBodyEl.classList.remove("view-fade-in"));
+    });
   }
 }
 
@@ -337,6 +355,129 @@ async function renderTrends() {
   `;
 }
 
+// ─── دستیار هوشمند (فقط مشاوره/راهنما — پنل کاملاً فقط‌خواندنی می‌مونه) ─
+const ASSISTANT_SUGGESTIONS = [
+  "وضعیت کلی مدرسه چطوره؟",
+  "این هفته چند مسابقه ثبت شده؟",
+  "نفرات برتر رو از کجا ببینم؟",
+  "روند مسابقات اخیر چطور بوده؟",
+];
+
+// تاریخچه‌ی گفتگو فقط توی حافظه‌ی همین صفحه می‌مونه (نه دیتابیس، نه سرور) —
+// با رفرش صفحه پاک می‌شه، دقیقاً هم‌راستا با فقط‌خواندنی‌بودنِ کل این پنل.
+const assistantState = { history: [], sending: false };
+
+function renderAssistant() {
+  viewBodyEl.innerHTML = `
+    <div class="assistant-wrap">
+      <div class="assistant-intro">
+        <span class="assistant-avatar">🤖</span>
+        <div>
+          <div class="main-txt">دستیار پنل مدیر</div>
+          <div class="sub-txt">راهنما و مشاورِ شماست؛ فقط دربارهٔ وضعیت و بخش‌های همین پنل توضیح می‌دهد.</div>
+        </div>
+      </div>
+      <div id="assistant-log" class="assistant-log"></div>
+      <div id="assistant-suggestions" class="assistant-suggestions"></div>
+      <form id="assistant-form" class="assistant-form">
+        <input type="text" id="assistant-input" placeholder="سوالتان را بنویسید…" autocomplete="off">
+        <button type="submit" id="assistant-send" class="assistant-send" aria-label="ارسال">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12 4.5 5l2.6 7-2.6 7 15-7Z"/></svg>
+        </button>
+      </form>
+    </div>
+  `;
+
+  const logEl = document.getElementById("assistant-log");
+  const formEl = document.getElementById("assistant-form");
+  const inputEl = document.getElementById("assistant-input");
+  const suggEl = document.getElementById("assistant-suggestions");
+
+  function scrollLogToEnd() {
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function addBubble(role, text, animate = true) {
+    const b = document.createElement("div");
+    b.className = "chat-bubble " + (role === "user" ? "chat-user" : "chat-bot") + (animate ? " bubble-in" : "");
+    if (role !== "user") {
+      b.innerHTML = `<span class="bubble-ic">🤖</span><span class="bubble-txt"></span>`;
+      b.querySelector(".bubble-txt").textContent = text;
+    } else {
+      b.textContent = text;
+    }
+    logEl.appendChild(b);
+    scrollLogToEnd();
+    return b;
+  }
+
+  function addTypingBubble() {
+    const b = document.createElement("div");
+    b.className = "chat-bubble chat-bot bubble-in";
+    b.innerHTML = `<span class="bubble-ic">🤖</span><span class="typing-dots"><span></span><span></span><span></span></span>`;
+    logEl.appendChild(b);
+    scrollLogToEnd();
+    return b;
+  }
+
+  // بازسازی گفتگوی قبلی (اگه مدیر قبلاً بین ویوها رفت‌وبرگشت کرده)
+  if (assistantState.history.length) {
+    assistantState.history.forEach(turn => addBubble(turn.role === "user" ? "user" : "bot", turn.text, false));
+  } else {
+    addBubble("bot", "سلام! من دستیار همین پنل هستم. هر سوالی درباره‌ی آمار یا بخش‌های پنل دارید، خوشحال می‌شوم کمک کنم 🙌", false);
+  }
+
+  suggEl.innerHTML = ASSISTANT_SUGGESTIONS.map(s => `<button type="button" class="sugg-chip">${esc(s)}</button>`).join("");
+  suggEl.querySelectorAll(".sugg-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      inputEl.value = chip.textContent;
+      formEl.requestSubmit();
+    });
+  });
+  // اگه از قبل گفتگویی شروع شده، پیشنهادها رو از همون اول مخفی نگه دار
+  if (assistantState.history.length) suggEl.classList.add("sugg-hidden");
+
+  async function sendMessage(text) {
+    if (!text || assistantState.sending) return;
+    assistantState.sending = true;
+    inputEl.value = "";
+    inputEl.disabled = true;
+    suggEl.classList.add("sugg-hidden");
+
+    addBubble("user", text);
+    assistantState.history.push({ role: "user", text });
+    const typingBubble = addTypingBubble();
+
+    try {
+      const url = new URL("/api/principal/assistant", window.location.origin);
+      url.searchParams.set("k", KEY);
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, history: assistantState.history.slice(0, -1) }),
+      });
+      const data = await res.json();
+      typingBubble.remove();
+      const reply = (data && data.ok && data.reply) ? data.reply : "⚠️ پاسخی دریافت نشد. لطفاً دوباره تلاش کنید.";
+      addBubble("bot", reply);
+      assistantState.history.push({ role: "model", text: reply });
+    } catch (e) {
+      typingBubble.remove();
+      addBubble("bot", "⚠️ ارتباط برقرار نشد. لطفاً اتصال اینترنت را بررسی و دوباره تلاش کنید.");
+      console.error(e);
+    } finally {
+      assistantState.sending = false;
+      inputEl.disabled = false;
+      inputEl.focus();
+    }
+  }
+
+  formEl.addEventListener("submit", (e) => {
+    e.preventDefault();
+    sendMessage(inputEl.value.trim());
+  });
+}
+
 // ─── پنل مدیر: فقط اجرا (انتخابِ دستیِ نفرات برتر) ─────────────
 const RENDERERS = {
   home: renderHome,
@@ -345,6 +486,7 @@ const RENDERERS = {
   matches: () => renderMatches("all"),
   top: () => renderTop("week"),
   trends: renderTrends,
+  assistant: renderAssistant,
 };
 
 // ─── ساعت بالای صفحه ──────────────────────────────────────────
