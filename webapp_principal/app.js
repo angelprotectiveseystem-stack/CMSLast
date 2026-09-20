@@ -355,6 +355,21 @@ async function renderTrends() {
   `;
 }
 
+// ─── اندازه‌گیریِ دقیقِ ارتفاعِ باکسِ چتِ دستیار (رفعِ گپِ خالیِ زیرِ اینترو) ──
+function sizeAssistantWrap() {
+  const wrap = document.querySelector(".assistant-wrap");
+  if (!wrap) return;
+  const isDesktop = window.matchMedia("(min-width: 880px)").matches;
+  const bottomNavH = isDesktop ? 0 : (document.getElementById("bottom-nav")?.offsetHeight || 0);
+  const safeBottomRaw = getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom");
+  const safeBottom = parseFloat(safeBottomRaw) || 0;
+  const viewportH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  const top = wrap.getBoundingClientRect().top;
+  const breathingRoom = 16; // کمی فاصله‌ی نفس، تا چسبیده به لبه نباشه
+  const available = viewportH - top - bottomNavH - safeBottom - breathingRoom;
+  wrap.style.height = Math.max(320, Math.round(available)) + "px";
+}
+
 // ─── دستیار هوشمند (فقط مشاوره/راهنما — پنل کاملاً فقط‌خواندنی می‌مونه) ─
 const ASSISTANT_SUGGESTIONS = [
   "وضعیت کلی مدرسه چطوره؟",
@@ -392,6 +407,15 @@ function renderAssistant() {
   const formEl = document.getElementById("assistant-form");
   const inputEl = document.getElementById("assistant-input");
   const suggEl = document.getElementById("assistant-suggestions");
+
+  // ارتفاعِ واقعیِ باقی‌مونده‌ی صفحه رو اندازه می‌گیره و مستقیم روی .assistant-wrap
+  // ست می‌کنه — به‌جای اتکا به یه calc(100dvh - عددِ ثابت) که با اندازه‌ی واقعیِ
+  // topbar/اینترو هم‌خوان نبود و یه فضای خالیِ بزرگ زیرِ کارتِ معرفی می‌ذاشت.
+  sizeAssistantWrap();
+  requestAnimationFrame(sizeAssistantWrap); // یه بار دیگه بعد از اولین پینت، برای لِی‌آوتِ نهایی
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(sizeAssistantWrap);
+  window.addEventListener("resize", sizeAssistantWrap);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", sizeAssistantWrap);
 
   function scrollLogToEnd() {
     logEl.scrollTop = logEl.scrollHeight;

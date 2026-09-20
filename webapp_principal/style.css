@@ -38,6 +38,7 @@
   --radius: 10px;
   --font: "Vazirmatn", Tahoma, sans-serif;
   --bottom-nav-h: 58px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px); /* برای محاسبه‌ی دقیقِ ارتفاعِ چتِ دستیار در app.js */
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -475,6 +476,11 @@ button { font-family: var(--font); cursor: pointer; }
 /* ── دستیار هوشمند (چت مشاوره‌ای، فقط‌خواندنی) ────────────── */
 .assistant-wrap {
   display: flex; flex-direction: column;
+  /* این عددِ calc فقط یه فال‌بکِ اولیه‌ست (تا وقتی جاوااسکریپت اجرا بشه)؛
+     ارتفاعِ واقعی توسطِ sizeAssistantWrap() در app.js، بر اساسِ فضای واقعاً
+     باقی‌مونده‌ی صفحه، به‌صورتِ inline محاسبه و ست می‌شه — چون فاصله‌ی ثابتِ
+     ۱۵۰px قبلی با اندازه‌ی واقعیِ topbar+intro هم‌خوان نبود و باعثِ یه فضای
+     خالیِ بزرگِ زیرِ کارتِ معرفی می‌شد. */
   height: calc(100dvh - var(--bottom-nav-h) - 150px);
   min-height: 380px;
   animation: fadeInSoft .3s ease both;
@@ -500,7 +506,7 @@ button { font-family: var(--font); cursor: pointer; }
 .assistant-intro .sub-txt { font-size: 12px; color: var(--ivory-dim); margin-top: 2px; line-height: 1.5; }
 
 .assistant-log {
-  flex: 1; overflow-y: auto; overscroll-behavior: contain;
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
   display: flex; flex-direction: column; gap: 10px;
   padding: 4px 2px 10px;
   scroll-behavior: smooth;
