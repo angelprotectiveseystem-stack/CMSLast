@@ -482,4 +482,234 @@ button { font-family: var(--font); cursor: pointer; }
 .top-row:nth-child(1) .top-rank { background: #c99a46; color: #1a1206; box-shadow: 0 0 0 3px rgba(201,154,70,0.18); }
 .top-row:nth-child(2) .top-rank { background: #b9b0a0; color: #1a1206; }
 .top-row:nth-child(3) .top-rank { background: #8a5a3a; color: #1a1206; }
-.top-info {
+.top-info { flex: 1; min-width: 0; }
+.top-score { text-align: left; flex-shrink: 0; }
+.top-score .val { font-size: 17px; font-weight: 800; color: var(--amber); }
+.top-score .lbl { font-size: 10.5px; color: var(--ivory-dim); }
+
+/* ── چارت‌ها ──────────────────────────────────────────────── */
+.chart-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; margin-bottom: 14px;
+  animation: cardPopIn .4s cubic-bezier(.2,.8,.2,1) both;
+  transition: border-color .2s ease;
+}
+.chart-card:hover { border-color: var(--amber-dim); }
+.chart-card:nth-child(1) { animation-delay: .03s; }
+.chart-card:nth-child(2) { animation-delay: .1s; }
+.chart-card:nth-child(3) { animation-delay: .17s; }
+.chart-card:nth-child(4) { animation-delay: .24s; }
+.chart-card h4 { margin: 0 0 10px; font-size: 13.5px; color: var(--ivory); font-weight: 600; }
+.chart-card svg { width: 100%; height: auto; display: block; }
+.chart-card svg rect { transition: opacity .2s ease; }
+.chart-card svg path[stroke-width] { stroke-dasharray: 500; stroke-dashoffset: 500; animation: drawLine 1s cubic-bezier(.4,0,.2,1) .15s forwards; }
+@keyframes drawLine { to { stroke-dashoffset: 0; } }
+
+/* ── ناوبری پایین صفحه (موبایل) — قاب بیضی شناور مدرن ────── */
+.bottom-nav {
+  position: fixed; left: 12px; right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  display: flex; justify-content: space-around; align-items: center;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 7px 6px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.28),
+              inset 0 1px 0 rgba(255,255,255,.03);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+.bn-item {
+  position: relative; overflow: hidden;
+  background: none; border: none; color: var(--ivory-dim);
+  display: flex; align-items: center; justify-content: center;
+  height: 44px; padding: 0 4px; border-radius: 999px; flex: 1; min-width: 0;
+  transition: color .18s ease, background .28s cubic-bezier(.2,.8,.2,1), transform .18s ease;
+}
+.bn-ic {
+  width: 23px; height: 23px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .34s cubic-bezier(.34,1.56,.64,1);
+}
+.bn-ic svg { width: 100%; height: 100%; }
+.bn-label {
+  position: absolute; left: 0; right: 0; bottom: 5px; text-align: center;
+  font-size: 9px; white-space: nowrap; font-weight: 600;
+  opacity: 0; transform: translateY(6px);
+  transition: opacity .26s ease .02s, transform .34s cubic-bezier(.34,1.56,.64,1) .02s;
+  pointer-events: none;
+}
+.bn-item.active { color: var(--ink); background: var(--amber); animation: bnPop .32s cubic-bezier(.34,1.56,.64,1); }
+.bn-item.active .bn-ic { transform: translateY(-8px) scale(1.05); }
+.bn-item.active .bn-label { opacity: 1; transform: translateY(0); }
+.bn-item:active { transform: scale(.9); }
+.bn-item:not(.active):active .bn-ic { transform: scale(.88); }
+@keyframes bnPop { 0% { transform: scale(.9); } 55% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+/* ── دکمهٔ ریزِ روندها (بالای صفحه، فقط توی ویوِ «نفرات برتر») ─── */
+.topbar-title-wrap { display: flex; align-items: center; gap: 8px; }
+.topbar-mini-btn {
+  display: none; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; flex-shrink: 0;
+  background: var(--panel); border: 1px solid var(--line); color: var(--ivory-dim);
+  border-radius: 50%; cursor: pointer;
+  transform: scale(.6); opacity: 0;
+  transition: transform .26s cubic-bezier(.34,1.56,.64,1), opacity .2s ease,
+              background .18s ease, color .18s ease, border-color .18s ease;
+}
+.topbar-mini-btn svg { width: 14px; height: 14px; }
+.topbar-mini-btn.visible { display: flex; transform: scale(1); opacity: 1; }
+.topbar-mini-btn:active { transform: scale(.88); }
+.topbar-mini-btn.open { background: var(--amber); color: var(--ink); border-color: var(--amber); }
+.topbar-mini-btn.open svg { transform: rotate(180deg); transition: transform .28s cubic-bezier(.34,1.56,.64,1); }
+
+/* ── پنلِ جمع‌شوندهٔ روندها (داخلِ ویوِ «نفرات برتر») ──────────── */
+.trends-panel {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows .38s cubic-bezier(.4,0,.2,1), margin-top .38s ease;
+  margin-top: 0;
+}
+.trends-panel.open { grid-template-rows: 1fr; margin-top: 12px; }
+.trends-panel-body { overflow: hidden; min-height: 0; }
+.trends-panel .chart-card:first-child { margin-top: 2px; }
+
+/* ── دستیار هوشمند (چت مشاوره‌ای، فقط‌خواندنی) ────────────── */
+.assistant-wrap {
+  display: flex; flex-direction: column;
+  /* این عددِ calc فقط یه فال‌بکِ اولیه‌ست (تا وقتی جاوااسکریپت اجرا بشه)؛
+     ارتفاعِ واقعی توسطِ sizeAssistantWrap() در app.js، بر اساسِ فضای واقعاً
+     باقی‌مونده‌ی صفحه، به‌صورتِ inline محاسبه و ست می‌شه — چون فاصله‌ی ثابتِ
+     ۱۵۰px قبلی با اندازه‌ی واقعیِ topbar+intro هم‌خوان نبود و باعثِ یه فضای
+     خالیِ بزرگِ زیرِ کارتِ معرفی می‌شد. */
+  height: calc(100dvh - var(--bottom-nav-h) - 150px);
+  min-height: 380px;
+  animation: fadeInSoft .3s ease both;
+}
+.assistant-intro {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; margin-bottom: 12px;
+  animation: cardPopIn .4s cubic-bezier(.2,.8,.2,1) both;
+}
+.assistant-avatar {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 19px;
+  background: radial-gradient(circle at 35% 30%, var(--amber), var(--amber-dim));
+  box-shadow: 0 3px 10px rgba(201,154,70,0.3);
+  animation: assistantBob 3s ease-in-out infinite;
+}
+@keyframes assistantBob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-3px) rotate(-3deg); }
+}
+.assistant-intro .main-txt { font-weight: 700; font-size: 14.5px; color: var(--ivory); }
+.assistant-intro .sub-txt { font-size: 12px; color: var(--ivory-dim); margin-top: 2px; line-height: 1.5; }
+
+.assistant-log {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 4px 2px 10px;
+  scroll-behavior: smooth;
+}
+
+.chat-bubble {
+  max-width: 84%; padding: 10px 14px; border-radius: 16px;
+  font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+}
+.bubble-in { animation: bubbleIn .32s cubic-bezier(.22,.9,.32,1) both; }
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(8px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* صفحه RTL است؛ پیامِ خودِ مدیر (کاربر) سمتِ راست می‌شینه (align-self: flex-end
+   یعنی انتهای محورِ اینلاین که در RTL همون سمتِ راسته)، جوابِ دستیار سمتِ چپ. */
+.chat-user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, var(--amber), var(--amber-dim));
+  color: var(--ink); font-weight: 600;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 3px 10px rgba(201,154,70,0.18);
+}
+.chat-bot {
+  align-self: flex-start;
+  background: var(--panel); border: 1px solid var(--line); color: var(--ivory);
+  border-bottom-left-radius: 4px;
+  display: flex; align-items: flex-start; gap: 8px;
+}
+.bubble-ic { flex-shrink: 0; font-size: 15px; line-height: 1.7; }
+.bubble-txt { flex: 1; }
+
+.typing-dots { display: flex; align-items: center; gap: 4px; padding: 3px 0; }
+.typing-dots span {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--amber-dim);
+  animation: typingBounce 1.2s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: .15s; }
+.typing-dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: .5; }
+  30%           { transform: translateY(-5px); opacity: 1; }
+}
+
+.assistant-suggestions {
+  display: flex; gap: 7px; flex-wrap: wrap; padding: 8px 0 16px;
+  transition: opacity .2s ease, max-height .25s ease, margin .25s ease, padding .25s ease;
+  max-height: 110px; overflow: hidden;
+}
+.assistant-suggestions.sugg-hidden { opacity: 0; max-height: 0; padding: 0; pointer-events: none; }
+.sugg-chip {
+  background: var(--panel); border: 1px solid var(--line); color: var(--ivory-dim);
+  padding: 7px 13px; border-radius: 20px; font-size: 12px; font-family: inherit;
+  transition: background .18s ease, color .18s ease, border-color .18s ease, transform .15s ease;
+  animation: cardPopIn .35s cubic-bezier(.2,.8,.2,1) both;
+}
+.sugg-chip:hover { background: var(--panel-2); color: var(--amber); border-color: var(--amber-dim); }
+.sugg-chip:active { transform: scale(.95); }
+
+.assistant-form {
+  display: flex; gap: 8px; align-items: center;
+  margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+.assistant-form input {
+  flex: 1; min-width: 0; box-sizing: border-box;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 22px;
+  padding: 11px 16px; font-size: 14px; color: var(--ivory); font-family: inherit; outline: none;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.assistant-form input:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(201,154,70,0.14); }
+.assistant-form input:disabled { opacity: .6; }
+.assistant-send {
+  width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--amber); color: var(--ink); border: none;
+  transition: transform .16s cubic-bezier(.34,1.56,.64,1), background .18s ease, box-shadow .18s ease;
+  box-shadow: 0 3px 10px rgba(201,154,70,0.25);
+}
+.assistant-send:hover { transform: scale(1.06) rotate(0deg); box-shadow: 0 4px 14px rgba(201,154,70,0.35); }
+.assistant-send:active { transform: scale(.92); }
+.assistant-send svg { transform: scaleX(-1); } /* آیکونِ پیکان به‌سمتِ راست طراحی شده؛ برای اشاره به چپ (جهتِ ارسال در RTL) آینه می‌شه */
+
+@media (min-width: 880px) {
+  .assistant-wrap { height: calc(100vh - 130px); }
+}
+
+/* ── دسکتاپ: ساید‌بار به‌جای ناوبری پایین ─────────────────── */
+@media (min-width: 880px) {
+  .sidebar {
+    display: flex; flex-direction: column;
+    width: 236px; flex-shrink: 0;
+    background: var(--panel); border-left: 1px solid var(--line);
+    height: 100vh; position: sticky; top: 0;
+  }
+  .bottom-nav { display: none; }
+  .main { padding-bottom: 0; }
+  .view-body { padding: 6px 28px 32px; max-width: 1100px; }
+  .topbar { padding: 22px 28px 14px; }
+  .stat-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+@media (min-width: 1280px) {
+  .stat-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
