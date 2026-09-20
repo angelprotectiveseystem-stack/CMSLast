@@ -387,7 +387,7 @@ async def _panel_content(action: str, uid: int, is_pishva: bool, admin):
         return box("📋 وظایف"), kb.kb_tasks_admin(), None
 
     if action == "classes":
-        return box("🏫 مدیریت کلاس‌ها"), kb.kb_class_manage(), None
+        return box("🏫 مدیریت کلاس‌ها"), kb.kb_class_manage(is_pishva=is_pishva), None
 
     if action == "lottery":
         return (
@@ -893,7 +893,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             await ask_panel_location(update, ctx, "classes")
         else:
             sent = await update.message.reply_text(
-                box("🏫 مدیریت کلاس‌ها"), reply_markup=kb.kb_class_manage(), parse_mode="Markdown"
+                box("🏫 مدیریت کلاس‌ها"), reply_markup=kb.kb_class_manage(is_pishva=(update.effective_user.id == PISHVA_ID)), parse_mode="Markdown"
             )
             await register_panel_owner(update, ctx, sent.message_id)
         raise ApplicationHandlerStop()

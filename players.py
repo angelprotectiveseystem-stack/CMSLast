@@ -27,11 +27,11 @@ async def class_add_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cid = ctx.user_data.pop("editing_class")
         await db.rename_class(cid, name)
         await update.message.reply_text(f"✅ نام کلاس به *{name}* تغییر یافت.", parse_mode="Markdown",
-                                         reply_markup=kb.kb_class_manage())
+                                         reply_markup=kb.kb_class_manage(is_pishva=(update.effective_user.id == PISHVA_ID)))
     else:
         await db.create_class(name)
         await db.log_action(update.effective_user.id, "create_class", f"ثبت کلاس: {name}")
-        await update.message.reply_text(f"✅ کلاس *{name}* ثبت شد.", reply_markup=kb.kb_class_manage(), parse_mode="Markdown")
+        await update.message.reply_text(f"✅ کلاس *{name}* ثبت شد.", reply_markup=kb.kb_class_manage(is_pishva=(update.effective_user.id == PISHVA_ID)), parse_mode="Markdown")
     return ConversationHandler.END
 
 async def class_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -40,7 +40,7 @@ async def class_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     classes = await db.get_all_classes()
     if not classes:
         await safe_edit_message_text(query, f"{box('🏫 کلاس‌ها')}\n\n❗ هیچ کلاسی ثبت نشده.",
-                                       reply_markup=kb.kb_class_manage(), parse_mode="Markdown")
+                                       reply_markup=kb.kb_class_manage(is_pishva=(query.from_user.id == PISHVA_ID)), parse_mode="Markdown")
         return
     await safe_edit_message_text(query, f"{box('🏫 لیست کلاس‌ها')}\n\n📌 یک کلاس انتخاب کنید:",
                                    reply_markup=kb.kb_class_list(classes), parse_mode="Markdown")
@@ -143,6 +143,75 @@ async def class_perf(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"⚡ سطح قدرت:\n`{bar}`",
         reply_markup=kb.kb_back(f"class_select_{cid}"), parse_mode="Markdown")
 
+# ─── رنگ دکمه‌ی کلاس‌ها (فقط مدیر ارشد) ─────────────────────────
+async def _cclr_guard(query) -> bool:
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ تنظیم رنگ کلاس‌ها فقط برای مدیر ارشد مجاز است.", show_alert=True)
+        return False
+    return True
+
+async def class_colors_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not await _cclr_guard(query):
+        return
+    await query.answer()
+    classes = await db.get_all_classes()
+    if not classes:
+        await safe_edit_message_text(query, f"{box('🎨 رنگ کلاس‌ها')}\n\n❗ هیچ کلاسی ثبت نشده.",
+                                       reply_markup=kb.kb_class_manage(is_pishva=True), parse_mode="Markdown")
+        return
+    await safe_edit_message_text(query,
+        f"{box('🎨 رنگ کلاس‌ها')}\n\n"
+        f"📌 روی هر کلاس بزنید تا رنگ دکمه‌ی آن (در همه‌ی منوهای ربات) را تغییر دهید.\n"
+        f"رنگ فعلی هر کلاس همین‌جا روی دکمه‌اش دیده می‌شود.",
+        reply_markup=kb.kb_class_colors_list(classes), parse_mode="Markdown")
+
+async def _show_class_color_picker(query, cid: int, src: str):
+    c = await db.get_class(cid)
+    if not c:
+        await query.answer("کلاس یافت نشد.", show_alert=True)
+        return
+    current = kb.class_style_of(c)
+    current_txt = kb.CLASS_STYLE_NAMES.get(current, "پیش‌فرض")
+    await safe_edit_message_text(query,
+        f"{box('🎨 رنگ کلاس ' + c['name'])}\n\n"
+        f"🎯 رنگ فعلی: *{current_txt}*\n\n"
+        f"📌 رنگ دکمه‌ی این کلاس را انتخاب کنید:",
+        reply_markup=kb.kb_class_color_picker(cid, current, src), parse_mode="Markdown")
+
+async def class_color_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not await _cclr_guard(query):
+        return
+    await query.answer()
+    parts = query.data.split("_")            # cclr_pick_{id}_{src}
+    cid = int(parts[2])
+    src = parts[3] if len(parts) > 3 else "l"
+    await _show_class_color_picker(query, cid, src)
+
+async def class_color_set(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not await _cclr_guard(query):
+        return
+    parts = query.data.split("_")            # cclr_set_{id}_{style}_{src}
+    cid, key = int(parts[2]), parts[3]
+    src = parts[4] if len(parts) > 4 else "l"
+    c = await db.get_class(cid)
+    if not c:
+        await query.answer("کلاس یافت نشد.", show_alert=True)
+        return
+    try:
+        ok = await db.set_class_button_style(cid, key)
+    except Exception:
+        ok = False
+    if not ok:
+        await query.answer("❌ ذخیره‌ی رنگ انجام نشد. لطفاً دوباره تلاش کنید.", show_alert=True)
+        return
+    color_name = kb.CLASS_STYLE_NAMES[key]
+    await db.log_action(query.from_user.id, "class_color", f"رنگ دکمه‌ی کلاس {c['name']}: {color_name}")
+    await query.answer(f"✅ رنگ کلاس {c['name']} → {color_name}")
+    await _show_class_color_picker(query, cid, src)
+
 # ─── Player Registration ──────────────────────────────────────
 async def player_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -150,11 +219,11 @@ async def player_add_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     classes = await db.get_all_classes()
     if not classes:
         await safe_edit_message_text(query, "❗ ابتدا باید حداقل یک کلاس ثبت کنید.",
-                                       reply_markup=kb.kb_class_manage(), parse_mode="Markdown")
+                                       reply_markup=kb.kb_class_manage(is_pishva=(query.from_user.id == PISHVA_ID)), parse_mode="Markdown")
         return ConversationHandler.END
     rows = []
     for i in range(0, len(classes), 2):
-        row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"pclass_{c['id']}") for c in classes[i:i+2]]
+        row = [kb.class_btn(c, f"pclass_{c['id']}") for c in classes[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_players")])
     await safe_edit_message_text(query, 
@@ -678,7 +747,7 @@ async def player_editclass_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     classes = await db.get_all_classes()
     rows = []
     for i in range(0, len(classes), 2):
-        row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"setclass_{pid}_{c['id']}") for c in classes[i:i+2]]
+        row = [kb.class_btn(c, f"setclass_{pid}_{c['id']}") for c in classes[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"player_view_{pid}")])
     await safe_edit_message_text(query, "🏫 کلاس جدید را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))

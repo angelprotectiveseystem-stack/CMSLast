@@ -110,17 +110,46 @@ def kb_players_menu(role="pishva"):
     ])
 
 # ─── کلاس ────────────────────────────────────────────────────
-def kb_class_manage():
-    return InlineKeyboardMarkup([
+# رنگ دکمه‌ی هر کلاس رو مدیر ارشد تنظیم می‌کنه (بی‌رنگ/آبی/سبز/قرمز) و همه‌ی
+# منوهایی که دکمه‌ی کلاس دارن از همین تابع استفاده می‌کنن تا رنگ «همه‌جا» یکی باشه.
+CLASS_STYLE_LABELS = {"none": "⚪ بی‌رنگ", "primary": "🔵 آبی", "success": "🟢 سبز", "danger": "🔴 قرمز"}
+CLASS_STYLE_NAMES = {"none": "بی‌رنگ", "primary": "آبی", "success": "سبز", "danger": "قرمز"}
+
+
+def class_style_of(c):
+    """مقدار ذخیره‌شده‌ی رنگِ کلاس: none/primary/success/danger، یا None اگه هیچ‌وقت تنظیم نشده."""
+    try:
+        s = c["button_style"]
+    except Exception:
+        return None
+    return s if s in CLASS_STYLE_LABELS else None
+
+
+def class_btn(c, callback_data, default_style=None):
+    """دکمه‌ی یک کلاس، با رنگی که مدیر ارشد براش گذاشته. اگه رنگی تنظیم نشده باشه،
+    default_style (رفتارِ قبلیِ همون منو) اعمال می‌شه؛ «بی‌رنگ» صریح هیچ style‌ای نمی‌ذاره."""
+    label = f"🏫 {c['name']}"
+    stored = class_style_of(c)
+    st = default_style if stored is None else (None if stored == "none" else stored)
+    if st:
+        return InlineKeyboardButton(label, callback_data=callback_data, style=st)
+    return InlineKeyboardButton(label, callback_data=callback_data)
+
+
+def kb_class_manage(is_pishva=False):
+    rows = [
         [InlineKeyboardButton("✅ ثبت کلاس جدید", callback_data="class_add", style="success"),
         InlineKeyboardButton("👁️ مشاهده کلاس‌ها", callback_data="class_list", style="primary")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="back_players", style="danger")],
-    ])
+    ]
+    if is_pishva:
+        rows.append([InlineKeyboardButton("🎨 رنگ کلاس‌ها", callback_data="cclr_list", style="primary")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_players", style="danger")])
+    return InlineKeyboardMarkup(rows)
 
 def kb_class_list(classes):
     rows = []
     for i in range(0, len(classes), 2):
-        row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"class_select_{c['id']}", style="primary") for c in classes[i:i+2]]
+        row = [class_btn(c, f"class_select_{c['id']}", default_style="primary") for c in classes[i:i+2]]
         rows.append(row)
     rows.append(kb_back_row("class_manage"))
     return InlineKeyboardMarkup(rows)
@@ -129,11 +158,38 @@ def kb_class_actions(class_id, is_pishva=False):
     row3 = [InlineKeyboardButton("📈 عملکرد کلاس", callback_data=f"class_perf_{class_id}", style="primary")]
     if is_pishva:
         row3.append(InlineKeyboardButton("🗑 حذف کلاس", callback_data=f"class_harddelete_ask_{class_id}", style="danger"))
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton("👥 بازیکنان کلاس", callback_data=f"class_players_{class_id}", style="primary"),
         InlineKeyboardButton("✏️ ویرایش نام", callback_data=f"class_edit_{class_id}", style="primary")],
         row3,
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="class_list", style="danger")],
+    ]
+    if is_pishva:
+        rows.append([InlineKeyboardButton("🎨 رنگ کلاس", callback_data=f"cclr_pick_{class_id}_c", style="primary")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="class_list", style="danger")])
+    return InlineKeyboardMarkup(rows)
+
+def kb_class_colors_list(classes):
+    """لیست کلاس‌ها برای انتخابِ رنگ — هر دکمه همون رنگ فعلیِ خودش رو داره."""
+    rows = []
+    for i in range(0, len(classes), 2):
+        rows.append([class_btn(c, f"cclr_pick_{c['id']}_l") for c in classes[i:i+2]])
+    rows.append(kb_back_row("class_manage"))
+    return InlineKeyboardMarkup(rows)
+
+def kb_class_color_picker(class_id, current, src):
+    """چهار گزینه‌ی رنگ (هر دکمه با رنگ خودش) + بازگشت. src: 'l' یعنی از لیست رنگ‌ها آمده،
+    'c' یعنی از پنل خودِ کلاس."""
+    def opt(key):
+        label = CLASS_STYLE_LABELS[key] + (" ✅" if current == key else "")
+        cb = f"cclr_set_{class_id}_{key}_{src}"
+        if key == "none":
+            return InlineKeyboardButton(label, callback_data=cb)
+        return InlineKeyboardButton(label, callback_data=cb, style=key)
+    back_cb = "cclr_list" if src == "l" else f"class_select_{class_id}"
+    return InlineKeyboardMarkup([
+        [opt("none"), opt("primary")],
+        [opt("success"), opt("danger")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data=back_cb, style="danger")],
     ])
 
 # ─── بازیکنان ─────────────────────────────────────────────────

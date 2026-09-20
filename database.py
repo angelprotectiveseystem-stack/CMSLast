@@ -514,6 +514,9 @@ async def init_db():
             # نمی‌کنه. نتیجه‌ش خطای «no such column: result» بود که با هر باز
             # کردنِ پنلِ تیم (team_view) رخ می‌داد.
             "ALTER TABLE team_matches ADD COLUMN result TEXT",
+            # ─── رنگ دکمه‌ی هر کلاس (فقط مدیر ارشد تنظیمش می‌کنه): NULL = پیش‌فرضِ همون منو،
+            # 'none' = بی‌رنگ، و 'primary'/'success'/'danger' = آبی/سبز/قرمز.
+            "ALTER TABLE classes ADD COLUMN button_style TEXT",
         ):
             try:
                 await db.execute(stmt)
@@ -993,6 +996,21 @@ async def rename_class(class_id: int, new_name: str):
         await db.execute("UPDATE classes SET name=? WHERE id=?", (new_name, class_id))
         await db.commit()
     _invalidate_classes_cache()
+
+
+CLASS_BUTTON_STYLES = ("none", "primary", "success", "danger")
+
+
+async def set_class_button_style(class_id: int, style: str) -> bool:
+    """رنگ دکمه‌ی یک کلاس رو تنظیم می‌کنه (none=بی‌رنگ، primary=آبی، success=سبز، danger=قرمز).
+    خروجی False یعنی مقدار نامعتبر بود."""
+    if style not in CLASS_BUTTON_STYLES:
+        return False
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE classes SET button_style=? WHERE id=?", (style, class_id))
+        await db.commit()
+    _invalidate_classes_cache()
+    return True
 
 
 async def get_class_player_count(class_id: int) -> int:

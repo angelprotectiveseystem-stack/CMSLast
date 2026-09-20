@@ -276,7 +276,7 @@ async def back_class_manage(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await safe_edit_message_text(query, 
         f"{box('🏫 مدیریت کلاس‌ها')}\n\n📌 بخش موردنظر را انتخاب کنید:",
-        reply_markup=kb.kb_class_manage(),
+        reply_markup=kb.kb_class_manage(is_pishva=(query.from_user.id == PISHVA_ID)),
         parse_mode="Markdown"
     )
 

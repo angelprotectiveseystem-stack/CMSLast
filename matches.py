@@ -742,7 +742,7 @@ async def lottery_class_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     classes = await db.get_all_classes()
     rows = []
     for i in range(0, len(classes), 2):
-        row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"lclass_{c['id']}") for c in classes[i:i+2]]
+        row = [kb.class_btn(c, f"lclass_{c['id']}") for c in classes[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="lottery_start")])
     await safe_edit_message_text(query, "🏫 کلاس را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))
@@ -857,7 +857,7 @@ async def adv_lottery_scope_chosen(update: Update, ctx: ContextTypes.DEFAULT_TYP
     rows = []
     prefix = "adv_class_same_" if scope == "same" else "adv_classA_"
     for i in range(0, len(classes), 2):
-        row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"{prefix}{c['id']}") for c in classes[i:i+2]]
+        row = [kb.class_btn(c, f"{prefix}{c['id']}") for c in classes[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="adv_lottery_start")])
     label = "🏫 کلاس مشترک هر دو طرف را انتخاب کنید:" if scope == "same" else "🏫 کلاس طرف اول (سفید) را انتخاب کنید:"
@@ -882,7 +882,7 @@ async def adv_lottery_classA_chosen(update: Update, ctx: ContextTypes.DEFAULT_TY
     classes = await db.get_all_classes()
     rows = []
     for i in range(0, len(classes), 2):
-        row = [InlineKeyboardButton(f"🏫 {c['name']}", callback_data=f"adv_classB_{c['id']}") for c in classes[i:i+2]]
+        row = [kb.class_btn(c, f"adv_classB_{c['id']}") for c in classes[i:i+2]]
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="adv_lottery_start")])
     await safe_edit_message_text(query, "🏫 کلاس طرف دوم (سیاه) را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(rows))

@@ -64,6 +64,7 @@ from tournament import (
 from players import (
     class_add_start, class_add_name, class_list, class_select, class_players,
     class_edit, class_perf, class_harddelete_ask, class_harddelete_go,
+    class_colors_list, class_color_pick, class_color_set,
     player_add_start, player_class_selected, player_add_name,
     player_join_team, player_no_team, player_list, player_list_page, player_view,
     player_warn_start, player_warn_reason, player_kick, player_suspend, player_revive,
@@ -940,6 +941,10 @@ def build_application():
     app.add_handler(CallbackQueryHandler(class_perf, pattern="^class_perf_"))
     app.add_handler(CallbackQueryHandler(class_harddelete_ask, pattern="^class_harddelete_ask_"))
     app.add_handler(CallbackQueryHandler(class_harddelete_go, pattern="^class_harddelete_go_"))
+    # رنگ دکمه‌ی کلاس‌ها (فقط مدیر ارشد — داخل خودِ هندلرها هم چک می‌شه)
+    app.add_handler(CallbackQueryHandler(class_colors_list, pattern="^cclr_list$"))
+    app.add_handler(CallbackQueryHandler(class_color_pick, pattern="^cclr_pick_"))
+    app.add_handler(CallbackQueryHandler(class_color_set, pattern="^cclr_set_"))
 
     # Players
     app.add_handler(CallbackQueryHandler(player_list, pattern="^player_list$"))
