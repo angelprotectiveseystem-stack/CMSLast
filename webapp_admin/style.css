@@ -698,3 +698,53 @@ html.custom-cursor.cursor-text .cursor-dot { opacity: 0; }
   padding: 8px 0; border-radius: 8px; font-weight: 700; font-size: 14px;
 }
 .rank-num-btn.active { background: var(--amber); color: var(--ink); border-color: var(--amber); }
+
+/* ── دستیار: فهرست گفتگوها + نمای گفتگو (فقط‌خواندنی) ─────────────── */
+.chat-row { cursor: pointer; transition: border-color .12s, background .12s; }
+.chat-row:hover { border-color: var(--amber-dim); background: var(--panel-2); }
+.chat-row-main { flex: 1; min-width: 0; }
+.chat-row-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.chat-head { padding: 12px 14px; }
+.chat-head .sub-txt { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+
+.chat-thread { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
+.chat-msg { display: flex; flex-direction: column; max-width: 86%; }
+.chat-bubble-txt {
+  padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.85;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+}
+.chat-time { font-size: 11px; color: var(--ivory-dim); margin-top: 4px; padding: 0 6px; }
+
+/* سؤالِ مدیر: سمتِ شروع (راست در RTL)، با تاکیدِ کهربایی */
+.chat-user { align-self: flex-start; align-items: flex-start; }
+.chat-user .chat-bubble-txt {
+  background: rgba(201,154,70,0.16); border: 1px solid var(--amber-dim);
+  border-top-right-radius: 4px; color: var(--ivory);
+}
+/* پاسخ دستیار: سمتِ مقابل */
+.chat-ai { align-self: flex-end; align-items: flex-end; }
+.chat-ai .chat-bubble-txt {
+  background: var(--panel); border: 1px solid var(--line);
+  border-top-left-radius: 4px; color: var(--ivory);
+}
+/* پیام خطا/سیستم */
+.chat-system { align-self: center; align-items: center; max-width: 92%; }
+.chat-system .chat-bubble-txt {
+  background: rgba(178,83,74,0.12); border: 1px solid rgba(178,83,74,0.35);
+  color: var(--brick); font-size: 12.5px; text-align: center;
+}
+/* فراخوانیِ ابزار: کم‌رنگ و جمع‌شونده تا خواندنِ گفتگو رو شلوغ نکنه */
+.chat-tool { align-self: flex-end; align-items: flex-end; max-width: 92%; }
+.chat-tool details {
+  background: var(--panel-2); border: 1px dashed var(--line); border-radius: 10px;
+  padding: 6px 12px; font-size: 12px; color: var(--ivory-dim); max-width: 100%;
+}
+.chat-tool summary { cursor: pointer; overflow-wrap: anywhere; }
+.chat-tool-body {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line);
+  white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; direction: rtl;
+}
+.chat-refresh { margin-top: 10px; }
+
+@media (max-width: 860px) { .chat-msg { max-width: 94%; } }

@@ -3,7 +3,8 @@
 
   var TOKEN_KEY = "chess_panel_token";
   var POLL_MS = 4000; // زنده بدون فشار به سرور: هر ۴ ثانیه فقط GET های سبک
-  var state = { view: "home", timer: null, activityPage: 0, topManualView: false };
+  var state = { view: "home", timer: null, activityPage: 0, topManualView: false,
+                assistantSession: null, assistantSource: "all", assistantQuery: "" };
 
   // ── HTTP ──────────────────────────────────────────────
   function api(path, opts) {
@@ -75,10 +76,15 @@
   // هر دو ناوبری و عنوان بالای صفحه با هم هماهنگ می‌مونن.
   function goToView(view) {
     if (!VIEW_TITLES[view]) return;
-    if (state.view === view && !document.querySelector(".sidebar.open")) return; // از رندر تکراری/بی‌مورد جلوگیری می‌کنه
+    // کلیک دوباره روی «دستیار» وقتی وسطِ یک گفتگو هستیم = برگشت به فهرست.
+    var reopenAssistant = view === "assistant" && state.view === "assistant" && state.assistantSession;
+    if (reopenAssistant) state.assistantSession = null;
+    if (state.view === view && !document.querySelector(".sidebar.open") && !reopenAssistant) return; // از رندر تکراری/بی‌مورد جلوگیری می‌کنه
     // با خروج از تبِ «تنظیمات»، اگه وسطِ ویرایشِ دستیِ نفراتِ برتر بودیم،
     // دفعه‌ی بعد که دوباره وارد تنظیمات بشیم از اول (لیستِ اصلی) شروع بشه.
     if (state.view === "settings" && view !== "settings") state.topManualView = false;
+    // همین الگو برای «دستیار»: با خروج از تب، دفعه‌ی بعد از فهرست گفتگوها شروع بشه.
+    if (state.view === "assistant" && view !== "assistant") state.assistantSession = null;
     state.view = view;
 
     // ۱) فیدبک فوری: فقط هایلایت آیتم‌ها و عنوان بالای صفحه عوض بشه.
@@ -494,21 +500,8 @@
     },
 
     assistant: function () {
-      api("/api/panel/assistant").then(function (d) {
-        if (!d.ok) return;
-        if (!d.sessions.length) { setBody('<div class="section"><div class="empty-state">گفتگویی با دستیار ثبت نشده</div></div>'); return; }
-        var rows = d.sessions.map(function (s) {
-          return '<tr>' +
-            '<td class="cell-primary">' + esc(s.title || "بدون عنوان") + '</td>' +
-            '<td data-label="تعداد پیام">' + s.msg_count + '</td>' +
-            '<td data-label="آخرین پیام">' + fmtDate(s.last_message_at) + '</td></tr>';
-        }).join("");
-        setBody(
-          '<div class="section table-as-cards">' +
-            '<div class="section-head"><h3>جلسات دستیار هوش مصنوعی</h3><span class="count">' + d.sessions.length + '</span></div>' +
-            '<table><thead><tr><th>عنوان</th><th>تعداد پیام</th><th>آخرین پیام</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-          '</div>');
-      });
+      if (state.assistantSession) { renderAssistantChat(state.assistantSession); return; }
+      renderAssistantList();
     },
 
     settings: function () {
@@ -558,6 +551,138 @@
       });
     },
   };
+
+  // ── دستیار: فهرست گفتگوها + نمای هر گفتگو (فقط‌خواندنی) ──────────
+  var ASSISTANT_SOURCES = [
+    ["all", "همه"], ["principal", "🏫 مدیر مدرسه"], ["admins", "👤 مدیران"],
+  ];
+
+  function assistantSourceBadge(source) {
+    return source === "principal"
+      ? '<span class="badge draw">🏫 مدیر مدرسه</span>'
+      : '<span class="badge pending">👤 مدیران</span>';
+  }
+
+  function renderAssistantList() {
+    setBody(
+      '<div class="section">' +
+        '<div class="tabs" id="assistant-tabs">' +
+          ASSISTANT_SOURCES.map(function (t) {
+            return tabBtn(t[0], t[1], state.assistantSource === t[0]);
+          }).join("") +
+        '</div>' +
+        '<div class="search-box">' +
+          '<input type="text" id="assistant-search" placeholder="جستجو در عنوان و متن گفتگوها…" autocomplete="off" value="' + esc(state.assistantQuery) + '">' +
+          '<span class="search-ic">🔍</span>' +
+        '</div>' +
+        '<div class="section-head"><h3>گفتگوهای دستیار هوش مصنوعی</h3><span class="count" id="assistant-count"></span></div>' +
+        '<div class="card-list" id="assistant-list"><div class="loading-state"><span class="spinner"></span></div></div>' +
+      '</div>');
+
+    var listEl = document.getElementById("assistant-list");
+    var countEl = document.getElementById("assistant-count");
+    var searchEl = document.getElementById("assistant-search");
+    var seq = 0;
+
+    function load() {
+      var mySeq = ++seq;
+      var url = "/api/panel/assistant?source=" + encodeURIComponent(state.assistantSource) +
+                "&q=" + encodeURIComponent(state.assistantQuery);
+      api(url).then(function (d) {
+        if (mySeq !== seq || !document.body.contains(listEl)) return; // جواب کهنه
+        if (!d.ok) return;
+        countEl.textContent = d.sessions.length + " گفتگو";
+        if (!d.sessions.length) {
+          listEl.innerHTML = '<div class="empty-state">' +
+            (state.assistantQuery ? "گفتگویی با این جستجو پیدا نشد" : "گفتگویی با دستیار ثبت نشده") + '</div>';
+          return;
+        }
+        listEl.innerHTML = d.sessions.map(function (x) {
+          return '<div class="row-card chat-row" data-sid="' + x.id + '">' +
+            '<div class="chat-row-main">' +
+              '<div class="main-txt chat-row-title">' + esc(x.title || "بدون عنوان") + '</div>' +
+              '<div class="sub-txt">' + esc(x.owner) + ' · ' + fmtDate(x.last_message_at) + ' · ' + x.msg_count + ' پیام</div>' +
+            '</div>' +
+            assistantSourceBadge(x.source) +
+          '</div>';
+        }).join("");
+      }).catch(function () {});
+    }
+
+    document.getElementById("assistant-tabs").addEventListener("click", function (e) {
+      var btn = e.target.closest(".tab-btn"); if (!btn) return;
+      state.assistantSource = btn.getAttribute("data-period");
+      document.querySelectorAll("#assistant-tabs .tab-btn").forEach(function (b) {
+        b.classList.toggle("active", b === btn);
+      });
+      load();
+    });
+
+    var debounce = null;
+    searchEl.addEventListener("input", function () {
+      clearTimeout(debounce);
+      debounce = setTimeout(function () {
+        state.assistantQuery = searchEl.value.trim();
+        load();
+      }, 250);
+    });
+
+    listEl.addEventListener("click", function (e) {
+      var row = e.target.closest(".chat-row"); if (!row) return;
+      state.assistantSession = Number(row.getAttribute("data-sid"));
+      render();
+    });
+
+    load();
+  }
+
+  function assistantBubble(m) {
+    var when = '<div class="chat-time">' + fmtDate(m.sent_at) + '</div>';
+    if (m.sender === "tool") {
+      var text = String(m.text || "");
+      var cut = text.indexOf(" → ");
+      var head = cut === -1 ? text : text.slice(0, cut);
+      if (head.length > 70) head = head.slice(0, 70) + "…";
+      return '<div class="chat-msg chat-tool"><details><summary>' + esc(head) + '</summary>' +
+        '<div class="chat-tool-body">' + esc(text) + '</div></details>' + when + '</div>';
+    }
+    if (m.sender === "user") {
+      return '<div class="chat-msg chat-user"><div class="chat-bubble-txt">' + esc(m.text) + '</div>' + when + '</div>';
+    }
+    if (m.sender === "system") {
+      return '<div class="chat-msg chat-system"><div class="chat-bubble-txt">' + esc(m.text) + '</div>' + when + '</div>';
+    }
+    return '<div class="chat-msg chat-ai"><div class="chat-bubble-txt">🤖 ' + esc(m.text) + '</div>' + when + '</div>';
+  }
+
+  function renderAssistantChat(sid) {
+    body.innerHTML = '<div class="loading-state"><span class="spinner"></span></div>';
+    api("/api/panel/assistant/" + sid).then(function (d) {
+      if (!d.ok) { state.assistantSession = null; render(); return; }
+      var sess = d.session;
+      document.getElementById("view-title").textContent = "گفتگوی دستیار";
+      setBody(
+        '<button class="back-btn" id="assistant-back">→ بازگشت به فهرست گفتگوها</button>' +
+        '<div class="settings-card chat-head">' +
+          '<div class="main-txt">' + esc(sess.title || "بدون عنوان") + '</div>' +
+          '<div class="sub-txt">' + assistantSourceBadge(sess.source) + ' ' + esc(sess.owner) +
+            ' · شروع: ' + fmtDate(sess.started_at) + ' · ' + d.messages.length + ' پیام</div>' +
+        '</div>' +
+        '<div class="chat-thread">' +
+          (d.messages.length ? d.messages.map(assistantBubble).join("") : '<div class="empty-state">پیامی ثبت نشده</div>') +
+        '</div>' +
+        '<button class="tab-btn chat-refresh" id="assistant-refresh">🔄 به‌روزرسانی</button>'
+      );
+      document.getElementById("assistant-back").addEventListener("click", function () {
+        state.assistantSession = null;
+        document.getElementById("view-title").textContent = VIEW_TITLES.assistant;
+        render();
+      });
+      document.getElementById("assistant-refresh").addEventListener("click", function () {
+        renderAssistantChat(sid);
+      });
+    }).catch(function () {});
+  }
 
   function manualSlot(item) {
     if (!item) return '<div class="slot-card empty">خالی</div>';
