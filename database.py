@@ -2911,6 +2911,12 @@ async def insert_match_raw(white_id, black_id, result, draw_reason, match_date,
 
 
 # ─── AI Assistant — Chat Sessions & Messages ───────────────────
+# چت‌های دستیارِ «پنل مدیر مدرسه» هم توی همین دو جدول ذخیره می‌شن؛ با نقش
+# جدا («principal») از چت‌های ادمین‌های تلگرام تفکیک می‌شن. پنل مدیر مدرسه
+# لاگین تلگرامی نداره (فقط کلید لینک)، برای همین user_id اون ۰ ثبت می‌شه.
+AI_ROLE_PRINCIPAL = "principal"
+AI_PRINCIPAL_USER_ID = 0
+
 async def ai_create_session(user_id: int, role: str) -> int:
     now = datetime.now().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
@@ -2996,6 +3002,42 @@ async def ai_get_messages(session_id: int, limit: int = 200):
             "SELECT * FROM ai_chat_messages WHERE session_id=? ORDER BY sent_at ASC LIMIT ?",
             (session_id, limit)
         ) as cur:
+            return await cur.fetchall()
+
+
+async def ai_list_sessions_overview(source: str = "all", q: str = "", limit: int = 100):
+    """برای پنل ادمین (فقط‌خواندنی): فهرست جلسات چت دستیار همراه با تعداد پیام.
+
+    source: "all" | "principal" (فقط مدیر مدرسه) | "admins" (فقط ادمین‌های تلگرام)
+    q: جستجو توی عنوانِ جلسه و متن پیام‌ها (اختیاری)
+    جلسه‌هایی که هنوز هیچ پیامی ندارن (فقط دکمه‌ی «شروع» زده شده) نمایش داده نمی‌شن.
+    """
+    conditions = ["(SELECT COUNT(*) FROM ai_chat_messages m WHERE m.session_id = s.id) > 0"]
+    params = []
+    if source == "principal":
+        conditions.append("s.role = ?")
+        params.append(AI_ROLE_PRINCIPAL)
+    elif source == "admins":
+        conditions.append("COALESCE(s.role, '') != ?")
+        params.append(AI_ROLE_PRINCIPAL)
+    q = (q or "").strip()[:100]
+    if q:
+        like = f"%{q}%"
+        conditions.append(
+            "(s.title LIKE ? OR EXISTS (SELECT 1 FROM ai_chat_messages m2 "
+            "WHERE m2.session_id = s.id AND m2.text LIKE ?))"
+        )
+        params.extend([like, like])
+    params.append(int(limit))
+    sql = (
+        "SELECT s.id, s.user_id, s.role, s.title, s.started_at, s.last_message_at, "
+        "(SELECT COUNT(*) FROM ai_chat_messages m WHERE m.session_id = s.id) AS msg_count "
+        "FROM ai_chat_sessions s WHERE " + " AND ".join(conditions) +
+        " ORDER BY s.last_message_at DESC LIMIT ?"
+    )
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(sql, params) as cur:
             return await cur.fetchall()
 
 

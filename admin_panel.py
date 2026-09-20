@@ -642,21 +642,80 @@ async def panel_top_manual_remove(request):
 
 
 # ─── دستیار (تاریخچه چت هوش مصنوعی) ────────────────────────────────
+# گفتگوهای دو منبع اینجا دیده می‌شن (هر دو فقط‌خواندنی):
+#   • «مدیر مدرسه» — از دستیارِ پنل مدیر مدرسه (role = principal)
+#   • «ادمین‌ها»   — از دستیارِ داخل ربات تلگرام (مدیر ارشد و مدیران)
+async def _assistant_owner_names() -> dict:
+    admins_rows, pishva_name = await asyncio.gather(
+        db.get_all_admins(),
+        db.get_setting("pishva_display_name", "مدیر ارشد"),
+    )
+    names = {a["telegram_id"]: (a["display_name"] or a["full_name"]) for a in (admins_rows or [])}
+    names[PISHVA_ID] = pishva_name or "مدیر ارشد"
+    return names
+
+
+def _assistant_source(role) -> str:
+    return "principal" if role == db.AI_ROLE_PRINCIPAL else "admin"
+
+
+def _assistant_owner(row, names: dict) -> str:
+    if row["role"] == db.AI_ROLE_PRINCIPAL:
+        return "مدیر مدرسه"
+    return names.get(row["user_id"], str(row["user_id"]))
+
+
 @routes.get("/api/panel/assistant")
 async def panel_assistant(request):
     _require_auth(request)
     await _require_enabled(request)
-    import turso_db as _a
-    async with _a.connect(db.DB_PATH) as conn:
-        conn.row_factory = _a.Row
-        async with conn.execute("""
-            SELECT s.id, s.title, s.started_at, s.last_message_at, s.user_id,
-                   (SELECT COUNT(*) FROM ai_chat_messages m WHERE m.session_id = s.id) as msg_count
-            FROM ai_chat_sessions s
-            ORDER BY s.last_message_at DESC LIMIT 30
-        """) as cur:
-            rows = await cur.fetchall()
-    return _json({"ok": True, "sessions": [dict(r) for r in rows]})
+    source = request.query.get("source", "all")
+    if source not in ("all", "principal", "admins"):
+        source = "all"
+    q = request.query.get("q", "")
+    rows, names = await asyncio.gather(
+        db.ai_list_sessions_overview(source=source, q=q, limit=100),
+        _assistant_owner_names(),
+    )
+    sessions = [{
+        "id": r["id"],
+        "title": r["title"],
+        "started_at": r["started_at"],
+        "last_message_at": r["last_message_at"],
+        "msg_count": r["msg_count"],
+        "source": _assistant_source(r["role"]),
+        "owner": _assistant_owner(r, names),
+    } for r in (rows or [])]
+    return _json({"ok": True, "sessions": sessions})
+
+
+@routes.get("/api/panel/assistant/{session_id}")
+async def panel_assistant_session(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        sid = int(request.match_info["session_id"])
+    except ValueError:
+        raise web.HTTPBadRequest(text=json.dumps({"ok": False, "error": "bad_session_id"}),
+                                 content_type="application/json")
+    sess = await db.ai_get_session(sid)
+    if not sess:
+        raise web.HTTPNotFound(text=json.dumps({"ok": False, "error": "not_found"}),
+                               content_type="application/json")
+    msgs, names = await asyncio.gather(db.ai_get_messages(sid, limit=1000), _assistant_owner_names())
+    return _json({
+        "ok": True,
+        "session": {
+            "id": sess["id"],
+            "title": sess["title"],
+            "started_at": sess["started_at"],
+            "last_message_at": sess["last_message_at"],
+            "source": _assistant_source(sess["role"]),
+            "owner": _assistant_owner(sess, names),
+        },
+        "messages": [{"id": m["id"], "sender": m["sender"], "text": m["text"],
+                      "sent_at": m["sent_at"]} for m in (msgs or [])],
+    })
 
 
 def register_panel_routes(app: web.Application):

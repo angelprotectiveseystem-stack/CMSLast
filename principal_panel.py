@@ -1,7 +1,10 @@
 """
 principal_panel.py — پنل فقط‌خواندنیِ مدیر مدرسه.
 
-این ماژول هیچ نوشتنی روی دیتابیس نداره؛ فقط SELECT. مستقل از منطق ربات
+این ماژول جز یک مورد هیچ نوشتنی روی دیتابیس نداره (بقیه‌ی کارش فقط SELECT ـه):
+گفتگوهای دستیارِ هوشمند توی جدول‌های ai_chat_* ذخیره می‌شن تا مدیر ارشد از «پنل
+ادمین ← دستیار» ببینتشون. اثری از این تاریخچه توی خودِ پنل مدیر مدرسه نیست.
+مستقل از منطق ربات
 و از admin_panel.py هست، ولی درست مثل همون، روی همون اپلیکیشن aiohttp ای
 که game_server.py می‌سازه سوار میشه (نه یک سرور جدا).
 
@@ -730,6 +733,38 @@ def _extract_assistant_parts(data: dict) -> list:
         return []
 
 
+# ─── ذخیره‌ی گفتگوی دستیار (فقط برای دیدنِ مدیر ارشد توی پنل ادمین) ───
+# هر خطایی توی ذخیره‌سازی فقط لاگ می‌شه و هرگز جلوی پاسخ‌گویی به مدیر رو نمی‌گیره.
+async def _principal_chat_session(raw_sid, first_message: str):
+    """session_id ارسالی از کلاینت رو اعتبارسنجی می‌کنه (باید واقعاً یک جلسه‌ی
+    «principal» باشه، نه جلسه‌ی یکی از ادمین‌های تلگرام)؛ در غیر این صورت
+    یک جلسه‌ی جدید می‌سازه و عنوانش رو از اولین پیام می‌ذاره."""
+    try:
+        sid = int(raw_sid) if raw_sid is not None else None
+    except (TypeError, ValueError):
+        sid = None
+    try:
+        if sid is not None:
+            sess = await db.ai_get_session(sid)
+            if sess and sess["role"] == db.AI_ROLE_PRINCIPAL:
+                return sid
+        sid = await db.ai_create_session(db.AI_PRINCIPAL_USER_ID, db.AI_ROLE_PRINCIPAL)
+        await db.ai_set_session_title(sid, first_message)
+        return sid
+    except Exception:
+        logger.exception("Principal assistant: could not open chat session")
+        return None
+
+
+async def _principal_chat_log(sid, sender: str, text: str):
+    if sid is None:
+        return
+    try:
+        await db.ai_add_message(sid, sender, text)
+    except Exception:
+        logger.exception("Principal assistant: could not save chat message")
+
+
 @routes.post("/api/principal/assistant")
 async def principal_assistant(request):
     _require_auth(request)
@@ -746,6 +781,9 @@ async def principal_assistant(request):
     if len(message) > 1500:
         message = message[:1500]
 
+    sid = await _principal_chat_session(body.get("session_id"), message)
+    await _principal_chat_log(sid, "user", message)
+
     raw_history = body.get("history") or []
     history = []
     if isinstance(raw_history, list):
@@ -756,7 +794,9 @@ async def principal_assistant(request):
                 history.append({"role": role, "parts": [{"text": text[:1500]}]})
 
     if not GEMINI_API_KEY:
-        return _json({"ok": True, "reply": "⚠️ کلید هوش مصنوعی روی سرور تنظیم نشده؛ لطفاً به مدیر سیستم اطلاع دهید."})
+        no_key_reply = "⚠️ کلید هوش مصنوعی روی سرور تنظیم نشده؛ لطفاً به مدیر سیستم اطلاع دهید."
+        await _principal_chat_log(sid, "system", no_key_reply)
+        return _json({"ok": True, "reply": no_key_reply, "session_id": sid})
 
     classes, players, tournaments, matches_all, matches_week = await asyncio.gather(
         db.get_all_classes(), db.get_all_players(), db.get_all_tournaments(),
@@ -787,6 +827,7 @@ async def principal_assistant(request):
     tools = [{"function_declarations": ASSISTANT_TOOL_DECLARATIONS}]
 
     reply = "⚠️ ارتباط با دستیار هوشمند موقتاً برقرار نشد؛ چند لحظه‌ی دیگر دوباره امتحان کنید."
+    reply_ok = False  # فقط پاسخِ واقعیِ مدل «ai» ثبت می‌شه؛ پیام‌های خطا «system»
     for _hop in range(ASSISTANT_MAX_TOOL_HOPS):
         data = await _call_assistant_gemini(contents, tools)
         if data is None:
@@ -801,6 +842,7 @@ async def principal_assistant(request):
             fname = fn_call["name"]
             fargs = fn_call.get("args", {})
             result_text = await _dispatch_assistant_tool(fname, fargs)
+            await _principal_chat_log(sid, "tool", f"🔧 {fname}({fargs}) → {str(result_text)[:400]}")
             # باید همون parts ای که خودِ مدل برگردونده رو عیناً پس بفرستیم (نه فقط functionCall
             # رو دستی بازسازی کنیم)، چون مدل‌های نسل ۳ جمینای یه thoughtSignature هم کنارش
             # می‌دن که برگردوندنش برای دورِ بعدی الزامیه.
@@ -812,11 +854,13 @@ async def principal_assistant(request):
             continue
 
         reply = "".join(p.get("text", "") for p in parts).strip() or "باشه."
+        reply_ok = True
         break
     else:
         reply = "⚠️ این سوال خیلی پیچیده شد؛ لطفاً واضح‌تر یا مرحله‌به‌مرحله بپرسید."
 
-    return _json({"ok": True, "reply": reply})
+    await _principal_chat_log(sid, "ai" if reply_ok else "system", reply)
+    return _json({"ok": True, "reply": reply, "session_id": sid})
 
 
 def register_principal_routes(app: web.Application):
