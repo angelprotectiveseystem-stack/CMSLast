@@ -12,12 +12,12 @@ const VIEW_TITLES = {
   players: "بازیکن‌ها",
   matches: "مسابقات",
   top: "نفرات برتر",
-  trends: "روندها",
   assistant: "دستیار",
 };
 
 let currentView = "home";
 const cache = {};
+const trendsBtnEl = document.getElementById("topbar-trends-btn");
 
 // ─── ابزار API ────────────────────────────────────────────────
 async function api(path, params = {}) {
@@ -39,6 +39,30 @@ function bindNav() {
   document.querySelectorAll(".nav-item, .bn-item").forEach(btn => {
     btn.addEventListener("click", () => switchView(btn.dataset.view));
   });
+  if (trendsBtnEl) trendsBtnEl.addEventListener("click", toggleTrendsPanel);
+}
+
+// ─── منوی ریزِ روندها (باز/بسته‌شدنِ نرم داخلِ ویوِ «نفرات برتر») ───
+async function toggleTrendsPanel() {
+  const panel = document.getElementById("trends-panel");
+  const body = document.getElementById("trends-panel-body");
+  if (!panel || !body) return;
+
+  const opening = !panel.classList.contains("open");
+  panel.classList.toggle("open", opening);
+  trendsBtnEl.classList.toggle("open", opening);
+  if (!opening) return;
+
+  if (body.dataset.loaded === "1") return; // قبلاً لود شده، دیگه دوباره درخواست نمی‌زنیم
+  body.innerHTML = `<div class="loading-state"><span class="spinner"></span></div>`;
+  try {
+    const data = await api("/api/principal/trends");
+    body.innerHTML = trendsChartsHTML(data);
+    body.dataset.loaded = "1";
+  } catch (e) {
+    body.innerHTML = `<div class="empty-state">⚠️ خطا در دریافت اطلاعات.<br>لطفاً دوباره تلاش کنید.</div>`;
+    console.error(e);
+  }
 }
 
 async function switchView(view) {
@@ -46,6 +70,10 @@ async function switchView(view) {
   currentView = view;
   setActiveNav(view);
   viewTitleEl.textContent = VIEW_TITLES[view] || "";
+  if (trendsBtnEl) {
+    trendsBtnEl.classList.toggle("visible", view === "top");
+    trendsBtnEl.classList.remove("open");
+  }
   window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
 
   // یه فِیدِ کوتاهِ خروج/ورود بینِ ویوها، تا جابه‌جایی به‌جای «پرش» خشک، نرم و روون حس بشه.
@@ -259,6 +287,7 @@ function topRow(r, i) {
 
 async function renderTop(period = "week") {
   viewBodyEl.innerHTML = `<div class="loading-state"><span class="spinner"></span></div>`;
+  if (trendsBtnEl) trendsBtnEl.classList.remove("open"); // پنلِ روندها با هر رندرِ تازه بسته و خالی شروع می‌شه
   const data = await api("/api/principal/top", { period });
   const rows = data.leaderboard || [];
 
@@ -268,6 +297,7 @@ async function renderTop(period = "week") {
     viewBodyEl.innerHTML = `
       <div class="manual-note">🎯 نمایشِ نفرات برتر با دقت بالا توسط ربات محاسبه شده و نمایش داده خواهد شد.</div>
       <div id="top-list"></div>
+      ${trendsPanelSkeleton()}
     `;
     const box = document.getElementById("top-list");
     box.innerHTML = rows.length ? rows.map((r, i) => topRow(r, i)).join("") :
@@ -282,6 +312,7 @@ async function renderTop(period = "week") {
       <button class="tab-btn" data-f="all">کل دوران</button>
     </div>
     <div id="top-list"></div>
+    ${trendsPanelSkeleton()}
   `;
   const btns = document.querySelectorAll("#top-filter .tab-btn");
   btns.forEach(b => b.classList.toggle("active", b.dataset.f === period));
@@ -289,6 +320,11 @@ async function renderTop(period = "week") {
   const box = document.getElementById("top-list");
   box.innerHTML = rows.length ? rows.map((r, i) => topRow(r, i)).join("") :
     `<div class="empty-state">در این بازه هنوز مسابقه‌ای با نتیجه ثبت نشده.</div>`;
+}
+
+// جایگاهِ خالیِ پنلِ روندها — با دکمهٔ ریزِ بالای صفحه (topbar-trends-btn) باز/بسته می‌شه.
+function trendsPanelSkeleton() {
+  return `<div id="trends-panel" class="trends-panel"><div id="trends-panel-body" class="trends-panel-body"></div></div>`;
 }
 
 // ─── نمودارهای روند (SVG دستی، بدون کتابخانه) ────────────────
@@ -333,9 +369,8 @@ function shorten(s) {
   return s.length > 6 ? s.slice(5) : s; // برای تاریخ‌های ISO فقط روز/ماه رو نشون بده
 }
 
-async function renderTrends() {
-  const data = await api("/api/principal/trends");
-  viewBodyEl.innerHTML = `
+function trendsChartsHTML(data) {
+  return `
     <div class="chart-card">
       <h4>📈 تعداد مسابقات ثبت‌شده در ۳۰ روز اخیر</h4>
       ${lineChartSVG(data.matches_by_day, { color: "var(--amber)" })}
@@ -509,7 +544,6 @@ const RENDERERS = {
   players: renderPlayers,
   matches: () => renderMatches("all"),
   top: () => renderTop("week"),
-  trends: renderTrends,
   assistant: renderAssistant,
 };
 
