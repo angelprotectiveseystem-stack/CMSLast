@@ -85,7 +85,7 @@ async function toggleTrendsPanel() {
     body.innerHTML = trendsChartsHTML(data);
     body.dataset.loaded = "1";
   } catch (e) {
-    body.innerHTML = `<div class="empty-state">⚠️ خطا در دریافت اطلاعات.<br>لطفاً دوباره تلاش کنید.</div>`;
+    body.innerHTML = `<div class="empty-state">متأسفانه دریافت اطلاعات با مشکل مواجه شد.<br>لطفاً لحظاتی بعد مجدداً تلاش فرمایید.</div>`;
     console.error(e);
   }
 }
@@ -112,7 +112,7 @@ async function switchView(view) {
   try {
     await RENDERERS[view]();
   } catch (e) {
-    viewBodyEl.innerHTML = `<div class="empty-state">⚠️ خطا در دریافت اطلاعات.<br>لطفاً دوباره تلاش کنید.</div>`;
+    viewBodyEl.innerHTML = `<div class="empty-state">متأسفانه دریافت اطلاعات با مشکل مواجه شد.<br>لطفاً لحظاتی بعد مجدداً تلاش فرمایید.</div>`;
     console.error(e);
   }
 
@@ -378,7 +378,11 @@ function trendsPanelSkeleton() {
 }
 
 // ─── نمودارهای روند (SVG دستی، بدون کتابخانه) ────────────────
+// وقتی هنوز داده‌ای ثبت نشده (مثلاً هیچ مسابقه‌ای نیست)، به‌جای خطا یک پیامِ روشن نشون می‌دیم.
+const CHART_EMPTY_HTML = `<div class="empty-state">هنوز داده‌ای برای نمایش ثبت نشده است.</div>`;
+
 function barChartSVG(data, opts = {}) {
+  if (!data || !data.length) return CHART_EMPTY_HTML;
   const w = 320, h = 150, pad = 22;
   const max = Math.max(1, ...data.map(d => d.value));
   const bw = (w - pad * 2) / data.length;
@@ -394,6 +398,7 @@ function barChartSVG(data, opts = {}) {
 }
 
 function lineChartSVG(data, opts = {}) {
+  if (!data || !data.length) return CHART_EMPTY_HTML;
   const w = 320, h = 150, pad = 22;
   const max = Math.max(1, ...data.map(d => d.value));
   const stepX = (w - pad * 2) / Math.max(1, data.length - 1);
@@ -568,12 +573,12 @@ function renderAssistant() {
       const data = await res.json();
       if (data && data.session_id) assistantState.sessionId = data.session_id;
       typingBubble.remove();
-      const reply = (data && data.ok && data.reply) ? data.reply : "⚠️ پاسخی دریافت نشد. لطفاً دوباره تلاش کنید.";
+      const reply = (data && data.ok && data.reply) ? data.reply : "متأسفانه پاسخی دریافت نشد. لطفاً مجدداً تلاش فرمایید.";
       addBubble("bot", reply);
       assistantState.history.push({ role: "model", text: reply });
     } catch (e) {
       typingBubble.remove();
-      addBubble("bot", "⚠️ ارتباط برقرار نشد. لطفاً اتصال اینترنت را بررسی و دوباره تلاش کنید.");
+      addBubble("bot", "متأسفانه ارتباط با سرور برقرار نشد. لطفاً اتصال اینترنت خود را بررسی و مجدداً تلاش فرمایید.");
       console.error(e);
     } finally {
       assistantState.sending = false;
