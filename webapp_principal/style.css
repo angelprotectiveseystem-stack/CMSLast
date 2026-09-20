@@ -655,7 +655,7 @@ button { font-family: var(--font); cursor: pointer; }
 .assistant-suggestions {
   display: flex; gap: 7px; flex-wrap: wrap; padding: 8px 0 16px;
   transition: opacity .2s ease, max-height .25s ease, margin .25s ease, padding .25s ease;
-  max-height: 110px; overflow: hidden;
+  max-height: 220px; overflow: hidden;
 }
 .assistant-suggestions.sugg-hidden { opacity: 0; max-height: 0; padding: 0; pointer-events: none; }
 .sugg-chip {
