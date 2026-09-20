@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<script>
+// دیفالت پنل لایت‌مودـه؛ اگه قبلاً کاربر دارک‌مود رو انتخاب کرده بود، قبل از
+// رنگ‌آمیزیِ صفحه (تا یه چشمک/فلش نداشته باشیم) همینجا روی <html> ست می‌شه.
+(function () {
+  try {
+    if (localStorage.getItem("principal_theme") === "dark") {
+      document.documentElement.setAttribute("data-theme", "dark");
+    }
+  } catch (e) {}
+})();
+</script>
 <title>پنل مدیر مدرسه — مسابقات شطرنج</title>
 <link rel="stylesheet" href="/principal-assets/style.css?v={{V}}">
 </head>

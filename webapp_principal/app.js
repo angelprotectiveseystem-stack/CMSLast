@@ -19,6 +19,31 @@ let currentView = "home";
 const cache = {};
 const trendsBtnEl = document.getElementById("topbar-trends-btn");
 
+// ─── لایت/دارک‌مود (دیفالت لایت؛ انتخابِ کاربر توی همین مرورگر ذخیره می‌شه) ──
+const THEME_KEY = "principal_theme";
+function getStoredTheme() {
+  try { return localStorage.getItem(THEME_KEY); } catch (e) { return null; }
+}
+function applyTheme(theme) {
+  if (theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+  else document.documentElement.removeAttribute("data-theme");
+  try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+}
+let currentTheme = getStoredTheme() === "dark" ? "dark" : "light";
+applyTheme(currentTheme); // هم‌سو با اسکریپتِ ضدِ فلشِ توی <head>، برای اطمینان دوباره ست می‌شه
+
+function syncThemeSwitchUI() {
+  const sw = document.getElementById("theme-toggle-btn");
+  if (!sw) return;
+  sw.setAttribute("aria-checked", currentTheme === "dark" ? "true" : "false");
+}
+
+function toggleTheme() {
+  currentTheme = currentTheme === "dark" ? "light" : "dark";
+  applyTheme(currentTheme);
+  syncThemeSwitchUI();
+}
+
 // ─── ابزار API ────────────────────────────────────────────────
 async function api(path, params = {}) {
   const url = new URL(path, window.location.origin);
@@ -118,6 +143,7 @@ async function renderHome() {
   const [ov, top] = await Promise.all([api("/api/principal/overview"), api("/api/principal/top", { period: "week" })]);
   const s = ov.stats;
   viewBodyEl.innerHTML = `
+    ${themeToggleCardHTML()}
     <div class="stat-grid">
       ${statCard(s.classes_total, "کلاس")}
       ${statCard(s.players_total, "بازیکن (" + s.players_active + " فعال)")}
@@ -133,6 +159,30 @@ async function renderHome() {
   const rows = (top.leaderboard || []).slice(0, 5);
   box.innerHTML = rows.length ? rows.map((r, i) => topRow(r, i)).join("") :
     `<div class="empty-state">این هفته هنوز مسابقه‌ای با نتیجه ثبت نشده.</div>`;
+
+  const themeBtn = document.getElementById("theme-toggle-btn");
+  if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
+  syncThemeSwitchUI();
+}
+
+// ─── کارتِ سوییچِ لایت/دارک (فقط توی صفحهٔ خانه) ───────────────
+function themeToggleCardHTML() {
+  return `
+    <div class="theme-toggle-card">
+      <div class="theme-toggle-info">
+        <span class="theme-toggle-ic">🌗</span>
+        <div>
+          <div class="main-txt">حالت نمایش</div>
+          <div class="sub-txt">لایت یا دارک — به دلخواه شما</div>
+        </div>
+      </div>
+      <button id="theme-toggle-btn" class="theme-switch" type="button" role="switch"
+        aria-checked="${currentTheme === "dark" ? "true" : "false"}" aria-label="تغییر بین لایت و دارک">
+        <span class="theme-switch-icons"><span class="ts-sun">☀️</span><span class="ts-moon">🌙</span></span>
+        <span class="theme-switch-knob"></span>
+      </button>
+    </div>
+  `;
 }
 
 function statCard(val, lbl) {
