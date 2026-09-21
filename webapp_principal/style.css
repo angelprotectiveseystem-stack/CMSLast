@@ -383,6 +383,60 @@ html[data-theme="dark"] .stat-ic { background: rgba(255, 112, 120, .12); }
 }
 .pcard.is-elite .pc-main h4 .ic { color: var(--gold); animation: elite-star 1.8s ease-in-out infinite; }
 @keyframes elite-star { 0%, 100% { transform: scale(1) rotate(0deg); } 50% { transform: scale(1.22) rotate(10deg); } }
+
+/* ── نیروهای ویژه (⚡ is_special) ─────────────────────────────
+   هویتِ بصریِ کاملاً جدا از بازیکنانِ برتر (طلاییِ چرخان): «انرژیِ الکتریکی» با رنگِ بنفش‌-آبی —
+   یک درخششِ نوریِ مورب که هر چند ثانیه از رویِ کارت رد می‌شود، هالهٔ ضربان‌دارِ دورِ آواتار، و رعدی که مثلِ جرقه سوسو می‌زند.
+   فقط transform و opacity انیمیت می‌شوند (بدون رنگ‌آمیزیِ دوباره) تا روی گوشی هم روان بماند. */
+:root { --volt: #6a4be0; --volt-2: #1596c9; --volt-soft: rgba(106, 75, 224, .13); }
+html[data-theme="dark"] { --volt: #a58fff; --volt-2: #62d6ff; --volt-soft: rgba(165, 143, 255, .16); }
+
+.pcard.is-special { overflow: hidden; isolation: isolate; }
+/* ظاهرِ کارت (اگر همزمان «برتر» هم باشد، همان قابِ طلاییِ برتر می‌ماند و فقط افکت‌های ویژه به آن اضافه می‌شود) */
+.pcard.is-special:not(.is-elite) {
+  border-color: color-mix(in srgb, var(--volt) 42%, var(--line));
+  background: linear-gradient(115deg, var(--volt-soft), transparent 60%), var(--surface);
+  box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--volt) 20%, transparent), 0 12px 26px -16px color-mix(in srgb, var(--volt) 65%, transparent);
+}
+/* نورِ مورب که رویِ کارت می‌گذرد */
+.pcard.is-special::after {
+  content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 46%; z-index: 1; pointer-events: none;
+  background: linear-gradient(100deg, transparent 0%, color-mix(in srgb, var(--volt-2) 26%, transparent) 42%, color-mix(in srgb, #fff 38%, transparent) 50%, transparent 100%);
+  transform: translate3d(-130%, 0, 0) skewX(-18deg);
+  animation: volt-sweep 4.2s cubic-bezier(.4, 0, .2, 1) var(--vd, 0s) infinite;
+  will-change: transform;
+}
+@keyframes volt-sweep {
+  0%, 55% { transform: translate3d(-130%, 0, 0) skewX(-18deg); }
+  100%    { transform: translate3d(330%, 0, 0) skewX(-18deg); }
+}
+/* هالهٔ ضربان‌دارِ دورِ آواتار */
+.pcard.is-special:not(.is-elite) .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--volt); }
+.pcard.is-special .avatar { position: relative; }
+.pcard.is-special .avatar::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 20px; pointer-events: none;
+  border: 2px solid var(--volt-2); opacity: 0;
+  animation: volt-pulse 2.4s ease-out var(--vd, 0s) infinite;
+}
+@keyframes volt-pulse {
+  0%       { opacity: .75; transform: scale(.92); }
+  70%, 100% { opacity: 0; transform: scale(1.28); }
+}
+/* رعدِ کنارِ نام: مثلِ جرقه سوسو می‌زند */
+.pcard.is-special .pc-main h4 .ic.bolt {
+  color: var(--volt-2); filter: drop-shadow(0 0 4px color-mix(in srgb, var(--volt-2) 80%, transparent));
+  animation: volt-flicker 3.2s linear var(--vd, 0s) infinite;
+}
+@keyframes volt-flicker {
+  0%, 20%, 100% { opacity: 1; transform: scale(1); }
+  4%  { opacity: .3; }
+  7%  { opacity: 1; transform: scale(1.2); }
+  11% { opacity: .45; }
+  15% { opacity: 1; transform: scale(1); }
+}
+/* هر کارت زمانِ خودش را دارد تا همه‌ی کارت‌ها هم‌زمان نورگیری نکنند */
+.stack > .pcard.is-special:nth-child(2n) { --vd: -1.7s; }
+.stack > .pcard.is-special:nth-child(3n) { --vd: -2.9s; }
 .avatar { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 16px; font-size: 19px; font-weight: 800; color: #fff3da; background: linear-gradient(135deg, var(--c1, #a3121b), var(--c2, #6f0a11)); }
 .avatar.t1 { --c1: #b8801f; --c2: #7a520c; }
 .avatar.t2 { --c1: #7d2a55; --c2: #4e1236; }

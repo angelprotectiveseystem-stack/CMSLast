@@ -256,10 +256,10 @@ async function renderClasses() {
 // ─── بازیکنان ─────────────────────────────────────────────────
 function playerCard(p) {
   return `
-    <div class="pcard ${p.is_elite ? "is-elite" : ""}">
+    <div class="pcard ${p.is_elite ? "is-elite" : ""} ${p.is_special ? "is-special" : ""}">
       <span class="avatar ${avatarTone(p.full_name)}">${esc(initials(p.full_name))}</span>
       <div class="pc-main">
-        <h4>${esc(p.full_name)}${p.is_elite ? '<svg class="ic" aria-hidden="true"><use href="#i-star"/></svg>' : ""}</h4>
+        <h4>${esc(p.full_name)}${p.is_elite ? '<svg class="ic" aria-hidden="true"><use href="#i-star"/></svg>' : ""}${p.is_special ? '<svg class="ic bolt" aria-hidden="true"><use href="#i-bolt"/></svg>' : ""}</h4>
         <span class="chip ${p.status === "active" ? "" : "chip--off"}">${esc(p.class_name)}</span>
         <span class="chip ${p.status === "active" ? "" : "chip--off"}">${p.status === "active" ? "فعال" : "غیرفعال"}</span>
       </div>
