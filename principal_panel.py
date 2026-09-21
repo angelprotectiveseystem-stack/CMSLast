@@ -440,6 +440,7 @@ async def principal_players(request):
             "draws": p["draws"] or 0,
             "losses": p["losses"] or 0,
             "is_elite": bool(p["is_elite"]),
+            "is_special": bool(p["is_special"]),
         })
     return _json({"ok": True, "players": out})
 
