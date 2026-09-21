@@ -259,8 +259,8 @@ html[data-theme="dark"] .icon-btn .ic-moon { opacity: 1; transform: none; }
 
 /* ── محتوا و جابه‌جایی صفحه‌ها ───────────────────────────── */
 .view-body { min-height: 52vh; }
-.view-body.is-leaving { opacity: 0; transform: translateY(8px); transition: opacity .14s ease, transform .14s ease; }
-.view-body.is-entering { animation: view-in .45s var(--ease-out) both; }
+.view-body.is-leaving { opacity: 0; transform: translateY(8px); transition: opacity .08s ease, transform .08s ease; }
+.view-body.is-entering { animation: view-in .3s var(--ease-out) both; }
 
 .section-head { display: flex; align-items: center; justify-content: space-between; margin: 26px 2px 12px; }
 .section-head h3 { display: flex; align-items: center; gap: 8px; font-size: 16.5px; font-weight: 700; }

@@ -50,14 +50,148 @@ syncThemeBtnUI();
 const themeBtnEl = document.getElementById("theme-btn");
 if (themeBtnEl) themeBtnEl.addEventListener("click", toggleTheme);
 
-// ─── ابزار API ────────────────────────────────────────────────
-async function api(path, params = {}) {
-  const url = new URL(path, window.location.origin);
-  url.searchParams.set("k", KEY);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error("request_failed:" + res.status);
-  return res.json();
+// ─── ابزار API: کش + بازخوانیِ پس‌زمینه + پیش‌واکشی ─────────────────────
+// هدف: کلیک روی هر بخش «درجا» جواب بدهد.
+//  • هر پاسخِ سرور در حافظه (و در localStorage، برای دفعهٔ بعدِ باز کردنِ سایت) نگه داشته می‌شود.
+//  • اگر داده‌ای در کش باشد، همان لحظه نشان داده می‌شود؛ اگر قدیمی‌تر از FRESH_MS باشد، هم‌زمان
+//    در پس‌زمینه دوباره گرفته می‌شود و فقط اگر واقعاً عوض شده بود صفحه بی‌سروصدا به‌روز می‌شود.
+//  • همین‌که سایت باز شد، داده‌ی بقیهٔ بخش‌ها در پس‌زمینه گرفته می‌شود (warmUp)، و لحظه‌ای که انگشت
+//    روی یک دکمهٔ منو می‌نشیند (پیش از رها کردنِ انگشت) دادهٔ همان بخش درخواست می‌شود.
+const CACHE_NS = "pp1:" + hashKey(KEY) + ":";
+const FRESH_MS = 20 * 1000;                 // زیر ۲۰ ثانیه «تازه» حساب می‌شود و درخواستِ دوباره لازم نیست
+const MAX_AGE_MS = 12 * 60 * 60 * 1000;     // بیشتر از ۱۲ ساعت قدیمی باشد اصلاً استفاده نمی‌شود
+const MAX_PERSIST_BYTES = 400 * 1024;
+const memCache = new Map();                 // key -> { t, text, data }
+const inflight = new Map();                 // key -> Promise (جلوگیری از درخواستِ تکراری هم‌زمان)
+
+function hashKey(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+function cacheKeyOf(path, params) {
+  const q = Object.keys(params).sort().map(k => k + "=" + params[k]).join("&");
+  return path + (q ? "?" + q : "");
+}
+function readEntry(key) {
+  let e = memCache.get(key);
+  if (!e) {
+    try {
+      const raw = localStorage.getItem(CACHE_NS + key);
+      if (raw) {
+        const o = JSON.parse(raw);
+        e = { t: o.t, text: o.text, data: JSON.parse(o.text) };
+        memCache.set(key, e);
+      }
+    } catch (err) { /* کشِ خراب = بی‌خیال */ }
+  }
+  return e && Date.now() - e.t < MAX_AGE_MS ? e : null;
+}
+function clearApiCache() {
+  memCache.clear();
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith("pp1:")).forEach(k => localStorage.removeItem(k));
+  } catch (err) {}
+}
+function fetchNetwork(path, params, key) {
+  if (inflight.has(key)) return inflight.get(key);
+  const p = (async () => {
+    const url = new URL(path, window.location.origin);
+    url.searchParams.set("k", KEY);
+    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      // دسترسی قطع/بلاک/خاموش شده: هیچ داده‌ی قدیمی‌ای نباید بماند.
+      if (res.status === 401 || res.status === 403 || res.status === 503) clearApiCache();
+      throw new Error("request_failed:" + res.status);
+    }
+    const text = await res.text();
+    const prev = memCache.get(key);
+    const entry = { t: Date.now(), text, data: JSON.parse(text) };
+    memCache.set(key, entry);
+    if (text.length < MAX_PERSIST_BYTES) {
+      try { localStorage.setItem(CACHE_NS + key, JSON.stringify({ t: entry.t, text })); } catch (err) {}
+    }
+    return { data: entry.data, changed: !prev || prev.text !== text };
+  })();
+  inflight.set(key, p);
+  const done = () => inflight.delete(key);
+  p.then(done, done);
+  return p;
+}
+
+// ویوی فعلی چه داده‌هایی خواسته و آیا کاربر بعد از رندر به چیزی دست زده؟
+// (اگر دست زده باشد، صفحه را زیرِ دستش دوباره نمی‌سازیم: جستجو/فیلتر/پنلِ باز نپرد.)
+let viewDeps = new Set();
+let viewDirty = false;
+let rerenderFn = null;
+let rerenderQueued = false;
+function beginRender(fn) { rerenderFn = fn; viewDeps = new Set(); viewDirty = false; }
+["pointerdown", "keydown", "input", "focusin", "wheel", "touchmove"].forEach(ev =>
+  document.addEventListener(ev, () => { viewDirty = true; }, { capture: true, passive: true }));
+
+function onRevalidated(key) {
+  if (viewDirty || rerenderQueued || !rerenderFn || !viewDeps.has(key)) return;
+  rerenderQueued = true;
+  const fn = rerenderFn;
+  Promise.resolve().then(() => { rerenderQueued = false; return fn(); }).catch(err => console.error(err));
+}
+
+async function api(path, params = {}, opts = {}) {
+  const key = cacheKeyOf(path, params);
+  if (opts.track !== false) viewDeps.add(key);
+  const e = readEntry(key);
+  if (e) {
+    if (Date.now() - e.t > FRESH_MS) {
+      fetchNetwork(path, params, key).then(r => { if (r.changed) onRevalidated(key); }, () => {});
+    }
+    return e.data;
+  }
+  return (await fetchNetwork(path, params, key)).data;
+}
+
+function prefetch(path, params = {}) {
+  const key = cacheKeyOf(path, params);
+  const e = readEntry(key);
+  if (e && Date.now() - e.t < FRESH_MS) return Promise.resolve();
+  return fetchNetwork(path, params, key).then(r => { if (r.changed && e) onRevalidated(key); }, () => {});
+}
+
+const VIEW_DATA = {
+  home: () => [["/api/principal/overview"], ["/api/principal/top", { period: "week" }]],
+  classes: () => [["/api/principal/classes"]],
+  players: () => [["/api/principal/players"]],
+  matches: () => [["/api/principal/matches", { period: "all" }]],
+  top: () => [["/api/principal/top", { period: "week" }], ["/api/principal/trends"]],
+};
+// آیا همهٔ دادهٔ این بخش همین حالا در کش هست؟ (پس بدونِ هیچ انتظاری می‌شود نشانش داد)
+function viewIsCached(view) {
+  const jobs = VIEW_DATA[view] ? VIEW_DATA[view]() : [];
+  return jobs.length > 0 && jobs.every(([path, params]) => readEntry(cacheKeyOf(path, params || {})));
+}
+function prefetchView(view) {
+  const jobs = VIEW_DATA[view] ? VIEW_DATA[view]() : [];
+  jobs.forEach(([path, params]) => prefetch(path, params));
+}
+
+// بعد از اولین نمایش، بقیهٔ داده‌ها را آرام و در پس‌زمینه (حداکثر ۲ درخواست هم‌زمان) می‌گیریم.
+function warmUp() {
+  const jobs = [
+    ["/api/principal/players"],
+    ["/api/principal/classes"],
+    ["/api/principal/matches", { period: "all" }],
+    ["/api/principal/trends"],
+    ["/api/principal/top", { period: "month" }],
+    ["/api/principal/top", { period: "all" }],
+    ["/api/principal/matches", { period: "week" }],
+    ["/api/principal/matches", { period: "today" }],
+    ["/api/principal/matches", { period: "month" }],
+  ];
+  let i = 0;
+  const lane = async () => { while (i < jobs.length) { const [path, params] = jobs[i++]; await prefetch(path, params); } };
+  const start = () => { lane(); lane(); };
+  if ("requestIdleCallback" in window) requestIdleCallback(start, { timeout: 1500 });
+  else setTimeout(start, 300);
 }
 
 // ─── کمکی‌های نمایش ───────────────────────────────────────────
@@ -118,6 +252,7 @@ function setActiveDock(view) {
 }
 function bindNav() {
   document.querySelectorAll(".dock-item").forEach(btn => {
+    btn.addEventListener("pointerdown", () => prefetchView(btn.dataset.view), { passive: true });
     btn.addEventListener("click", () => switchView(btn.dataset.view));
   });
   if (trendsBtnEl) trendsBtnEl.addEventListener("click", toggleTrendsPanel);
@@ -137,11 +272,13 @@ async function switchView(view) {
     trendsBtnEl.setAttribute("aria-expanded", "false");
   }
   window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+  const cachedNow = viewIsCached(view);
+  prefetchView(view);   // هم‌زمان با انیمیشنِ خروج، داده را از همین حالا بگیر
 
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (changed && !reduceMotion) {
+  if (changed && !reduceMotion && !cachedNow) {   // اگر داده آماده است، معطلِ انیمیشنِ خروج هم نمی‌شویم
     viewBodyEl.classList.add("is-leaving");
-    await new Promise(r => setTimeout(r, 140));
+    await new Promise(r => setTimeout(r, 80));
   }
 
   viewBodyEl.innerHTML = skeletonHTML(3, view === "top" || view === "classes");
@@ -189,6 +326,7 @@ function statCard(icon, num, lbl, opts = {}) {
 }
 
 async function renderHome() {
+  beginRender(renderHome);
   paintGreeting();
   const [ov, top] = await Promise.all([
     api("/api/principal/overview"),
@@ -244,6 +382,7 @@ function classCard(c) {
 }
 
 async function renderClasses() {
+  beginRender(renderClasses);
   const data = await api("/api/principal/classes");
   const list = data.classes || [];
   if (!list.length) {
@@ -274,6 +413,7 @@ function playerCard(p) {
 }
 
 async function renderPlayers() {
+  beginRender(renderPlayers);
   const data = await api("/api/principal/players");
   const list = (data.players || []).slice().sort((a, b) => b.wins - a.wins);
   if (!list.length) {
@@ -359,6 +499,7 @@ function matchCard(m) {
 }
 
 async function renderMatches(period = "all", searchTerm = "") {
+  beginRender(() => renderMatches(period, searchTerm));
   viewBodyEl.innerHTML = `
     <div class="search">
       <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
@@ -433,6 +574,7 @@ const TOP_PERIODS = [
 ];
 
 async function renderTop(period = "week") {
+  beginRender(() => renderTop(period));
   closeTrendsPanel();
   const data = await api("/api/principal/top", { period });
   const rows = data.leaderboard || [];
@@ -506,7 +648,7 @@ async function toggleTrendsPanel() {
   trendsBtnEl.setAttribute("aria-busy", "true");
   trendsBtnEl.classList.add("is-loading");
   try {
-    const data = await api("/api/principal/trends");
+    const data = await api("/api/principal/trends", {}, { track: false });
     body.innerHTML = trendsChartsHTML(data);
     body.dataset.loaded = "1";
   } catch (e) {
@@ -729,7 +871,7 @@ rgFormEl.addEventListener("submit", (e) => {
 
 // ─── شروع ─────────────────────────────────────────────────────
 bindNav();
-switchView("home");
+switchView("home").then(warmUp);
 
 // ─── اسپلش خوش‌آمدگویی ─────────────────────────────────────────
 (function runSplash() {
