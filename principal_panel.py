@@ -622,7 +622,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 ASSISTANT_MODEL_CHAIN = [GEMINI_MODEL, "gemini-3.6-flash", "gemini-2.5-flash-lite"]
 ASSISTANT_MODEL_CHAIN = list(dict.fromkeys(ASSISTANT_MODEL_CHAIN))  # حذف تکراری با حفظ ترتیب
-ASSISTANT_REQUEST_TIMEOUT = 30
+ASSISTANT_REQUEST_TIMEOUT = 12
 # خطاهای گذرای Gemini (شلوغیِ سرور / محدودیتِ نرخ) معمولاً با یک تلاشِ مجدد و کمی صبر
 # برطرف می‌شن؛ قبلاً همون لحظه می‌رفتیم سراغِ مدلِ بعدی یا پیامِ خطا می‌دادیم.
 ASSISTANT_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
@@ -859,16 +859,26 @@ def _assistant_system_prompt(overview_stats: dict) -> str:
     )
 
 
-async def _call_assistant_gemini(contents: list, tools=None):
-    """یک درخواست به Gemini می‌زند و کل JSON پاسخ را برمی‌گرداند (نه فقط متن)، چون ممکن است
-    شاملِ یک functionCall باشد که دیسپچرِ بالای صفحه باید قبل از جوابِ نهایی پردازشش کند.
-    در خطا None برمی‌گردونه تا صدازننده پیامِ مناسب رو خودش انتخاب کنه."""
+async def _call_assistant_gemini(contents: list, tools=None, model_chain=None):
+    """یک درخواست به Gemini می‌زند و (data, model) را برمی‌گرداند — data کل JSON پاسخ است
+    (نه فقط متن)، چون ممکن است شاملِ یک functionCall باشد که دیسپچرِ بالای صفحه باید قبل
+    از جوابِ نهایی پردازشش کند؛ model اسمِ همون مدلی‌ست که واقعاً جواب داده، تا صدازننده
+    بتونه توی هاپ‌های بعدیِ همین درخواست اول از همون مدل شروع کنه (به‌جای اینکه هر بار
+    دوباره هزینه‌ی رد شدن از مدل‌های از‌کار‌افتاده رو بپردازه). در خطا (None, None)
+    برمی‌گردونه تا صدازننده پیامِ مناسب رو خودش انتخاب کنه.
+
+    نکته‌ی مهم دربارهٔ سرعت: timeout هر تلاش عمداً کوتاهه (ASSISTANT_REQUEST_TIMEOUT)،
+    چون این یک پنلِ تعاملیه، نه یک کارِ پس‌زمینه — اگه یک مدل جواب نده، بهتره زود از
+    کنارش رد بشیم و مدلِ بعدی رو امتحان کنیم تا اینکه مدیرِ مدرسه دقیقه‌ها منتظرِ یک
+    تایم‌اوتِ طولانی بمونه."""
     if not GEMINI_API_KEY:
-        return None
+        return None, None
+    chain = model_chain or ASSISTANT_MODEL_CHAIN
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
     last_empty = None
+    last_empty_model = None
     async with httpx.AsyncClient(timeout=ASSISTANT_REQUEST_TIMEOUT) as client:
-        for model in ASSISTANT_MODEL_CHAIN:
+        for model in chain:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
             payload = {
                 "contents": contents,
@@ -900,21 +910,25 @@ async def _call_assistant_gemini(contents: list, tools=None):
                         continue
                     break
                 except Exception as e:
+                    # شاملِ تایم‌اوت هم می‌شه (httpx.TimeoutException و مشابه)؛ عمداً برای
+                    # این‌ها تلاشِ مجدد نمی‌کنیم — اگه یک مدل تایم‌اوت می‌کنه، تلاشِ دوباره‌ی
+                    # فوری معمولاً همون تایم‌اوت رو تکرار می‌کنه و فقط وقتِ کاربر رو تلف می‌کنه.
                     logger.warning(f"Principal assistant: model {model} failed ({e!r})")
                     break
             if data is None:
                 continue  # مدلِ بعدی
             if _extract_assistant_parts(data):
-                return data
+                return data, model
             # پاسخِ بدونِ متن/تابع (مثلاً قطع‌شدن به‌خاطر سقفِ توکن یا فیلترِ ایمنی) —
             # قبلاً همین‌جا به کاربر «متوجه نشدم» می‌گفتیم؛ اول مدلِ بعدی رو امتحان می‌کنیم.
             fr = ((data.get("candidates") or [{}])[0]).get("finishReason")
             logger.warning(f"Principal assistant: model {model} returned an empty reply (finishReason={fr})")
             last_empty = data
+            last_empty_model = model
     if last_empty is not None:
-        return last_empty
+        return last_empty, last_empty_model
     logger.error("Principal assistant: all models failed")
-    return None
+    return None, None
 
 
 def _extract_assistant_parts(data: dict) -> list:
@@ -1020,8 +1034,16 @@ async def principal_assistant(request):
 
     reply = "متأسفانه در حال حاضر امکان پاسخ‌گویی وجود ندارد. لطفاً لحظاتی بعد مجدداً تلاش فرمایید."
     reply_ok = False  # فقط پاسخِ واقعیِ مدل «ai» ثبت می‌شه؛ پیام‌های خطا «system»
+    # مدلی که توی هاپِ قبلیِ همین درخواست جواب داده رو برای هاپِ بعدی هم اول امتحان می‌کنیم —
+    # وگرنه با هر هاپِ ابزار (tool call)، دوباره از اولِ زنجیره شروع می‌شد و اگه مدلِ اول یا
+    # دومِ زنجیره کند/بی‌پاسخ باشن، این تاخیر به تعدادِ هاپ‌ها تکرار و جمع می‌شد (همون چیزی
+    # که باعث می‌شد یک پیام تا ~۲ دقیقه طول بکشه).
+    working_model = None
     for _hop in range(ASSISTANT_MAX_TOOL_HOPS):
-        data = await _call_assistant_gemini(contents, tools)
+        chain = ASSISTANT_MODEL_CHAIN
+        if working_model and working_model in ASSISTANT_MODEL_CHAIN:
+            chain = [working_model] + [m for m in ASSISTANT_MODEL_CHAIN if m != working_model]
+        data, working_model = await _call_assistant_gemini(contents, tools, model_chain=chain)
         if data is None:
             break
         parts = _extract_assistant_parts(data)
