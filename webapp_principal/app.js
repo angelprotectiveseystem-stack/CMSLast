@@ -538,12 +538,12 @@ function lineChartSVG(data) {
   const pts = data.map((d, i) => [pad + i * stepX, h - pad - (d.value / max) * (h - pad - 20)]);
   const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
   const area = path + ` L${pts[pts.length - 1][0].toFixed(1)},${h - pad} L${pts[0][0].toFixed(1)},${h - pad} Z`;
-  const dots = pts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.4" fill="var(--gold)"/>`).join("");
+  const dots = pts.map(p => `<circle class="pt" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.4" fill="var(--gold)"/>`).join("");
   const lbl = `<text x="${pts[0][0]}" y="${h - 4}">${esc(shorten(data[0].label))}</text>
     <text x="${pts[pts.length - 1][0]}" y="${h - 4}" text-anchor="end">${esc(shorten(data[data.length - 1].label))}</text>`;
   return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">
-    <path class="draw" d="${area}" fill="var(--gold)" fill-opacity="0.12" stroke="none"/>
-    <path class="draw" d="${path}" fill="none" stroke="var(--gold)" stroke-width="2"/>
+    <path class="area" d="${area}" fill="var(--gold)" fill-opacity="0.12" stroke="none"/>
+    <path class="draw" pathLength="1" d="${path}" fill="none" stroke="var(--gold)" stroke-width="2"/>
     ${dots}${lbl}
   </svg>`;
 }
