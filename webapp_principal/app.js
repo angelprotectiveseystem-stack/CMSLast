@@ -163,15 +163,15 @@ async function switchView(view) {
 
 // ─── خوش‌آمدگویی بر اساس ساعت روز ───────────────────────────────
 function greetingForHour(h) {
-  if (h >= 5 && h < 11) return "صبح بخیر";
-  if (h >= 11 && h < 15) return "ظهر بخیر";
-  if (h >= 15 && h < 18) return "عصر بخیر";
-  if (h >= 18 && h < 23) return "شب بخیر";
-  return "آخر شب بخیر";
+  if (h >= 5 && h < 11) return "صبح";
+  if (h >= 11 && h < 15) return "ظهر";
+  if (h >= 15 && h < 18) return "عصر";
+  if (h >= 18 && h < 23) return "شب";
+  return "آخر شب";
 }
 function paintGreeting() {
   const now = new Date();
-  greetingEl.textContent = greetingForHour(now.getHours()) + "، خوبی داشته باشید";
+  greetingEl.textContent = greetingForHour(now.getHours()) + " خوبی داشته باشید";
   todayDateEl.textContent = now.toLocaleDateString("fa-IR", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 }
 
