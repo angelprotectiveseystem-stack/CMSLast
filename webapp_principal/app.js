@@ -482,15 +482,29 @@ async function toggleTrendsPanel() {
 
   const opening = trendsBtnEl.getAttribute("aria-expanded") !== "true";
   trendsBtnEl.setAttribute("aria-expanded", opening ? "true" : "false");
-  panel.classList.toggle("open", opening);
-  if (!opening) return;
+
+  if (!opening) {
+    panel.classList.remove("open");
+    return;
+  }
 
   // یک ضربان نرم برای ۱ ثانیهٔ اول، فقط بار اول که کاربر باز می‌کنه.
   trendsBtnEl.classList.add("beat");
   setTimeout(() => trendsBtnEl.classList.remove("beat"), 1000);
 
-  if (body.dataset.loaded === "1") return;
-  body.innerHTML = skeletonHTML(4, true);
+  if (body.dataset.loaded === "1") {
+    // محتوا از قبل آماده است؛ چون ارتفاعش دیگه عوض نمی‌شه، باز شدن کاملاً روان است.
+    panel.classList.add("open");
+    return;
+  }
+
+  // نکته‌ی مهم: عمداً قبل از باز کردنِ پنل، داده رو می‌گیریم و HTML نهایی رو می‌سازیم،
+  // نه اینکه اول پنل رو با اسکلت باز کنیم و بعد وسطِ انیمیشنِ گرید محتوا رو عوض کنیم.
+  // چون grid-template-rows بین 0fr و 1fr انیمیت می‌شه، اگه ارتفاعِ محتوا (از اسکلت به
+  // نمودارهای واقعی) درست وسطِ همون ترنزیشن عوض بشه، مرورگر بلافاصله (بدون انیمیشن)
+  // به ارتفاعِ جدید می‌پره و دقیقاً همون پرش/گلیچی می‌شه که قبلاً وجود داشت.
+  trendsBtnEl.setAttribute("aria-busy", "true");
+  trendsBtnEl.classList.add("is-loading");
   try {
     const data = await api("/api/principal/trends");
     body.innerHTML = trendsChartsHTML(data);
@@ -498,6 +512,13 @@ async function toggleTrendsPanel() {
   } catch (e) {
     body.innerHTML = errorHTML();
     console.error(e);
+  } finally {
+    trendsBtnEl.removeAttribute("aria-busy");
+    trendsBtnEl.classList.remove("is-loading");
+  }
+  // اگه کاربر همون حین بارگذاری دوباره کلیک کرد و بست، دیگه پنل رو به‌زور باز نکن.
+  if (trendsBtnEl.getAttribute("aria-expanded") === "true") {
+    panel.classList.add("open");
   }
 }
 

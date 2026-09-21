@@ -195,6 +195,10 @@ html[data-theme="dark"] .icon-btn .ic-moon { opacity: 1; transform: none; }
 .trend-ring { position: absolute; inset: 0; border-radius: inherit; border: 2px solid var(--gold); opacity: 0; pointer-events: none; }
 .trend-cap.beat { animation: lubdub 1s ease-in-out 1; }
 .trend-cap.beat .trend-ring { animation: ring-out 1s ease-out 1; }
+/* حالتِ بارگذاری: بینِ کلیک و آماده‌شدنِ داده، پنل هنوز باز نمی‌شه (که همون گلیچِ انیمیشن رو
+   حذف می‌کنه)، پس این چرخشِ ریزِ شورون فقط یه فیدبکِ کوچیکه که کاربر می‌دونه چیزی در حالِ بارگذاریه. */
+.trend-cap.is-loading .chev { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── ورقه‌ها (تب‌های فویلی) ───────────────────────────────── */
 @property --a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
@@ -351,9 +355,28 @@ html[data-theme="dark"] .stat-ic { background: rgba(255, 112, 120, .12); }
 .ccard-head small { font-size: 12.5px; color: var(--muted); }
 
 /* ── کارت بازیکن ──────────────────────────────────────────── */
-.pcard { display: grid; grid-template-columns: auto 1fr; gap: 10px 13px; align-items: center; padding: 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); }
+.pcard { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 10px 13px; align-items: center; padding: 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); }
 .pcard .tiles, .pcard .wdl { grid-column: 1 / -1; }
-.pcard.is-elite { border-color: color-mix(in srgb, var(--gold) 60%, transparent); background: linear-gradient(120deg, var(--gold-soft), transparent 55%), var(--surface); }
+/* بازیکنانِ ویژه (elite): حلقهٔ طلاییِ چرخان دورِ کارت + هالهٔ نور دورِ آواتار + درخششِ ستاره. */
+.pcard.is-elite {
+  border-color: transparent;
+  background: linear-gradient(120deg, var(--gold-soft), transparent 55%), var(--surface);
+  box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--gold) 45%, transparent), 0 10px 24px -16px color-mix(in srgb, var(--gold) 70%, transparent);
+}
+.pcard.is-elite::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; pointer-events: none; z-index: 1;
+  background: conic-gradient(from var(--a), var(--gold), transparent 30%, transparent 70%, var(--gold));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  --a: 0deg; opacity: .9;
+  animation: elite-ring 4s linear infinite;
+}
+@keyframes elite-ring { to { --a: 360deg; } }
+.pcard.is-elite .avatar {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--gold), 0 0 14px -2px color-mix(in srgb, var(--gold) 75%, transparent);
+}
+.pcard.is-elite .pc-main h4 .ic { color: var(--gold); animation: elite-star 1.8s ease-in-out infinite; }
+@keyframes elite-star { 0%, 100% { transform: scale(1) rotate(0deg); } 50% { transform: scale(1.22) rotate(10deg); } }
 .avatar { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 16px; font-size: 19px; font-weight: 800; color: #fff3da; background: linear-gradient(135deg, var(--c1, #a3121b), var(--c2, #6f0a11)); }
 .avatar.t1 { --c1: #b8801f; --c2: #7a520c; }
 .avatar.t2 { --c1: #7d2a55; --c2: #4e1236; }
