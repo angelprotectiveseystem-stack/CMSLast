@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>پنل مدیریت — مسابقات شطرنج</title>
+<script>
+// قبل از لود شدن CSS، تمِ ذخیره‌شده رو روی <html> می‌ذاریم تا هیچ
+// چشمک تاریک/روشنی موقع بارگذاری اولیه دیده نشه (بدون این خط، یک
+// لحظه تمِ پیش‌فرض تیره دیده می‌شه و بعد به روشن سوییچ می‌کنه).
+(function () {
+  try {
+    var t = localStorage.getItem("panel_theme");
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  } catch (e) {}
+})();
+</script>
 <link rel="stylesheet" href="/panel/style.css?v={{V}}">
 </head>
 <body>
@@ -33,6 +44,9 @@
         <img src="data:image/webp;base64,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" width="30" height="30" alt="" aria-hidden="true" style="border-radius:7px;display:block;">
       </span>
       <span class="brand-text">پنل مسابقات</span>
+      <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="جمع/باز کردن منو" aria-label="جمع/باز کردن منو">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l-6 7 6 7M15 5l6 7-6 7" style="display:none"/><path class="collapse-ic-arrow" d="M14 6l-6 6 6 6"/><line x1="4" y1="4" x2="4" y2="20"/></svg>
+      </button>
     </div>
 
     <div class="nav-search-wrap">
@@ -68,6 +82,16 @@
     <div class="sidebar-foot">
       <span class="live-dot"></span>
       <span id="conn-status">در حال اتصال…</span>
+      <span class="sidebar-foot-tools">
+        <button class="icon-toggle-btn" id="sound-toggle-btn" title="صدا و لرزش اعلان‌ها" aria-label="صدا و لرزش اعلان‌ها">
+          <svg class="ic-sound-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+          <svg class="ic-sound-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><line x1="17" y1="9" x2="22" y2="14"/><line x1="22" y1="9" x2="17" y2="14"/></svg>
+        </button>
+        <button class="icon-toggle-btn" id="theme-toggle-btn" title="تغییر پوسته‌ی روشن/تاریک" aria-label="تغییر پوسته‌ی روشن/تاریک">
+          <svg class="ic-theme-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <svg class="ic-theme-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2.4M12 19.1v2.4M4.6 4.6l1.7 1.7M17.7 17.7l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.6 19.4l1.7-1.7M17.7 6.3l1.7-1.7"/></svg>
+        </button>
+      </span>
     </div>
   </aside>
 
@@ -77,6 +101,9 @@
       <div id="topbar-clock" class="topbar-clock">--:--:--</div>
     </header>
 
+    <div class="ptr-indicator" id="ptr-indicator" aria-hidden="true">
+      <span class="ptr-spinner"></span>
+    </div>
     <div id="view-body" class="view-body">
       <div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>
     </div>
@@ -119,6 +146,28 @@
 
 </div>
 
+<!-- ── جعبه‌ی نوتیف‌های لحظه‌ای (Toast) ──────────────────────── -->
+<div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
+<!-- ── دکمه‌ی شناور رهگشا + پنل کناری سریع ──────────────────── -->
+<button id="assistant-fab" class="assistant-fab" title="رهگشا — دسترسی سریع" aria-label="باز کردن رهگشا">
+  <span class="assistant-fab-ic">🤖</span>
+</button>
+<div id="assistant-panel-backdrop" class="assistant-panel-backdrop"></div>
+<aside id="assistant-panel" class="assistant-panel" role="dialog" aria-modal="true" aria-label="رهگشا">
+  <div class="assistant-panel-head">
+    <button id="assistant-panel-back" class="assistant-panel-back hidden" aria-label="بازگشت">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+    </button>
+    <span class="assistant-panel-title">🤖 رهگشا — گفتگوهای اخیر</span>
+    <button id="assistant-panel-close" class="assistant-panel-close" aria-label="بستن">✕</button>
+  </div>
+  <div id="assistant-panel-body" class="assistant-panel-body"></div>
+  <div class="assistant-panel-foot">
+    <button id="assistant-panel-full" class="assistant-panel-full-btn">مشاهده‌ی همه در صفحه‌ی رهگشا ←</button>
+  </div>
+</aside>
+
 <!-- ── منوی «بیشتر» (فقط موبایل) — شیت پایین با گروه‌بندی و انیمیشن پلکانی ── -->
 <div id="more-backdrop" class="more-backdrop"></div>
 <div id="more-sheet" class="more-sheet" role="dialog" aria-modal="true" aria-label="منوی بیشتر">
@@ -149,6 +198,8 @@
       <div class="more-grid cols-2">
         <button class="more-tile" data-view="assistant"><span class="more-tile-ic">🤖</span><span class="more-tile-label">رهگشا</span></button>
         <button class="more-tile" data-view="settings"><span class="more-tile-ic">⚙️</span><span class="more-tile-label">تنظیمات</span></button>
+        <button class="more-tile" id="more-tile-theme" data-action="toggle-theme"><span class="more-tile-ic">🌙</span><span class="more-tile-label">پوسته‌ی روشن</span></button>
+        <button class="more-tile" id="more-tile-sound" data-action="toggle-sound"><span class="more-tile-ic">🔔</span><span class="more-tile-label">صدا و لرزش</span></button>
       </div>
     </div>
   </div>

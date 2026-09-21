@@ -5,7 +5,9 @@
   var POLL_MS = 4000; // زنده بدون فشار به سرور: هر ۴ ثانیه فقط GET های سبک
   var state = { view: "home", timer: null, activityPage: 0, topManualView: false,
                 assistantSession: null, assistantSource: "all", assistantQuery: "",
-                principalDeviceOpen: null };
+                principalDeviceOpen: null,
+                statHistory: {}, prevOnlineNames: null, prevFeedbackCount: null, pollTick: 0,
+                assistantPanelSession: null };
 
   // ── HTTP ──────────────────────────────────────────────
   function api(path, opts) {
@@ -103,6 +105,7 @@
     closeMoreSheet();
     updateNavIndicator();
     updateBnIndicator();
+    updateAssistantFabVisibility();
 
     // ۲) بارگذاری محتوا در فریم بعدی: با یک تیک فاصله از تغییرات بالا،
     //    ریفلوی سنگین (تعویض کامل view-body + شروع انیمیشن) با
@@ -158,12 +161,115 @@
   }
   if (moreSheetEl) {
     moreSheetEl.addEventListener("click", function (e) {
+      var actionTile = e.target.closest(".more-tile[data-action]");
+      if (actionTile) {
+        var action = actionTile.getAttribute("data-action");
+        if (action === "toggle-theme") toggleTheme();
+        if (action === "toggle-sound") toggleSound();
+        return;
+      }
       var tile = e.target.closest(".more-tile[data-view]");
       if (!tile) return;
       goToView(tile.getAttribute("data-view"));
     });
   }
   if (moreBackdropEl) moreBackdropEl.addEventListener("click", closeMoreSheet);
+
+  // ── دکمه‌ی جمع/بازکردنِ منوی اول (فقط دسکتاپ) ────────────────
+  var sidebarCollapseBtn = document.getElementById("sidebar-collapse-btn");
+  if (sidebarCollapseBtn) sidebarCollapseBtn.addEventListener("click", toggleSidebarCollapsed);
+
+  // ── دکمه‌های پوسته/صدا در پایینِ سایدبار ─────────────────────
+  var themeToggleBtn = document.getElementById("theme-toggle-btn");
+  if (themeToggleBtn) themeToggleBtn.addEventListener("click", toggleTheme);
+  var soundToggleBtn = document.getElementById("sound-toggle-btn");
+  if (soundToggleBtn) soundToggleBtn.addEventListener("click", toggleSound);
+
+  // ── دکمه‌ی شناور رهگشا + پنل کناری سریع ──────────────────────
+  var assistantFab = document.getElementById("assistant-fab");
+  var assistantPanel = document.getElementById("assistant-panel");
+  var assistantPanelBackdrop = document.getElementById("assistant-panel-backdrop");
+  var assistantPanelBody = document.getElementById("assistant-panel-body");
+  var assistantPanelBack = document.getElementById("assistant-panel-back");
+  var assistantPanelTitle = document.querySelector(".assistant-panel-title");
+
+  function updateAssistantFabVisibility() {
+    if (assistantFab) assistantFab.classList.toggle("hidden-fab", state.view === "assistant");
+  }
+  function openAssistantPanel() {
+    if (!assistantPanel) return;
+    assistantPanel.classList.add("show");
+    assistantPanelBackdrop.classList.add("show");
+    document.body.classList.add("no-scroll");
+    renderAssistantPanelList();
+  }
+  function closeAssistantPanel() {
+    if (!assistantPanel) return;
+    assistantPanel.classList.remove("show");
+    assistantPanelBackdrop.classList.remove("show");
+    document.body.classList.remove("no-scroll");
+    state.assistantPanelSession = null;
+  }
+  function renderAssistantPanelList() {
+    state.assistantPanelSession = null;
+    assistantPanelBack.classList.add("hidden");
+    assistantPanelTitle.textContent = "🤖 رهگشا — گفتگوهای اخیر";
+    assistantPanelBody.innerHTML = '<div class="loading-state"><span class="spinner"></span></div>';
+    api("/api/panel/assistant?source=all&q=").then(function (d) {
+      if (!d.ok) return;
+      var sessions = d.sessions.slice(0, 8);
+      if (!sessions.length) {
+        assistantPanelBody.innerHTML = '<div class="empty-state">گفتگویی با رهگشا ثبت نشده</div>';
+        return;
+      }
+      assistantPanelBody.innerHTML = sessions.map(function (x) {
+        return '<button class="assistant-panel-item" data-sid="' + x.id + '">' +
+          '<div class="assistant-panel-item-title">' + esc(x.title || "بدون عنوان") + '</div>' +
+          '<div class="assistant-panel-item-meta">' + esc(x.owner) + ' · ' + fmtDate(x.last_message_at) + ' · ' + x.msg_count + ' پیام</div>' +
+        '</button>';
+      }).join("");
+    }).catch(function () {
+      assistantPanelBody.innerHTML = '<div class="empty-state">خطا در دریافتِ گفتگوها</div>';
+    });
+  }
+  function renderAssistantPanelChat(sid) {
+    state.assistantPanelSession = sid;
+    assistantPanelBack.classList.remove("hidden");
+    assistantPanelBody.innerHTML = '<div class="loading-state"><span class="spinner"></span></div>';
+    api("/api/panel/assistant/" + sid).then(function (d) {
+      if (!d.ok) { renderAssistantPanelList(); return; }
+      var sess = d.session;
+      assistantPanelTitle.textContent = esc(sess.title || "گفتگو");
+      assistantPanelBody.innerHTML = (d.messages || []).map(assistantBubble).join("") ||
+        '<div class="empty-state">پیامی ثبت نشده</div>';
+      assistantPanelBody.scrollTop = assistantPanelBody.scrollHeight;
+    }).catch(function () {
+      assistantPanelBody.innerHTML = '<div class="empty-state">خطا در دریافتِ گفتگو</div>';
+    });
+  }
+  if (assistantFab) assistantFab.addEventListener("click", openAssistantPanel);
+  var assistantPanelClose = document.getElementById("assistant-panel-close");
+  if (assistantPanelClose) assistantPanelClose.addEventListener("click", closeAssistantPanel);
+  if (assistantPanelBackdrop) assistantPanelBackdrop.addEventListener("click", closeAssistantPanel);
+  if (assistantPanelBack) assistantPanelBack.addEventListener("click", renderAssistantPanelList);
+  if (assistantPanelBody) {
+    assistantPanelBody.addEventListener("click", function (e) {
+      var item = e.target.closest(".assistant-panel-item[data-sid]");
+      if (!item) return;
+      renderAssistantPanelChat(Number(item.getAttribute("data-sid")));
+    });
+  }
+  var assistantPanelFullBtn = document.getElementById("assistant-panel-full");
+  if (assistantPanelFullBtn) {
+    assistantPanelFullBtn.addEventListener("click", function () {
+      if (state.assistantPanelSession) state.assistantSession = state.assistantPanelSession;
+      closeAssistantPanel();
+      goToView("assistant");
+    });
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && assistantPanel && assistantPanel.classList.contains("show")) closeAssistantPanel();
+  });
 
   // ── Mobile toggle / سایدبار موبایل (باز می‌شود از دکمه «بیشتر») ──
   function closeSidebar() {
@@ -279,6 +385,239 @@
     });
   }
 
+  // ── پوسته‌ی روشن/تاریک ──────────────────────────────────
+  var THEME_KEY = "panel_theme";
+  function applyTheme(theme) {
+    if (theme === "light") document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
+  }
+  function getTheme() {
+    try { return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark"; } catch (e) { return "dark"; }
+  }
+  function toggleTheme() {
+    var next = getTheme() === "light" ? "dark" : "light";
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+    applyTheme(next);
+    syncMoreTiles();
+  }
+
+  // ── صدا و لرزش برای اعلان‌های لحظه‌ای ────────────────────
+  // به‌جای فایل صوتی، یک «دینگِ» خیلی کوتاه با Web Audio می‌سازیم؛
+  // این‌طوری هیچ دانلود/دارایی اضافه‌ای لازم نیست.
+  var SOUND_KEY = "panel_sound_on";
+  function isSoundOn() {
+    try { return localStorage.getItem(SOUND_KEY) !== "off"; } catch (e) { return true; }
+  }
+  function toggleSound() {
+    var next = isSoundOn() ? "off" : "on";
+    try { localStorage.setItem(SOUND_KEY, next); } catch (e) {}
+    syncSoundBtn();
+  }
+  function syncSoundBtn() {
+    var btn = document.getElementById("sound-toggle-btn");
+    if (btn) btn.classList.toggle("is-off", !isSoundOn());
+    syncMoreTiles();
+  }
+  function syncMoreTiles() {
+    var themeTile = document.getElementById("more-tile-theme");
+    if (themeTile) {
+      var light = getTheme() === "light";
+      themeTile.querySelector(".more-tile-ic").textContent = light ? "☀️" : "🌙";
+      themeTile.querySelector(".more-tile-label").textContent = light ? "پوسته‌ی تاریک" : "پوسته‌ی روشن";
+    }
+    var soundTile = document.getElementById("more-tile-sound");
+    if (soundTile) {
+      var on = isSoundOn();
+      soundTile.querySelector(".more-tile-ic").textContent = on ? "🔔" : "🔕";
+      soundTile.querySelector(".more-tile-label").textContent = on ? "صدا و لرزش: روشن" : "صدا و لرزش: خاموش";
+    }
+  }
+  var audioCtx = null;
+  function playChime() {
+    if (!isSoundOn()) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      var t = audioCtx.currentTime;
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(830, t);
+      osc.frequency.exponentialRampToValueAtTime(1100, t + 0.11);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.09, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(t); osc.stop(t + 0.34);
+    } catch (e) {}
+  }
+  function buzz() {
+    if (!isSoundOn()) return;
+    if (navigator.vibrate) { try { navigator.vibrate(18); } catch (e) {} }
+  }
+
+  // ── نوتیف‌های لحظه‌ای (Toast) ─────────────────────────────
+  function showToast(text, opts) {
+    opts = opts || {};
+    var stack = document.getElementById("toast-stack");
+    if (!stack) return;
+    var el = document.createElement("div");
+    el.className = "toast" + (opts.tone ? " toast-" + opts.tone : "");
+    el.innerHTML = '<span class="toast-ic">' + (opts.icon || "🔔") + '</span><span class="toast-txt"></span>';
+    el.querySelector(".toast-txt").textContent = text;
+    stack.appendChild(el);
+    playChime(); buzz();
+    setTimeout(function () {
+      el.classList.add("toast-leaving");
+      setTimeout(function () { el.remove(); }, 240);
+    }, opts.duration || 4200);
+    // حداکثر ۴ تا هم‌زمان؛ قدیمی‌ترین‌ها زودتر جمع می‌شن
+    while (stack.children.length > 4) stack.removeChild(stack.firstChild);
+  }
+
+  // ── اسکلتون لودینگ ────────────────────────────────────────
+  // بسته به نوعِ صفحه (کارت‌های آماری، لیست، یا جدول)، یک قالبِ
+  // نزدیک به شکلِ محتوای واقعی نشون می‌ده تا حسِ سریع‌تر بارگذاری بده.
+  function skeletonGrid(n) {
+    var cards = "";
+    for (var i = 0; i < n; i++) {
+      cards += '<div class="skeleton-card"><div class="skeleton-line"></div><div class="skeleton-block"></div></div>';
+    }
+    return '<div class="skeleton-grid">' + cards + '</div>';
+  }
+  function skeletonRows(n) {
+    var rows = "";
+    for (var i = 0; i < n; i++) {
+      rows += '<div class="skeleton-row"><div class="skeleton-block skeleton-avatar"></div><div class="skeleton-lines"><div class="skeleton-line"></div><div class="skeleton-line"></div></div></div>';
+    }
+    return '<div class="skeleton-section">' + rows + '</div>';
+  }
+  var SKELETON_BY_VIEW = {
+    home: function () { return skeletonGrid(7) + skeletonRows(3); },
+    matches: skeletonRows.bind(null, 6), players: skeletonRows.bind(null, 6),
+    elo: skeletonRows.bind(null, 6), admins: skeletonRows.bind(null, 5),
+    online: skeletonRows.bind(null, 4), messages: skeletonRows.bind(null, 5),
+    activity: skeletonRows.bind(null, 7), live: skeletonRows.bind(null, 4),
+    charts: function () { return skeletonRows(1) + skeletonRows(1) + skeletonRows(1); },
+  };
+  function skeletonFor(view) {
+    var fn = SKELETON_BY_VIEW[view];
+    return fn ? fn() : skeletonRows(5);
+  }
+
+  // ── تاریخچه‌ی محلیِ آمار برای ریز-نمودارِ روند (Sparkline) ────
+  // چون بک‌اندی برای تاریخچه‌ی این آمارها نداریم، همون مقادیرِ
+  // زنده‌ای که هرچند ثانیه از پولینگ می‌رسه رو محلی نگه می‌داریم.
+  var SPARK_MAX_POINTS = 16;
+  function pushStatHistory(key, value) {
+    var h = state.statHistory[key] || (state.statHistory[key] = []);
+    h.push(value);
+    if (h.length > SPARK_MAX_POINTS) h.shift();
+  }
+  function sparkSVG(values) {
+    if (!values || values.length < 2) return "";
+    var w = 100, h = 22, pad = 2;
+    var max = Math.max.apply(null, values), min = Math.min.apply(null, values);
+    var range = (max - min) || 1;
+    var stepX = (w - pad * 2) / (values.length - 1);
+    var pts = values.map(function (v, i) {
+      var x = pad + i * stepX;
+      var y = h - pad - ((v - min) / range) * (h - pad * 2);
+      return [x, y];
+    });
+    var line = "M" + pts.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" L");
+    var fill = line + " L" + pts[pts.length - 1][0].toFixed(1) + "," + h + " L" + pts[0][0].toFixed(1) + "," + h + " Z";
+    return '<div class="stat-spark"><svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' +
+      '<path class="spark-fill" d="' + fill + '"/><path class="spark-line" d="' + line + '"/></svg></div>';
+  }
+
+  // ── جمع/بازکردنِ منوی اول (سایدبار دسکتاپ) ────────────────
+  var SIDEBAR_COLLAPSE_KEY = "panel_sidebar_collapsed";
+  function applySidebarCollapsed(collapsed) {
+    var sb = document.querySelector(".sidebar");
+    if (sb) sb.classList.toggle("collapsed", !!collapsed);
+  }
+  function toggleSidebarCollapsed() {
+    var sb = document.querySelector(".sidebar");
+    var next = sb ? !sb.classList.contains("collapsed") : false;
+    applySidebarCollapsed(next);
+    try { localStorage.setItem(SIDEBAR_COLLAPSE_KEY, next ? "1" : "0"); } catch (e) {}
+    requestAnimationFrame(function () { updateNavIndicator(); });
+  }
+
+  // ── کشیدن-برای-تازه‌سازی (Pull-to-refresh) — فقط موبایل ────
+  function initPullToRefresh() {
+    var body = document.getElementById("view-body");
+    var ind = document.getElementById("ptr-indicator");
+    if (!body || !ind) return;
+    var startY = null, pulling = false, triggered = false;
+    var THRESHOLD = 66;
+    body.addEventListener("touchstart", function (e) {
+      if (window.innerWidth > 860) return;
+      if (window.scrollY > 2 || document.scrollingElement.scrollTop > 2) return;
+      startY = e.touches[0].clientY; pulling = false; triggered = false;
+    }, { passive: true });
+    body.addEventListener("touchmove", function (e) {
+      if (startY == null) return;
+      var dy = e.touches[0].clientY - startY;
+      if (dy <= 0) return;
+      pulling = true;
+      var dist = Math.min(dy * 0.5, 90);
+      ind.classList.add("pulling");
+      ind.style.setProperty("--ptr-rotate", Math.round((dist / THRESHOLD) * 180));
+      ind.style.height = Math.min(dist, 60) + "px";
+      triggered = dist >= THRESHOLD;
+    }, { passive: true });
+    body.addEventListener("touchend", function () {
+      if (pulling && triggered) {
+        ind.classList.remove("pulling"); ind.classList.add("loading");
+        ind.style.height = "";
+        render(false);
+        setTimeout(function () { ind.classList.remove("loading"); }, 500);
+      } else {
+        ind.classList.remove("pulling");
+        ind.style.height = "";
+      }
+      startY = null; pulling = false; triggered = false;
+    }, { passive: true });
+  }
+
+  // ── میانبرهای کیبورد به‌سبکِ «g سپس یک حرف» (مثل گیت‌هاب) ────
+  var KBD_CHORDS = {
+    h: ["home", "خانه"], m: ["matches", "مسابقات"], p: ["players", "مسابقه‌دهنده‌ها"],
+    l: ["live", "شطرنج زنده"], o: ["online", "آنلاین‌ها"], a: ["admins", "مدیر‌ها"],
+    e: ["elo", "سطح پیشرفت"], c: ["charts", "نمودارها"], s: ["settings", "تنظیمات"],
+  };
+  var kbdHintEl = null, kbdChordActive = false, kbdChordTimer = null;
+  function showKbdHint() {
+    hideKbdHint();
+    kbdHintEl = document.createElement("div");
+    kbdHintEl.className = "kbd-hint";
+    kbdHintEl.innerHTML = Object.keys(KBD_CHORDS).map(function (k) {
+      return '<span><kbd>' + k + '</kbd>' + KBD_CHORDS[k][1] + '</span>';
+    }).join("");
+    document.body.appendChild(kbdHintEl);
+  }
+  function hideKbdHint() { if (kbdHintEl) { kbdHintEl.remove(); kbdHintEl = null; } }
+  function initKeyboardChords() {
+    document.addEventListener("keydown", function (e) {
+      var tag = (e.target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (kbdChordActive) {
+        clearTimeout(kbdChordTimer);
+        var entry = KBD_CHORDS[e.key.toLowerCase()];
+        kbdChordActive = false; hideKbdHint();
+        if (entry) { e.preventDefault(); goToView(entry[0]); }
+        return;
+      }
+      if (e.key.toLowerCase() === "g") {
+        kbdChordActive = true;
+        showKbdHint();
+        kbdChordTimer = setTimeout(function () { kbdChordActive = false; hideKbdHint(); }, 1600);
+      }
+    });
+  }
+
   // ── Clock ─────────────────────────────────────────────
   function tickClock() {
     var el = document.getElementById("topbar-clock");
@@ -376,10 +715,11 @@
       return;
     }
 
-    // یک placeholder خیلی سبک و بدون انیمیشن (چون به‌محض رسیدن داده‌ی
-    // واقعی جایگزین می‌شه و پخش انیمیشن روش صرفاً لگ اضافه می‌کنه).
+    // یک placeholder سبک که شکلِ محتوای واقعیِ همون صفحه رو تقلید
+    // می‌کنه (اسکلتون) به‌جای فقط یک اسپینرِ خام — حسِ بارگذاریِ
+    // سریع‌تر می‌ده و پرش کمتری با محتوای نهایی داره.
     body.classList.remove("fade-in");
-    body.innerHTML = '<div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>';
+    body.innerHTML = skeletonFor(state.view);
 
     var fn2 = VIEWS[state.view];
     if (fn2) fn2();
@@ -415,11 +755,11 @@
           '<div class="grid">' +
             statCard("مسابقه‌دهنده‌ها", s.players_total, "") +
             statCard("مدیران", s.admins_total, "") +
-            statCard("مدیران آنلاین", s.admins_online, "accent-sage") +
+            statCard("مدیران آنلاین", s.admins_online, "accent-sage", state.statHistory.admins_online) +
             statCard("کل مسابقات", s.matches_total, "") +
-            statCard("مسابقات در انتظار", s.matches_pending, "accent-rust") +
+            statCard("مسابقات در انتظار", s.matches_pending, "accent-rust", state.statHistory.matches_pending) +
             statCard("تورنومنت‌های فعال", s.tournaments_active, "") +
-            statCard("شطرنج‌های زنده", s.live_games, "accent-sage") +
+            statCard("شطرنج‌های زنده", s.live_games, "accent-sage", state.statHistory.live_games) +
           '</div>' +
           '<div class="section">' +
             '<div class="section-head"><h3>مدیران آنلاین اکنون</h3></div>' +
@@ -603,7 +943,7 @@
     "principal-devices": function () { renderPrincipalDevices(); },
 
     charts: function () {
-      setBody('<div class="loading-state">در حال بارگذاری نمودارها…</div>');
+      setBody(skeletonFor("charts"));
       api("/api/panel/charts").then(function (d) {
         if (!d.ok) return;
         setBody(
@@ -619,6 +959,7 @@
             '<div class="section-head"><h3>توزیع بازیکنان بر اساس کلاس</h3></div>' +
             '<div class="chart-wrap">' + barChart(d.players_by_class) + '</div>' +
           '</div>');
+        requestAnimationFrame(function () { animateCharts(body); });
       });
     },
 
@@ -1047,8 +1388,9 @@
     draw();
   }
 
-  function statCard(label, value, accentClass) {
-    return '<div class="stat-card ' + accentClass + '"><div class="stat-label">' + label + '</div><div class="stat-value">' + value + '</div></div>';
+  function statCard(label, value, accentClass, sparkValues) {
+    return '<div class="stat-card ' + accentClass + '"><div class="stat-label">' + label + '</div><div class="stat-value">' + value + '</div>' +
+      (sparkValues ? sparkSVG(sparkValues) : '') + '</div>';
   }
   function tabBtn(period, label, active) {
     return '<button class="tab-btn' + (active ? " active" : "") + '" data-period="' + period + '">' + label + '</button>';
@@ -1057,6 +1399,32 @@
     if (seconds == null) return "—";
     var m = Math.floor(seconds / 60), s = Math.floor(seconds % 60);
     return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function animateCharts(root) {
+    if (!root) return;
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    root.querySelectorAll(".chart-wrap").forEach(function (wrap) {
+      var bars = wrap.querySelectorAll(".bar-fill");
+      bars.forEach(function (b) {
+        var target = b.style.width;
+        if (reduce) return;
+        b.style.width = "0%";
+        void b.offsetWidth;
+        requestAnimationFrame(function () { b.style.width = target; });
+      });
+      var linePath = wrap.querySelector(".sparkline path");
+      if (linePath && !reduce) {
+        try {
+          var len = linePath.getTotalLength();
+          linePath.style.strokeDasharray = len;
+          linePath.style.strokeDashoffset = len;
+          void linePath.offsetWidth;
+          requestAnimationFrame(function () { linePath.style.strokeDashoffset = 0; });
+        } catch (e) {}
+      }
+      wrap.classList.add("charts-animate");
+    });
   }
 
   function barChart(items) {
@@ -1093,14 +1461,44 @@
   function poll() {
     var el = document.getElementById("conn-status");
     var dot = document.querySelector(".live-dot");
+    state.pollTick++;
     api("/api/panel/overview").then(function (d) {
       if (d.ok) { el.textContent = "زنده و به‌روز"; dot.classList.remove("off"); }
+      if (d.ok && d.stats) {
+        pushStatHistory("admins_online", d.stats.admins_online);
+        pushStatHistory("live_games", d.stats.live_games);
+        pushStatHistory("matches_pending", d.stats.matches_pending);
+        updateOnlineBadge(d.stats.admins_online);
+
+        // تشخیصِ مدیرِ تازه‌آنلاین‌شده برای نمایشِ toast
+        var names = (d.online_admins || []).map(function (a) { return a.name; });
+        if (state.prevOnlineNames) {
+          names.forEach(function (n) {
+            if (state.prevOnlineNames.indexOf(n) === -1) {
+              showToast(n + " آنلاین شد", { icon: "🟢", tone: "sage" });
+            }
+          });
+        }
+        state.prevOnlineNames = names;
+      }
       if (state.view === "home" || state.view === "live" || state.view === "online" || state.view === "admins") {
         render(true);
       }
     }).catch(function () {
       el.textContent = "قطع ارتباط"; dot.classList.add("off");
     });
+
+    // هر ۴ تیک (~۱۶ ثانیه) یه سرِ سبک به تعدادِ بازخوردهای جدید می‌زنیم
+    // تا بدونِ فشار به سرور، از بازخوردِ تازه هم toast نشون بدیم.
+    if (state.pollTick % 4 === 0 && state.view !== "messages") {
+      api("/api/panel/messages").then(function (d) {
+        if (!d.ok || !d.feedback) return;
+        if (state.prevFeedbackCount != null && d.feedback.length > state.prevFeedbackCount) {
+          showToast("بازخورد جدید دریافت شد", { icon: "💬" });
+        }
+        state.prevFeedbackCount = d.feedback.length;
+      }).catch(function () {});
+    }
   }
 
   function startApp() {
@@ -1111,6 +1509,17 @@
     render();
     if (state.timer) clearInterval(state.timer);
     state.timer = setInterval(poll, POLL_MS);
+
+    // ── وضعیت‌های ذخیره‌شده (پوسته، صدا، جمع‌بودنِ منو) رو اعمال کن ──
+    applyTheme(getTheme());
+    syncSoundBtn();
+    try {
+      if (localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1") applySidebarCollapsed(true);
+    } catch (e) {}
+    updateAssistantFabVisibility();
+    initPullToRefresh();
+    initKeyboardChords();
+
     // بعد از این‌که app از حالت hidden درومد و چیدمانش قطعی شد، اندازه‌ی
     // واقعیِ آیتم‌ها رو بخون تا نشانگرهای لغزان از همون اول جای درستی باشن.
     requestAnimationFrame(function () {
