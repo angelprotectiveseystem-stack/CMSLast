@@ -291,7 +291,7 @@ html[data-theme="dark"] .stat-ic { background: rgba(255, 112, 120, .12); }
 .stat--hero .stat-num { font-size: 40px; color: #ffe6ad; }
 .stat--hero .stat-lbl, .stat--hero .stat-sub { color: rgba(255, 243, 218, .82); }
 .meter { height: 7px; margin-top: 12px; border-radius: 9px; overflow: hidden; background: color-mix(in srgb, currentColor 16%, transparent); }
-.meter i { display: block; height: 100%; width: var(--w, 0%); border-radius: inherit; background: linear-gradient(90deg, #f0cf85, #c8922e); animation: grow 1.1s var(--ease-out) both; }
+.meter i { display: block; height: 100%; width: var(--w, 0%); border-radius: inherit; background: linear-gradient(90deg, #f0cf85, #c8922e); animation: hb-grow 1.1s var(--ease-out) both; }
 .stat:not(.stat--hero) .meter { background: var(--surface-3); }
 .stat:not(.stat--hero) .meter i { background: linear-gradient(90deg, var(--crimson), var(--gold)); }
 
@@ -426,7 +426,7 @@ html[data-theme="dark"] .stat-ic { background: rgba(255, 112, 120, .12); }
 .bar { transform-box: fill-box; transform-origin: bottom; animation: bar-up .8s var(--ease-out) both; }
 .hb { display: grid; grid-template-columns: minmax(70px, 34%) 1fr auto; gap: 10px; align-items: center; margin: 10px 0; font-size: 12.5px; line-height: 1.5; }
 .hb-track { height: 9px; border-radius: 9px; overflow: hidden; background: var(--surface-3); }
-.hb-fill { height: 100%; width: var(--w, 0%); border-radius: inherit; background: linear-gradient(90deg, var(--crimson-2), var(--gold)); animation: grow 1s var(--ease-out) both; }
+.hb-fill { height: 100%; width: var(--w, 0%); border-radius: inherit; background: linear-gradient(90deg, var(--crimson-2), var(--gold)); animation: hb-grow 1s var(--ease-out) both; }
 .hb-val { min-width: 22px; text-align: end; color: var(--muted); font-variant-numeric: tabular-nums; }
 .donut { display: flex; align-items: center; gap: 20px; }
 .donut svg { width: 128px; flex: none; }
@@ -545,6 +545,13 @@ body.ready .fab:active { transform: scale(.9); transition-delay: 0s; transition-
 @keyframes sheen { from { background-position: 130% 0, 0 0; } to { background-position: -70% 0, 0 0; } }
 @keyframes hop { 0% { transform: translateY(0) scale(1); } 40% { transform: translateY(-5px) scale(1.18); } 100% { transform: none; } }
 @keyframes grow { from { width: 0; } }
+/* برخلافِ grow (که آخرش رو عمداً مشخص نکرده تا از مقدارِ خودِ عنصر بگیره)، این یکی
+   عمداً --w رو توی «to» هم صریح نوشته. چون مقدارِ نهایی از یک متغیرِ سفارشیِ
+   جداگانه روی هر عنصر (style="--w:...%") میاد، بعضی مرورگرها موقعِ ساختنِ خودکارِ
+   کیف‌فریمِ «to» (وقتی فقط from نوشته شده) این متغیر رو درست نمی‌خونن و همه‌ی
+   نوارها رو با هم عرضِ یکسان (اشتباه) نشون می‌دن — دقیقاً همون باگی که توی
+   «توزیعِ بازیکنان بر اساسِ کلاس» دیده شد. نوشتنِ صریحِ to این ابهام رو از بین می‌بره. */
+@keyframes hb-grow { from { width: 0; } to { width: var(--w, 0%); } }
 @keyframes grow-x { from { transform: scaleX(0); } }
 @keyframes draw { from { stroke-dashoffset: 1; } }
 @keyframes bar-up { from { transform: scaleY(0); } }
@@ -557,6 +564,72 @@ body.ready .fab:active { transform: scale(.9); transition-delay: 0s; transition-
   .stat-grid { grid-template-columns: repeat(4, 1fr); }
   .stat--hero { grid-column: span 2; }
   .stat--wide { grid-column: span 2; }
+}
+
+/* ── دسکتاپِ واقعی (کامپیوتر) ─────────────────────────────────
+   تا اینجا فقط عرضِ محتوا کمی باز می‌شد؛ خودِ چیدمان (ناوبریِ پایین،
+   یک ستون کارت، پنلِ رهگشا مثل یک ورق‌خواب) دقیقاً همون چیدمانِ گوشی
+   بود، فقط وسطِ صفحه‌ی بزرگ. از اینجا به بعد واقعاً برای صفحه‌کلید/موس
+   و عرضِ زیاد بازطراحی می‌شه: ناوبری از نوارِ پایین به سایدبارِ کنار
+   تبدیل می‌شه، کارت‌ها چندستونه می‌شن، و رهگشا به‌جای ورق‌خوابِ
+   تمام‌عرض، یک پنجرهٔ شناورِ کوچیکه (مثل ویجت‌های گفتگوی دسکتاپی). */
+@media (min-width: 1080px) {
+  :root { --sidebar-w: 84px; }
+
+  body { padding-inline-start: calc(var(--sidebar-w) + 40px); }
+  .page { width: min(100%, 900px); padding-bottom: 48px; }
+
+  /* سایدبارِ ناوبری (همون HTML/JS قبلی؛ فقط جهتِ چیدمان عوض شده) */
+  .dock {
+    grid-template-columns: 1fr; grid-template-rows: repeat(5, 1fr);
+    left: auto; right: auto; bottom: auto; top: 50%; margin-inline: 0;
+    inset-inline-start: 22px;
+    width: var(--sidebar-w); height: min(76vh, 470px); padding: 8px;
+    transform: translateY(-50%) translateX(140%);
+    transition: transform .8s .1s var(--spring);
+  }
+  body.ready .dock { transform: translateY(-50%); }
+  .dock-thumb {
+    inset-inline-start: 8px; top: 8px; bottom: auto;
+    width: calc(100% - 16px); height: calc((100% - 16px) / 5);
+    transform: translateY(calc(var(--i, 0) * 100%));
+  }
+  .dock-item .ic { width: 22px; height: 22px; }
+  .dock-item span { font-size: 10.5px; }
+
+  /* دکمهٔ شناورِ رهگشا: گوشه‌ی پایینِ محتوا (نه بالای یک دکِ پایینی که دیگه اونجا نیست) */
+  .fab { left: auto; bottom: 28px; inset-inline-end: 28px; }
+
+  /* پنلِ رهگشا: به‌جای ورق‌خوابِ تمام‌عرض، یک پنجرهٔ شناورِ کوچیکِ کنارِ دکمه */
+  .rg-backdrop { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .rg-panel {
+    left: auto; right: auto; bottom: 96px; margin-inline: 0;
+    inset-inline-end: 28px;
+    width: min(30vw, 400px); height: min(72vh, 640px); max-height: calc(var(--vvh, 100dvh) - 130px);
+    border-radius: 26px; border-bottom: 1px solid var(--line);
+    box-shadow: 0 24px 60px -20px rgba(30, 10, 10, .35);
+    transform: translateY(18px) scale(.97); opacity: 0;
+    transition: transform .35s var(--ease-out), opacity .3s ease;
+  }
+  .rg.open .rg-panel { transform: none; opacity: 1; }
+
+  /* کارت‌ها: به‌جای یک ستونِ کشیده، چندستونه بر اساسِ عرضِ موجود */
+  .stack { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); align-items: start; }
+  .trends-body { grid-template-columns: repeat(2, 1fr); }
+
+  /* هاور: روی موس/تاچ‌پد فیدبکِ بصری بده (چیزی که روی گوشی اصلاً معنی نداره ولی
+     روی دسکتاپ نبودنش باعث می‌شه همه‌چیز «بی‌فرق با گوشی» حس بشه) */
+  .ccard, .pcard, .mcard, .top-row {
+    transition: transform .22s var(--ease-out), box-shadow .22s var(--ease-out);
+  }
+  .ccard:hover, .pcard:hover, .mcard:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow), 0 16px 30px -20px rgba(20, 8, 8, .4);
+  }
+  .top-row:hover { background: var(--surface-2); }
+  .dock-item:not(.is-on):hover { color: var(--ink); }
+  .link:hover { text-decoration: underline; }
+  .sugg-chip:hover { filter: brightness(1.05); }
 }
 @media (max-width: 370px) {
   .sheet { font-size: 12px; gap: 3px; }
