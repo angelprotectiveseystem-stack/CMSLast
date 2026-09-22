@@ -1112,24 +1112,6 @@ html.custom-cursor.cursor-text .cursor-dot { opacity: 0; }
   }
 }
 
-/* ── کشیدن-برای-تازه‌سازی (Pull-to-refresh) روی موبایل ────────
-   یک نشانگرِ چرخان زیرِ نوار بالا که با کشیدنِ صفحه به پایین (وقتی
-   اسکرول در بالاترین نقطه‌ست) ظاهر می‌شه و با رهاکردن، ویو رو
-   دوباره بارگذاری می‌کنه. */
-.ptr-indicator {
-  display: flex; align-items: center; justify-content: center;
-  height: 0; overflow: hidden;
-  transition: height .18s ease;
-  color: var(--amber);
-}
-.ptr-indicator.pulling, .ptr-indicator.loading { height: 44px; }
-.ptr-spinner {
-  width: 20px; height: 20px; border-radius: 50%;
-  border: 2px solid var(--line); border-top-color: var(--amber);
-  transform: rotate(calc(var(--ptr-rotate, 0) * 1deg));
-}
-.ptr-indicator.loading .ptr-spinner { animation: spin .7s linear infinite; }
-
 /* ── دکمه‌ی شناور رهگشا + پنل کناری سریع ──────────────────────
    از هر صفحه‌ای در دسترسه؛ یه نگاهِ سریع به گفتگوهای اخیرِ رهگشا
    بدونِ نیاز به ترکِ صفحه‌ی فعلی. */

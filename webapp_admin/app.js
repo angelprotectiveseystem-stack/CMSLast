@@ -545,43 +545,6 @@
     requestAnimationFrame(function () { updateNavIndicator(); });
   }
 
-  // ── کشیدن-برای-تازه‌سازی (Pull-to-refresh) — فقط موبایل ────
-  function initPullToRefresh() {
-    var body = document.getElementById("view-body");
-    var ind = document.getElementById("ptr-indicator");
-    if (!body || !ind) return;
-    var startY = null, pulling = false, triggered = false;
-    var THRESHOLD = 66;
-    body.addEventListener("touchstart", function (e) {
-      if (window.innerWidth > 860) return;
-      if (window.scrollY > 2 || document.scrollingElement.scrollTop > 2) return;
-      startY = e.touches[0].clientY; pulling = false; triggered = false;
-    }, { passive: true });
-    body.addEventListener("touchmove", function (e) {
-      if (startY == null) return;
-      var dy = e.touches[0].clientY - startY;
-      if (dy <= 0) return;
-      pulling = true;
-      var dist = Math.min(dy * 0.5, 90);
-      ind.classList.add("pulling");
-      ind.style.setProperty("--ptr-rotate", Math.round((dist / THRESHOLD) * 180));
-      ind.style.height = Math.min(dist, 60) + "px";
-      triggered = dist >= THRESHOLD;
-    }, { passive: true });
-    body.addEventListener("touchend", function () {
-      if (pulling && triggered) {
-        ind.classList.remove("pulling"); ind.classList.add("loading");
-        ind.style.height = "";
-        render(false);
-        setTimeout(function () { ind.classList.remove("loading"); }, 500);
-      } else {
-        ind.classList.remove("pulling");
-        ind.style.height = "";
-      }
-      startY = null; pulling = false; triggered = false;
-    }, { passive: true });
-  }
-
   // ── میانبرهای کیبورد به‌سبکِ «g سپس یک حرف» (مثل گیت‌هاب) ────
   var KBD_CHORDS = {
     h: ["home", "خانه"], m: ["matches", "مسابقات"], p: ["players", "مسابقه‌دهنده‌ها"],
@@ -1664,7 +1627,6 @@
       if (localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1") applySidebarCollapsed(true);
     } catch (e) {}
     updateAssistantFabVisibility();
-    initPullToRefresh();
     initKeyboardChords();
 
     // بعد از این‌که app از حالت hidden درومد و چیدمانش قطعی شد، اندازه‌ی
