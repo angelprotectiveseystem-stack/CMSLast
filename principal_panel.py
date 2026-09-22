@@ -628,13 +628,19 @@ async def principal_trends(request):
 # جواب بده — ولی عمداً هیچ ابزاری برای آمارِ فردیِ برد/باختِ یک بازیکن یا
 # رتبه‌بندیِ «کدوم دانش‌آموز بهتره» نداره؛ اون فقط از تبِ «خانه» قابل دیدنه.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
-ASSISTANT_MODEL_CHAIN = [GEMINI_MODEL, "gemini-3.6-flash", "gemini-3.5-flash-lite"]
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+ASSISTANT_MODEL_CHAIN = [GEMINI_MODEL, "gemini-3.5-flash-lite", "gemini-3.6-flash"]
 ASSISTANT_MODEL_CHAIN = list(dict.fromkeys(ASSISTANT_MODEL_CHAIN))  # حذف تکراری با حفظ ترتیب
-# نکته (۲۰۲۶-۰۹): gemini-2.5-flash-lite قبلاً اینجا آخرین fallback بود، ولی الان با ۴۰۴
-# رد می‌شه (گوگل انگار حذفش کرده) — یعنی safety net عملاً همیشه شکست می‌خورد. با
-# gemini-3.5-flash-lite جایگزین شد. اگه باز هم مدلی 404 داد، لیست مدل‌های فعال رو با
-# GET به https://generativelanguage.googleapis.com/v1beta/models (با همون API key) بگیر.
+# نکته (۲۰۲۶-۰۹، اصلاح‌شده): پیش‌فرض قبلی اینجا gemini-3.5-flash-lite بود که هم خودش
+# هم fallback بعدی‌اش (gemini-3.6-flash) هر دو نسل ۳ بودن — یعنی هیچ‌وقت به یه مدلِ
+# واقعاً «بدون فکرِ اجباری» نمی‌رسید (نسل ۳ حداقلش thinkingLevel=minimal است، بازم یه
+# گذرِ فکریِ اجباری با thought signature داره). این دقیقاً همون چیزی بود که باعث
+# می‌شد پرسیدن از رهگشا توی این پنل عملاً جواب ندهد: هر هاپ کند بود، ASSISTANT_MAX_TOOL_HOPS
+# با چندتا هاپ ترکیب می‌شد، و مدیرِ مدرسه قبل از رسیدنِ جواب از تلاش دست می‌کشید.
+# gemini-2.5-flash-lite پیش‌فرضش رسماً «بدون فکرکردن» است و شاتدأونِ رسمی‌اش هنوز
+# اکتبر ۲۰۲۶ است. اگه واقعاً از کار افتاده باشه، همون ۴۰۴ فوری (بدون تاخیرِ تایم‌اوت)
+# به مدلِ بعدی می‌ره؛ اگه زنده باشه، سرعت کاملاً برمی‌گرده. اگه بازم کار نکرد، لاگِ
+# Railway رو برای کدِ HTTP واقعیِ هر مدل چک کن (نه فقط «کند/بی‌جواب»).
 ASSISTANT_REQUEST_TIMEOUT = 20  # قبلاً ۱۲ بود؛ کوتاه بودنش باعث ReadTimeout مکرر روی gemini-3.6-flash می‌شد
 # خطاهای گذرای Gemini (شلوغیِ سرور / محدودیتِ نرخ) معمولاً با یک تلاشِ مجدد و کمی صبر
 # برطرف می‌شن؛ قبلاً همون لحظه می‌رفتیم سراغِ مدلِ بعدی یا پیامِ خطا می‌دادیم.
