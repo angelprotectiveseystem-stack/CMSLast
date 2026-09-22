@@ -72,7 +72,7 @@
     home: "خانه", matches: "مسابقات شطرنج", live: "شطرنج زنده",
     players: "مسابقه‌دهنده‌ها", elo: "سطح پیشرفت / ELO", admins: "مدیر‌ها",
     online: "آنلاین‌ها", messages: "پیام‌های ارسالی", activity: "فعالیت‌ها",
-    "principal-devices": "ورودهای مدیر مدرسه",
+    "principal-devices": "ورودهای مدیر مدرسه", notifications: "ارسال اعلان",
     charts: "نمودارها", assistant: "رهگشا", settings: "تنظیمات",
   };
 
@@ -497,6 +497,7 @@
     elo: skeletonRows.bind(null, 6), admins: skeletonRows.bind(null, 5),
     online: skeletonRows.bind(null, 4), messages: skeletonRows.bind(null, 5),
     activity: skeletonRows.bind(null, 7), live: skeletonRows.bind(null, 4),
+    notifications: skeletonRows.bind(null, 4),
     charts: function () { return skeletonRows(1) + skeletonRows(1) + skeletonRows(1); },
   };
   function skeletonFor(view) {
@@ -941,6 +942,7 @@
     },
 
     "principal-devices": function () { renderPrincipalDevices(); },
+    notifications: function () { renderNotifications(); },
 
     charts: function () {
       setBody(skeletonFor("charts"));
@@ -1129,6 +1131,151 @@
       });
       if (state.principalDeviceOpen) loadPrincipalDeviceDetail(state.principalDeviceOpen);
     });
+  }
+
+  // ── ارسال اعلان به پنل مدیر مدرسه ────────────────────────────────
+  // فرمِ ساخت/ویرایش + فهرستِ اعلان‌های ارسال‌شده (با ویرایش و حذف).
+  var notifState = { editingId: null, sending: false };
+
+  function notifCard(n) {
+    return (
+      '<div class="row-card notif-card" data-nid="' + n.id + '">' +
+        '<div class="chat-row-main">' +
+          '<div class="main-txt chat-row-title">' + esc(n.title) + '</div>' +
+          '<div class="sub-txt">' + esc(n.body) + '</div>' +
+          '<div class="sub-txt">' + fmtDate(n.created_at) + (n.updated_at ? ' · ویرایش‌شده' : '') +
+            ' · ' + (n.is_read ? '<span class="badge win">خوانده‌شده</span>' : '<span class="badge pending">خوانده‌نشده</span>') + '</div>' +
+        '</div>' +
+        '<div class="device-actions">' +
+          '<button class="tab-btn" data-act="edit">✏️ ویرایش</button>' +
+          '<button class="tab-btn device-btn-delete" data-act="delete">🗑 حذف</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderNotifications() {
+    var maxTitle = 120, maxBody = 2000; // مقادیرِ واقعی بعد از اولین بارگذاری از سرور می‌آید
+    setBody(
+      '<div class="section">' +
+        '<div class="section-head"><h3 id="notif-form-title">ارسال اعلان به پنل مدیر مدرسه</h3></div>' +
+        '<form id="notif-form" class="notif-form">' +
+          '<label class="notif-field">' +
+            '<span>عنوان</span>' +
+            '<input type="text" id="notif-title" maxlength="' + maxTitle + '" placeholder="مثلاً: تعطیلی فردا" autocomplete="off">' +
+          '</label>' +
+          '<label class="notif-field">' +
+            '<span>متن اعلان</span>' +
+            '<textarea id="notif-body" maxlength="' + maxBody + '" rows="4" placeholder="متنِ کامل اعلان را اینجا بنویسید…"></textarea>' +
+          '</label>' +
+          '<div id="notif-error" class="notif-error" hidden></div>' +
+          '<div class="notif-form-actions">' +
+            '<button type="submit" id="notif-submit">ارسال اعلان</button>' +
+            '<button type="button" id="notif-cancel" hidden>انصراف از ویرایش</button>' +
+          '</div>' +
+          '<div id="notif-push-note" class="sub-txt notif-push-note"></div>' +
+        '</form>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-head"><h3>اعلان‌های ارسال‌شده</h3><span class="count" id="notif-count"></span></div>' +
+        '<div class="card-list" id="notif-list"><div class="loading-state"><span class="spinner"></span></div></div>' +
+      '</div>'
+    );
+
+    var formEl = document.getElementById("notif-form");
+    var titleEl = document.getElementById("notif-title");
+    var bodyEl = document.getElementById("notif-body");
+    var errEl = document.getElementById("notif-error");
+    var submitEl = document.getElementById("notif-submit");
+    var cancelEl = document.getElementById("notif-cancel");
+    var listEl = document.getElementById("notif-list");
+    var countEl = document.getElementById("notif-count");
+    var pushNoteEl = document.getElementById("notif-push-note");
+    var formTitleEl = document.getElementById("notif-form-title");
+
+    function setEditing(n) {
+      notifState.editingId = n ? n.id : null;
+      titleEl.value = n ? n.title : "";
+      bodyEl.value = n ? n.body : "";
+      formTitleEl.textContent = n ? "ویرایش اعلان" : "ارسال اعلان به پنل مدیر مدرسه";
+      submitEl.textContent = n ? "ذخیره‌ی ویرایش" : "ارسال اعلان";
+      cancelEl.hidden = !n;
+      errEl.hidden = true;
+      if (n) titleEl.focus();
+    }
+
+    cancelEl.addEventListener("click", function () { setEditing(null); });
+
+    var currentItems = [];
+    // یک شنوندهٔ ثابت (نه یکی به‌ازای هر بارگذاری) که همیشه به آخرین فهرست نگاه می‌کند.
+    listEl.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-act]");
+      if (!btn) return;
+      var card = btn.closest(".notif-card");
+      var nid = +card.getAttribute("data-nid");
+      var act = btn.getAttribute("data-act");
+      if (act === "edit") {
+        var n = currentItems.filter(function (x) { return x.id === nid; })[0];
+        if (n) setEditing(n);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else if (act === "delete") {
+        if (!confirm("این اعلان حذف شود؟ از پنل مدیر مدرسه هم پاک می‌شود.")) return;
+        apiPost("/api/panel/notifications/delete", { id: nid }).then(function (res) {
+          if (!res.ok) { alert(res.error || "خطا در حذف اعلان."); return; }
+          if (notifState.editingId === nid) setEditing(null);
+          load();
+        }).catch(function () { alert("ارتباط با سرور برقرار نشد."); });
+      }
+    });
+
+    function load() {
+      api("/api/panel/notifications").then(function (d) {
+        if (!d.ok) return;
+        titleEl.maxLength = d.max_title;
+        bodyEl.maxLength = d.max_body;
+        pushNoteEl.textContent = d.push_available
+          ? (d.subscribers
+              ? "اعلان روی گوشیِ " + d.subscribers + " دستگاهِ مدیرِ مدرسه هم ارسال می‌شود."
+              : "مدیر مدرسه هنوز اجازه‌ی ارسال اعلان روی گوشی را تأیید نکرده؛ فعلاً اعلان فقط داخل پنل او دیده می‌شود.")
+          : "ارسال به گوشی روی این سرور فعال نیست؛ اعلان همچنان داخل پنل مدیر مدرسه دیده می‌شود.";
+
+        currentItems = d.items;
+        countEl.textContent = d.items.length + " مورد";
+        listEl.innerHTML = d.items.length
+          ? d.items.map(notifCard).join("")
+          : '<div class="empty-state">هنوز اعلانی ارسال نشده</div>';
+        if (notifState.editingId && !d.items.some(function (n) { return n.id === notifState.editingId; })) {
+          setEditing(null); // اعلانی که در حال ویرایشش بودیم از جای دیگری حذف شده
+        }
+      }).catch(function () { listEl.innerHTML = '<div class="empty-state">خطا در بارگذاری</div>'; });
+    }
+
+    formEl.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (notifState.sending) return;
+      var title = titleEl.value.trim();
+      var body = bodyEl.value.trim();
+      if (!title || !body) {
+        errEl.textContent = !title ? "عنوانِ اعلان را وارد کنید." : "متنِ اعلان را وارد کنید.";
+        errEl.hidden = false;
+        return;
+      }
+      notifState.sending = true;
+      submitEl.disabled = true;
+      var editingId = notifState.editingId;
+      var path = editingId ? "/api/panel/notifications/update" : "/api/panel/notifications/send";
+      var payload = editingId ? { id: editingId, title: title, body: body } : { title: title, body: body };
+      apiPost(path, payload).then(function (res) {
+        if (!res.ok) { errEl.textContent = res.error || "ارسال با خطا مواجه شد."; errEl.hidden = false; return; }
+        showToast(editingId ? "اعلان ویرایش شد" : "اعلان ارسال شد", { icon: "🔔" });
+        setEditing(null);
+        load();
+      }).catch(function () { errEl.textContent = "ارتباط با سرور برقرار نشد."; errEl.hidden = false; })
+        .then(function () { notifState.sending = false; submitEl.disabled = false; });
+    });
+
+    setEditing(null);
+    load();
   }
 
   // ── دستیار: فهرست گفتگوها + نمای هر گفتگو (فقط‌خواندنی) ──────────

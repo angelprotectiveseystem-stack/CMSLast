@@ -1220,3 +1220,28 @@ html[dir="rtl"] .assistant-panel:not(.show) { transform: translateX(-100%); }
   font-family: monospace; background: var(--panel-2); border: 1px solid var(--line);
   border-radius: 4px; padding: 1px 6px; color: var(--amber); margin-inline-end: 4px;
 }
+
+/* ── ارسال اعلان (پنل ادمین ← پنل مدیر مدرسه) ────────────────── */
+.notif-form { display: grid; gap: 14px; }
+.notif-field { display: grid; gap: 6px; font-size: 13px; color: var(--ivory-dim); }
+.notif-field input, .notif-field textarea {
+  width: 100%; padding: 12px 14px; background: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--radius); color: var(--ivory); font-size: 14.5px; font-family: inherit;
+  outline: none; resize: vertical; transition: border-color .15s, box-shadow .15s;
+}
+.notif-field input:focus, .notif-field textarea:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(201,154,70,.15); }
+.notif-error { font-size: 13px; color: var(--brick); }
+.notif-form-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.notif-form-actions button[type="submit"] {
+  padding: 11px 22px; background: var(--amber); color: #201607; border: none; border-radius: var(--radius);
+  font-size: 14px; font-weight: 700; cursor: pointer; transition: filter .15s, transform .1s;
+}
+.notif-form-actions button[type="submit"]:hover { filter: brightness(1.08); }
+.notif-form-actions button[type="submit"]:disabled { opacity: .6; cursor: default; }
+.notif-form-actions button[type="button"] {
+  padding: 11px 18px; background: var(--panel-2); color: var(--ivory-dim); border: 1px solid var(--line);
+  border-radius: var(--radius); font-size: 13.5px; cursor: pointer;
+}
+.notif-push-note { margin-top: -2px; }
+.notif-card { align-items: flex-start; flex-direction: column; gap: 8px; }
+.notif-card .chat-row-main { width: 100%; }
