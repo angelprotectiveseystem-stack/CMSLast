@@ -10,6 +10,10 @@ game_server.py استفاده می‌کنه) و روی سرور aiohttp خودش
 حالتِ نمایش روی دستی باشه، انتخابِ همون پنج نفر از همین‌جا نوشته می‌شه
 (این بخش قبلاً توی پنل مدیر مدرسه بود، به اینجا منتقل شده).
 
+بخشِ «ارسال اعلان» هم می‌نویسه: اعلان‌هایی که از این‌جا ساخته/ویرایش/حذف
+می‌شن، توی «زنگوله»ی پنل مدیر مدرسه دیده می‌شن و (اگه مدیر مدرسه اجازه داده
+باشه) روی گوشی‌ش هم پوش می‌شن (push_notify.py).
+
 احراز هویت: یک توکن ساده (رمز پنل از env، یا رمز پیشوا) که در
 localStorage مرورگر ذخیره می‌شه و با هر درخواست به‌صورت هدر فرستاده می‌شه.
 """
@@ -829,6 +833,117 @@ async def panel_principal_device_delete(request):
     await db.delete_principal_device_log(device_id)
     await db.log_action(_ADMIN_PANEL_LOG_ID, "principal_device_delete",
                          f"حذفِ سوابقِ دستگاهِ #{device_id} از لاگِ پنل مدیر مدرسه (از پنل ادمین)")
+    return _json({"ok": True})
+
+
+# ─── ارسال اعلان به پنل مدیر مدرسه ───────────────────────────────────
+# ساخت/ویرایش/حذفِ اعلان فقط از این‌جاست. مدیر مدرسه فقط می‌خونه و خوانده/
+# نخوانده علامت می‌زنه (principal_panel.py).
+def _admin_notif_out(r) -> dict:
+    return {
+        "id": r["id"],
+        "title": r["title"],
+        "body": r["body"],
+        "created_at": r["created_at"],
+        "updated_at": r["updated_at"],
+        "is_read": bool(r["is_read"]),
+        "read_at": r["read_at"],
+    }
+
+
+def _clean_notif_fields(body: dict):
+    """(title, body_text, error) — فاصله‌های اضافیِ دو سر گرفته می‌شه؛ خطوطِ
+    متنِ اعلان دست‌نخورده می‌مونن."""
+    title = (body.get("title") or "").strip()
+    text = (body.get("body") or "").strip()
+    if not title:
+        return None, None, "عنوانِ اعلان را وارد کنید."
+    if not text:
+        return None, None, "متنِ اعلان را وارد کنید."
+    if len(title) > db.PRINCIPAL_NOTIF_TITLE_MAX:
+        return None, None, f"عنوان نباید بیشتر از {db.PRINCIPAL_NOTIF_TITLE_MAX} نویسه باشد."
+    if len(text) > db.PRINCIPAL_NOTIF_BODY_MAX:
+        return None, None, f"متن نباید بیشتر از {db.PRINCIPAL_NOTIF_BODY_MAX} نویسه باشد."
+    return title, text, None
+
+
+@routes.get("/api/panel/notifications")
+async def panel_notifications(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    import push_notify
+    rows, subs = await asyncio.gather(
+        db.get_principal_notifications(), db.count_push_subscriptions()
+    )
+    return _json({
+        "ok": True,
+        "items": [_admin_notif_out(r) for r in (rows or [])],
+        "subscribers": subs,
+        "push_available": push_notify.is_available(),
+        "max_title": db.PRINCIPAL_NOTIF_TITLE_MAX,
+        "max_body": db.PRINCIPAL_NOTIF_BODY_MAX,
+    })
+
+
+@routes.post("/api/panel/notifications/send")
+async def panel_notification_send(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    title, text, err = _clean_notif_fields(body)
+    if err:
+        return _json({"ok": False, "error": err})
+
+    import push_notify
+    notif_id = await db.create_principal_notification(title, text)
+    await db.log_action(_ADMIN_PANEL_LOG_ID, "principal_notification_send",
+                         f"ارسالِ اعلانِ #{notif_id} به پنل مدیر مدرسه: «{title}» (از پنل ادمین)")
+    # ثبتِ اعلان اولویت داره؛ نتیجه‌ی پوش فقط برای اطلاعِ ادمینه.
+    push = await push_notify.broadcast(notif_id, title, text, push_notify.subject_for(request))
+    return _json({"ok": True, "id": notif_id, "push": push})
+
+
+@routes.post("/api/panel/notifications/update")
+async def panel_notification_update(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        notif_id = int(body.get("id"))
+    except Exception:
+        return _json({"ok": False, "error": "شناسه‌ی اعلان نامعتبر است."})
+    title, text, err = _clean_notif_fields(body)
+    if err:
+        return _json({"ok": False, "error": err})
+    if not await db.get_principal_notification(notif_id):
+        return _json({"ok": False, "error": "این اعلان دیگر وجود ندارد."})
+    await db.update_principal_notification(notif_id, title, text)
+    await db.log_action(_ADMIN_PANEL_LOG_ID, "principal_notification_edit",
+                         f"ویرایشِ اعلانِ #{notif_id} پنل مدیر مدرسه: «{title}» (از پنل ادمین)")
+    return _json({"ok": True})
+
+
+@routes.post("/api/panel/notifications/delete")
+async def panel_notification_delete(request):
+    _require_auth(request)
+    await _require_enabled(request)
+    try:
+        body = await request.json()
+        notif_id = int(body.get("id"))
+    except Exception:
+        return _json({"ok": False, "error": "شناسه‌ی اعلان نامعتبر است."})
+    existing = await db.get_principal_notification(notif_id)
+    if not existing:
+        return _json({"ok": False, "error": "این اعلان دیگر وجود ندارد."})
+    await db.delete_principal_notification(notif_id)
+    await db.log_action(_ADMIN_PANEL_LOG_ID, "principal_notification_delete",
+                         f"حذفِ اعلانِ #{notif_id} از پنل مدیر مدرسه: «{existing['title']}» (از پنل ادمین)")
     return _json({"ok": True})
 
 

@@ -508,6 +508,32 @@ async def init_db():
             created_by INTEGER,
             created_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS principal_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT,
+            created_ts INTEGER,
+            updated_at TEXT,
+            is_read INTEGER DEFAULT 0,
+            read_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_principal_notifications_ts ON principal_notifications(created_ts);
+        CREATE TABLE IF NOT EXISTS principal_push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            endpoint TEXT UNIQUE,
+            p256dh TEXT,
+            auth TEXT,
+            open_url TEXT,
+            user_agent TEXT,
+            device_id TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS push_config (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
         """)
 
         # ─── Lightweight migrations (add columns if missing) ──────────
@@ -3225,6 +3251,159 @@ async def delete_principal_device_log(device_id: str):
     ثبت می‌شه). برای پاک‌سازیِ فهرست، مثلاً بعدِ یک بازدیدِ اشتباهی/آزمایشی."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM principal_access_log WHERE device_id=?", (device_id,))
+        await db.commit()
+
+
+# ─── اعلانات پنل مدیر مدرسه ─────────────────────────────────────────
+# اعلان‌ها از «پنل ادمین ← ارسال اعلان» ساخته/ویرایش/حذف می‌شن و در «پنل مدیر
+# مدرسه ← زنگوله» دیده می‌شن. وضعیتِ خوانده/نخوانده روی خودِ ردیف نگه داشته
+# می‌شه (فقط یک مدیر مدرسه هست، پس یک پرچمِ واحد کافیه و روی همه‌ی دستگاه‌هاش
+# یکسان دیده می‌شه). created_ts (ثانیه‌ی یونیکس) کنارِ created_at (وقتِ
+# تهران) ذخیره می‌شه تا سمتِ مرورگر بدون حدس‌زدنِ منطقه‌ی زمانی فیلترِ
+# امروز/دیروز/این هفته/این ماه رو حساب کنه.
+PRINCIPAL_NOTIF_TITLE_MAX = 120
+PRINCIPAL_NOTIF_BODY_MAX = 2000
+PRINCIPAL_NOTIF_LIST_LIMIT = 1000
+
+
+async def create_principal_notification(title: str, body: str) -> int:
+    now = datetime.now(TEHRAN_TZ)
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "INSERT INTO principal_notifications(title,body,created_at,created_ts,is_read) "
+            "VALUES (?,?,?,?,0)",
+            (title, body, now.replace(tzinfo=None).isoformat(), int(now.timestamp()))
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_principal_notification(notif_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM principal_notifications WHERE id=?", (notif_id,)
+        ) as cur:
+            return await cur.fetchone()
+
+
+async def get_principal_notifications(limit: int = PRINCIPAL_NOTIF_LIST_LIMIT):
+    """جدیدترین‌ها اول. فیلتر/جستجو سمتِ مرورگر انجام می‌شه (تا بشه هر کلمه و
+    هر تاریخی رو، به هر قالبی، بدون رفت‌وبرگشتِ اضافه به Turso جستجو کرد)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM principal_notifications ORDER BY id DESC LIMIT ?", (limit,)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def get_principal_notification_summary():
+    """تعدادِ خوانده‌نشده + آخرین شناسه — برای پولینگِ سبکِ زنگوله."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT COUNT(*) AS total, "
+            "COALESCE(SUM(CASE WHEN is_read=0 THEN 1 ELSE 0 END), 0) AS unread, "
+            "COALESCE(MAX(id), 0) AS latest_id FROM principal_notifications"
+        ) as cur:
+            row = await cur.fetchone()
+    return {
+        "total": int(row["total"] or 0),
+        "unread": int(row["unread"] or 0),
+        "latest_id": int(row["latest_id"] or 0),
+    }
+
+
+async def update_principal_notification(notif_id: int, title: str, body: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE principal_notifications SET title=?, body=?, updated_at=? WHERE id=?",
+            (title, body, _now_tehran_iso(), notif_id)
+        )
+        await db.commit()
+
+
+async def delete_principal_notification(notif_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM principal_notifications WHERE id=?", (notif_id,))
+        await db.commit()
+
+
+async def set_principal_notifications_read(ids=None, read: bool = True):
+    """ids=None یعنی همه. read=False یعنی برگرداندن به «خوانده‌نشده»."""
+    flag = 1 if read else 0
+    read_at = _now_tehran_iso() if read else None
+    async with aiosqlite.connect(DB_PATH) as db:
+        if ids is None:
+            await db.execute(
+                "UPDATE principal_notifications SET is_read=?, read_at=? WHERE is_read<>?",
+                (flag, read_at, flag)
+            )
+        elif ids:
+            placeholders = ",".join("?" for _ in ids)
+            await db.execute(
+                f"UPDATE principal_notifications SET is_read=?, read_at=? "
+                f"WHERE is_read<>? AND id IN ({placeholders})",
+                [flag, read_at, flag, *ids]
+            )
+        await db.commit()
+
+
+# ─── اشتراک‌های Web Push (دستگاه‌هایی که اجازه‌ی اعلان دادن) ─────────────
+async def save_push_subscription(endpoint: str, p256dh: str, auth: str,
+                                  open_url: str, user_agent: str, device_id: str):
+    now = _now_tehran_iso()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO principal_push_subscriptions"
+            "(endpoint,p256dh,auth,open_url,user_agent,device_id,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth, "
+            "open_url=excluded.open_url, user_agent=excluded.user_agent, "
+            "device_id=excluded.device_id, updated_at=excluded.updated_at",
+            (endpoint, p256dh, auth, open_url, user_agent, device_id, now, now)
+        )
+        await db.commit()
+
+
+async def get_push_subscriptions():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM principal_push_subscriptions") as cur:
+            return await cur.fetchall()
+
+
+async def count_push_subscriptions() -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT COUNT(*) AS c FROM principal_push_subscriptions") as cur:
+            row = await cur.fetchone()
+    return int(row["c"] or 0) if row else 0
+
+
+async def delete_push_subscription(endpoint: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM principal_push_subscriptions WHERE endpoint=?", (endpoint,))
+        await db.commit()
+
+
+# کلیدهای VAPID توی جدولِ جدا نگه داشته می‌شن (نه system_settings)، چون
+# تبِ «تنظیمات» پنل ادمین همه‌ی ردیف‌های system_settings رو نمایش می‌ده و
+# کلیدِ خصوصی نباید اونجا دیده بشه.
+async def get_push_config(key: str, default: str = "") -> str:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT value FROM push_config WHERE key=?", (key,)) as cur:
+            row = await cur.fetchone()
+    return row["value"] if row else default
+
+
+async def set_push_config_if_absent(key: str, value: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO push_config(key, value) VALUES (?, ?)", (key, value)
+        )
         await db.commit()
 
 

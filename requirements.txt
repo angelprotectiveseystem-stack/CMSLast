@@ -10,3 +10,6 @@ libsql-client
 httpx[http2]>=0.24.0
 aiohttp>=3.9.0
 chess>=1.10.0
+
+# اعلان‌های پوش به گوشیِ مدیر مدرسه (push_notify.py)؛ cryptography هم همراهش نصب می‌شه
+pywebpush>=2.0.0

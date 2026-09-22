@@ -1,7 +1,7 @@
 """
 principal_panel.py — پنل فقط‌خواندنیِ مدیر مدرسه.
 
-این ماژول جز دو مورد هیچ نوشتنی روی دیتابیس نداره (بقیه‌ی کارش فقط SELECT ـه):
+این ماژول جز چند مورد هیچ نوشتنی روی دیتابیس نداره (بقیه‌ی کارش فقط SELECT ـه):
 ۱) گفتگوهای دستیارِ هوشمند توی جدول‌های ai_chat_* ذخیره می‌شن تا مدیر ارشد از
 «پنل ادمین ← دستیار» ببینتشون. اثری از این تاریخچه توی خودِ پنل مدیر مدرسه نیست.
 ۲) هر بارگذاریِ صفحه (یعنی هر «ورود») توی principal_access_log ثبت می‌شه —
@@ -9,6 +9,9 @@ principal_panel.py — پنل فقط‌خواندنیِ مدیر مدرسه.
 «پنل ادمین ← دستگاه‌های مدیر مدرسه» ببینتش و بتونه یک دستگاهِ خاص رو بلاک/آنبلاک
 کنه. این لاگ‌نویسی در پس‌زمینه انجام می‌شه (fire-and-forget) و هیچ‌وقت باعثِ
 معطلیِ بارگذاریِ صفحه برای مدیر مدرسه نمی‌شه.
+۳) اعلانات (زنگولهٔ بالای صفحه): فقط وضعیتِ «خوانده/خوانده‌نشده»ی اعلان‌ها و
+اشتراکِ Web Push ِ دستگاهِ خودِ مدیر مدرسه نوشته می‌شه. خودِ اعلان‌ها (ساخت/
+ویرایش/حذف) فقط از «پنل ادمین ← ارسال اعلان» انجام می‌شن، نه از این پنل.
 مستقل از منطق ربات
 و از admin_panel.py هست، ولی درست مثل همون، روی همون اپلیکیشن aiohttp ای
 که game_server.py می‌سازه سوار میشه (نه یک سرور جدا).
@@ -30,7 +33,10 @@ import logging
 import os
 import re
 import asyncio
+import base64
+import html as html_lib
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 import httpx
 from aiohttp import web
@@ -294,6 +300,8 @@ async def _render_index(request):
     # کلید همون‌طور که هست (حتی اگه خالی/غلط باشه) توی صفحه جاگذاری میشه؛
     # درخواست‌های API خودشون کلید غلط رو رد می‌کنن.
     html = html.replace("{{KEY}}", request.query.get("k", ""))
+    # نسخه‌ی امن برای قرارگرفتن داخلِ href (لینکِ manifest): URL-encode + escape
+    html = html.replace("{{KEYQ}}", html_lib.escape(quote(request.query.get("k", ""), safe=""), quote=True))
     resp = web.Response(text=html, content_type="text/html", charset="utf-8")
     resp.headers["Cache-Control"] = "no-cache, must-revalidate"
     return resp
@@ -1076,6 +1084,172 @@ async def principal_assistant(request):
 
     await _principal_chat_log(sid, "ai" if reply_ok else "system", reply)
     return _json({"ok": True, "reply": reply, "session_id": sid})
+
+
+# ─── اعلانات (زنگوله) ────────────────────────────────────────────
+# ساخت/ویرایش/حذفِ اعلان فقط از پنل ادمینه؛ این‌جا فقط خوندنِ فهرست و
+# علامت‌گذاریِ خوانده/خوانده‌نشده هست.
+def _notif_out(r) -> dict:
+    return {
+        "id": r["id"],
+        "title": r["title"],
+        "body": r["body"],
+        "created_at": r["created_at"],
+        "created_ts": r["created_ts"],
+        "updated_at": r["updated_at"],
+        "is_read": bool(r["is_read"]),
+        "read_at": r["read_at"],
+    }
+
+
+async def _guard(request):
+    _require_auth(request)
+    await _require_not_blocked(request)
+    await _require_enabled(request)
+
+
+@routes.get("/api/principal/notifications")
+async def principal_notifications(request):
+    await _guard(request)
+    rows, summary = await asyncio.gather(
+        db.get_principal_notifications(), db.get_principal_notification_summary()
+    )
+    return _json({
+        "ok": True,
+        "items": [_notif_out(r) for r in (rows or [])],
+        "unread": summary["unread"],
+        "latest_id": summary["latest_id"],
+    })
+
+
+@routes.get("/api/principal/notifications/summary")
+async def principal_notifications_summary(request):
+    await _guard(request)
+    summary = await db.get_principal_notification_summary()
+    return _json({"ok": True, **summary})
+
+
+@routes.post("/api/principal/notifications/read")
+async def principal_notifications_read(request):
+    """body: {"ids": [1,2]} یا {"all": true} — و اختیاری {"read": false} برای
+    برگرداندن به «خوانده‌نشده»."""
+    await _guard(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    read = body.get("read", True) is not False
+    if body.get("all") is True:
+        await db.set_principal_notifications_read(None, read)
+    else:
+        try:
+            ids = sorted({int(i) for i in (body.get("ids") or [])})[:500]
+        except Exception:
+            return _json({"ok": False, "error": "invalid_input"})
+        if not ids:
+            return _json({"ok": False, "error": "invalid_input"})
+        await db.set_principal_notifications_read(ids, read)
+    summary = await db.get_principal_notification_summary()
+    return _json({"ok": True, **summary})
+
+
+# ─── Web Push: کلیدِ عمومی + ثبتِ اشتراکِ دستگاه ─────────────────────
+@routes.get("/api/principal/push/key")
+async def principal_push_key(request):
+    await _guard(request)
+    import push_notify
+    if not push_notify.is_available():
+        return _json({"ok": True, "available": False})
+    return _json({"ok": True, "available": True, "public_key": await push_notify.get_public_key()})
+
+
+@routes.post("/api/principal/push/subscribe")
+async def principal_push_subscribe(request):
+    await _guard(request)
+    try:
+        body = await request.json()
+        sub = body.get("subscription") or {}
+        endpoint = str(sub.get("endpoint") or "")
+        keys = sub.get("keys") or {}
+        p256dh = str(keys.get("p256dh") or "")
+        auth = str(keys.get("auth") or "")
+        open_url = str(body.get("url") or "/principal")
+    except Exception:
+        return _json({"ok": False, "error": "invalid_input"})
+    if (not endpoint.startswith("https://") or len(endpoint) > 1000
+            or not p256dh or not auth or len(p256dh) > 200 or len(auth) > 100):
+        return _json({"ok": False, "error": "invalid_subscription"})
+    # آدرسی که با کلیک روی اعلان باز می‌شه فقط می‌تونه خودِ همین پنل باشه.
+    if not open_url.startswith("/principal") or len(open_url) > 500:
+        open_url = "/principal"
+
+    ip = _client_ip(request)
+    ua = request.headers.get("User-Agent", "")
+    await db.save_push_subscription(endpoint, p256dh, auth, open_url, ua[:300], _device_id(ip, ua))
+    return _json({"ok": True})
+
+
+# ─── فایل‌های PWA/Service Worker ─────────────────────────────────────
+# service worker باید از مسیری سرو بشه که scope ِ «/principal» رو پوشش بده؛
+# فایل‌های /principal-assets/ این اجازه رو ندارن، پس مسیرِ جدا داره.
+@routes.get("/principal-sw.js")
+async def principal_service_worker(request):
+    resp = web.FileResponse(os.path.join(PANEL_DIR, "sw.js"))
+    resp.headers["Content-Type"] = "application/javascript; charset=utf-8"
+    resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    resp.headers["Service-Worker-Allowed"] = "/principal"
+    return resp
+
+
+_icon_bytes = None
+
+
+def _logo_bytes():
+    """لوگوی پروژه (webp) داخلِ style.css به‌صورت data-URI هست؛ همون رو برای
+    آیکونِ اعلان/برنامه سرو می‌کنیم تا فایلِ تصویریِ تازه‌ای لازم نباشه."""
+    global _icon_bytes
+    if _icon_bytes is None:
+        try:
+            with open(os.path.join(PANEL_DIR, "style.css"), "r", encoding="utf-8") as f:
+                m = re.search(r"data:image/webp;base64,([A-Za-z0-9+/=]+)", f.read())
+            _icon_bytes = base64.b64decode(m.group(1)) if m else b""
+        except Exception:
+            _icon_bytes = b""
+    return _icon_bytes
+
+
+@routes.get("/principal-icon.webp")
+async def principal_icon(request):
+    data = _logo_bytes()
+    if not data:
+        raise web.HTTPNotFound()
+    return web.Response(body=data, content_type="image/webp",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
+@routes.get("/principal-manifest.webmanifest")
+async def principal_manifest(request):
+    """برای نصبِ پنل روی صفحه‌ی اصلیِ گوشی (روی آیفون، اعلانِ وب فقط برای
+    برنامه‌ی نصب‌شده کار می‌کنه). کلید در start_url می‌آد تا برنامه‌ی نصب‌شده
+    مستقیم باز بشه."""
+    if not _authed(request):
+        raise web.HTTPUnauthorized()
+    key = quote(request.query.get("k", ""), safe="")
+    data = {
+        "name": "پنل مدیر مدرسه",
+        "short_name": "پنل مدیر",
+        "lang": "fa",
+        "dir": "rtl",
+        "start_url": f"/principal?k={key}",
+        "scope": "/principal",
+        "display": "standalone",
+        "background_color": "#130a0b",
+        "theme_color": "#a3121b",
+        "icons": [{"src": "/principal-icon.webp", "sizes": "144x144", "type": "image/webp", "purpose": "any"}],
+    }
+    return web.Response(text=json.dumps(data, ensure_ascii=False),
+                        content_type="application/manifest+json", charset="utf-8",
+                        headers={"Cache-Control": "no-cache"})
 
 
 def register_principal_routes(app: web.Application):
