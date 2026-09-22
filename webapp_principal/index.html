@@ -253,6 +253,23 @@
     </div>
     <div id="nt-list" class="nt-list"></div>
   </section>
+
+  <!-- ── نمایِ تمام‌صفحهٔ یک اعلان ────────────────────────── -->
+  <div id="nt-detail" class="nt-detail" aria-hidden="true">
+    <div class="nt-detail-inner">
+      <header class="nt-detail-head">
+        <button class="icon-btn" type="button" id="nt-detail-close" aria-label="بستن"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button>
+        <span id="nt-detail-time" class="nt-detail-time"></span>
+      </header>
+      <div class="nt-detail-scroll">
+        <h2 id="nt-detail-title" class="nt-detail-title"></h2>
+        <p id="nt-detail-text" class="nt-detail-text"></p>
+      </div>
+      <div class="nt-detail-actions">
+        <button type="button" id="nt-detail-toggle"></button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>window.PRINCIPAL_KEY = "{{KEY}}";</script>

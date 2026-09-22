@@ -828,6 +828,26 @@ body.nt-open { overflow: hidden; }
 .nt-item.is-open .nt-item-actions { display: block; }
 .nt-item-actions button { padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--gold-ink); background: var(--gold-soft); }
 
+/* نمایِ تمام‌صفحهٔ یک اعلان (با کلیک روی هر اعلان باز می‌شود) */
+.nt-detail {
+  position: absolute; inset: 0; z-index: 5; visibility: hidden; transition: visibility 0s linear .3s;
+  background: var(--surface); border-radius: inherit;
+}
+.nt-detail.open { visibility: visible; transition-delay: 0s; }
+.nt-detail-inner {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  transform: translateY(18px); opacity: 0; transition: transform .3s var(--ease-out), opacity .25s ease;
+}
+.nt-detail.open .nt-detail-inner { transform: none; opacity: 1; }
+.nt-detail-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 12px 10px; border-bottom: 1px solid var(--line); }
+.nt-detail-time { flex: 1; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nt-detail-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 18px calc(20px + var(--safe-b)); }
+.nt-detail-title { font-size: 18.5px; font-weight: 800; line-height: 1.6; color: var(--ink); margin-bottom: 12px; }
+.nt-detail-text { font-size: 14.5px; line-height: 2.1; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.nt-detail-actions { flex: none; padding: 10px 16px calc(10px + var(--safe-b)); border-top: 1px solid var(--line); }
+.nt-detail-actions button { width: 100%; padding: 12px; border-radius: 14px; font-size: 13.5px; font-weight: 700; color: var(--gold-ink); background: var(--gold-soft); }
+.nt-detail-actions button:active { transform: scale(.98); }
+
 .nt-empty { display: grid; justify-items: center; gap: 6px; padding: 40px 24px; text-align: center; }
 .nt-empty-ic { display: grid; place-items: center; width: 56px; height: 56px; margin-bottom: 4px; border-radius: 20px; color: var(--gold); background: var(--gold-soft); }
 .nt-empty-ic .ic { width: 30px; height: 30px; }

@@ -203,8 +203,15 @@
     sort: document.getElementById("nt-sort"),
     readAll: document.getElementById("nt-readall"),
     banner: document.getElementById("nt-banner"),
+    detail: document.getElementById("nt-detail"),
+    detailClose: document.getElementById("nt-detail-close"),
+    detailTime: document.getElementById("nt-detail-time"),
+    detailTitle: document.getElementById("nt-detail-title"),
+    detailText: document.getElementById("nt-detail-text"),
+    detailToggle: document.getElementById("nt-detail-toggle"),
   };
   if (!el.nt || !el.bell) return;
+  var detailId = null;
 
   var state = {
     items: [], loaded: false, unread: 0, total: 0, latestId: null,
@@ -343,9 +350,8 @@
   }
 
   function itemHTML(it, nowMs) {
-    var open = state.expanded.has(it.id);
-    return '<article class="nt-item' + (it.is_read ? "" : " is-unread") + (open ? " is-open" : "") + '" data-id="' + it.id + '">' +
-      '<button class="nt-item-main" type="button" aria-expanded="' + open + '">' +
+    return '<article class="nt-item' + (it.is_read ? "" : " is-unread") + '" data-id="' + it.id + '">' +
+      '<button class="nt-item-main" type="button">' +
         '<span class="nt-dot" aria-hidden="true"></span>' +
         '<span class="nt-item-txt">' +
           '<span class="nt-item-title">' + (it.is_read ? "" : '<span class="sr-only">خوانده‌نشده: </span>') + esc(it.title) + '</span>' +
@@ -355,10 +361,35 @@
         '</span>' +
         '<svg class="ic nt-chev" aria-hidden="true"><use href="#i-chevron"/></svg>' +
       '</button>' +
-      '<div class="nt-item-actions">' +
-        '<button type="button" data-act="toggle-read">' + (it.is_read ? "علامت به‌عنوان خوانده‌نشده" : "علامت به‌عنوان خوانده‌شده") + '</button>' +
-      '</div>' +
     '</article>';
+  }
+
+  // ── نمایِ تمام‌صفحهٔ یک اعلان ──────────────────────────────
+  function paintDetailToggle(it) {
+    el.detailToggle.textContent = it.is_read ? "علامت به‌عنوان خوانده‌نشده" : "علامت به‌عنوان خوانده‌شده";
+  }
+  function openDetail(id) {
+    var it = state.items.filter(function (x) { return x.id === id; })[0];
+    if (!it) return;
+    detailId = id;
+    el.detailTitle.textContent = it.title;
+    el.detailText.textContent = it.body;
+    el.detailTime.textContent = timeLabel(it, Date.now()) + (it.updated_at ? " · ویرایش‌شده" : "");
+    paintDetailToggle(it);
+    el.detail.classList.add("open");
+    el.detail.setAttribute("aria-hidden", "false");
+    if (!it.is_read) {
+      state.keep.add(id);       // در فیلترِ «خوانده‌نشده» همان‌جا بماند
+      markRead([id], true);
+      paintDetailToggle(it);
+      paintSub();
+      render();
+    }
+  }
+  function closeDetail() {
+    detailId = null;
+    el.detail.classList.remove("open");
+    el.detail.setAttribute("aria-hidden", "true");
   }
 
   function filtersActive() {
@@ -414,6 +445,7 @@
   }
   function closeSheet() {
     if (!state.open) return;
+    closeDetail();
     state.open = false;
     state.keep.clear();
     el.nt.classList.remove("open");
@@ -424,7 +456,11 @@
 
   el.bell.addEventListener("click", function () { state.open ? closeSheet() : openSheet(); });
   el.nt.querySelectorAll("[data-nt-close]").forEach(function (b) { b.addEventListener("click", closeSheet); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && state.open) closeSheet(); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    if (el.detail.classList.contains("open")) { closeDetail(); return; }
+    if (state.open) closeSheet();
+  });
 
   el.status.addEventListener("click", function (e) {
     var b = e.target.closest("button[data-status]");
@@ -469,32 +505,26 @@
     var card = e.target.closest(".nt-item");
     if (!card) return;
     var id = +card.getAttribute("data-id");
-    var it = state.items.filter(function (x) { return x.id === id; })[0];
-    if (!it) return;
 
-    if (e.target.closest('[data-act="toggle-read"]')) {
-      var next = !it.is_read;
-      state.keep.add(id);
-      markRead([id], next).then(function () { if (state.open) render(); });
-      render();
-      return;
-    }
     if (e.target.closest(".nt-item-main")) {
-      var willOpen = !state.expanded.has(id);
-      if (willOpen) state.expanded.add(id); else state.expanded.delete(id);
-      card.classList.toggle("is-open", willOpen);
-      card.querySelector(".nt-item-main").setAttribute("aria-expanded", willOpen);
-      if (willOpen && !it.is_read) {
-        state.keep.add(id);            // در فیلترِ «خوانده‌نشده» همان‌جا بماند
-        card.classList.remove("is-unread");
-        var srOnly = card.querySelector(".sr-only");
-        if (srOnly) srOnly.remove();
-        card.querySelector('[data-act="toggle-read"]').textContent = "علامت به‌عنوان خوانده‌نشده";
-        markRead([id], true);
-        paintSub();
-      }
+      openDetail(id);
     }
   });
+
+  el.detail.addEventListener("click", function (e) {
+    if (e.target.closest("#nt-detail-close")) { closeDetail(); return; }
+    if (e.target.closest("#nt-detail-toggle")) {
+      if (detailId == null) return;
+      var it = state.items.filter(function (x) { return x.id === detailId; })[0];
+      if (!it) return;
+      var next = !it.is_read;
+      state.keep.add(detailId);
+      markRead([detailId], next).then(function () { if (state.open) render(); });
+      paintDetailToggle(it);
+      if (state.open) render();
+    }
+  });
+
 
   // ═════════════ ۳) اجازهٔ اعلان + Web Push ═════════════
   var ua = navigator.userAgent || "";
