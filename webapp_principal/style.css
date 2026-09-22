@@ -740,9 +740,11 @@ body.ready .fab:active { transform: scale(.9); transition-delay: 0s; transition-
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 body.nt-open { overflow: hidden; }
 
-.nt { position: fixed; inset: 0; z-index: 62; visibility: hidden; transition: visibility 0s linear .45s; }
+.nt { position: fixed; inset: 0; z-index: 62; visibility: hidden; transition: visibility 0s linear .45s; contain: layout style; }
 .nt.open { visibility: visible; transition-delay: 0s; }
-.nt-backdrop { position: absolute; inset: 0; background: rgba(24, 5, 8, .55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); opacity: 0; transition: opacity .4s ease; }
+/* بدون backdrop-filter: بلور روی گوشی‌های ضعیف/قدیمی هر فریم را سنگین می‌کند؛
+   با کمی افزایشِ کدورت، همان حس را بدون افتِ FPS می‌دهد. */
+.nt-backdrop { position: absolute; inset: 0; background: rgba(20, 4, 7, .68); opacity: 0; transition: opacity .3s ease; }
 .nt.open .nt-backdrop { opacity: 1; }
 .nt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; margin-inline: auto; width: min(100%, 560px);
@@ -750,9 +752,10 @@ body.nt-open { overflow: hidden; }
   display: flex; flex-direction: column; overflow: hidden;
   border-radius: 30px 30px 0 0; background: var(--surface); border: 1px solid var(--line); border-bottom: 0;
   box-shadow: 0 -20px 50px -20px rgba(0, 0, 0, .55);
-  transform: translateY(104%); transition: transform .5s var(--ease-out);
+  transform: translateY(104%); transition: transform .38s var(--ease-out);
+  contain: layout paint style;
 }
-.nt.open .nt-panel { transform: none; }
+.nt.open .nt-panel { transform: none; will-change: transform; }
 
 .nt-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; border-bottom: 1px solid var(--line); }
 .nt-head .seal { flex: none; width: 46px; height: 46px; border: 0; color: #6f0a11; background: radial-gradient(circle at 30% 24%, #fff0bd, #e8b84f 50%, #b07a1a); }
@@ -797,8 +800,13 @@ body.nt-open { overflow: hidden; }
 .nt-sort { padding: 4px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--gold-ink); background: var(--gold-soft); }
 
 /* فهرست */
-.nt-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 10px; padding: 4px 16px calc(18px + var(--safe-b)); }
-.nt-item { position: relative; overflow: hidden; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--line); transition: border-color .25s, background .25s; }
+.nt-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 10px; padding: 4px 16px calc(18px + var(--safe-b)); contain: content; }
+.nt-item {
+  position: relative; overflow: hidden; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--line);
+  transition: border-color .25s, background .25s;
+  /* کارت‌های بیرون از دیدِ اسکرول لِی‌اوت/رنگ‌آمیزی نمی‌شوند؛ روی گوشیِ ضعیف با فهرستِ بلند، اسکرول بسیار روان‌تر می‌شود */
+  content-visibility: auto; contain-intrinsic-size: auto 92px;
+}
 .nt-item.is-unread { background: var(--surface); border-color: color-mix(in srgb, var(--crimson) 38%, var(--line)); box-shadow: var(--shadow); }
 .nt-item.is-unread::before { content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; width: 4px; background: linear-gradient(180deg, var(--crimson), var(--gold)); }
 .nt-item-main { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px; text-align: start; }
@@ -832,9 +840,9 @@ body.nt-open { overflow: hidden; }
   position: fixed; z-index: 70; top: calc(12px + env(safe-area-inset-top, 0px)); left: 0; right: 0; margin-inline: auto;
   width: min(calc(100% - 32px), 420px); display: flex; align-items: center; gap: 10px; padding: 12px 16px;
   border-radius: 18px; text-align: start; font-size: 13.5px; font-weight: 600; color: var(--ink);
-  background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  background: var(--glass);
   border: 1px solid var(--glass-line); box-shadow: 0 18px 40px -18px rgba(30, 10, 10, .5);
-  transform: translateY(-160%); opacity: 0; pointer-events: none; transition: transform .5s var(--spring), opacity .3s;
+  transform: translateY(-160%); opacity: 0; pointer-events: none; transition: transform .4s var(--spring), opacity .25s;
 }
 .nt-toast.show { transform: none; opacity: 1; pointer-events: auto; }
 .nt-toast .ic { width: 22px; height: 22px; color: var(--accent); }
