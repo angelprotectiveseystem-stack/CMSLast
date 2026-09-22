@@ -904,15 +904,25 @@ async def _call_assistant_gemini(contents: list, tools=None, model_chain=None):
     async with httpx.AsyncClient(timeout=ASSISTANT_REQUEST_TIMEOUT) as client:
         for model in chain:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            is_gen3 = model.startswith("gemini-3")
+            generation_config = {
+                "maxOutputTokens": ASSISTANT_MAX_OUTPUT_TOKENS,
+                "thinkingConfig": (
+                    {"thinkingLevel": "minimal"} if is_gen3 else {"thinkingBudget": 256}
+                ),
+            }
+            # نسل ۳ جمینای (gemini-3.5-flash-lite / gemini-3.6-flash) دیگه پارامترِ
+            # temperature رو قبول نمی‌کنه و به‌جای نادیده‌گرفتنِ ساده‌اش، مستقیماً
+            # خطای 400 INVALID_ARGUMENT برمی‌گردونه (طبق مستنداتِ به‌روزشده‌ی گوگل،
+            # ۲۰۲۶-۰۹-۲۱). چون این پارامتر همیشه توی payload بود، هر بار که زنجیره
+            # به این دو مدل می‌رسید (مثلاً چون gemini-2.5-flash-lite از کار افتاده)
+            # همون یک درخواست هم با 400 رد می‌شد — یعنی هر سه مدلِ زنجیره شکست
+            # می‌خوردن و دستیار همیشه پیامِ «امکان پاسخ‌گویی وجود ندارد» رو نشون می‌داد.
+            if not is_gen3:
+                generation_config["temperature"] = 0.4
             payload = {
                 "contents": contents,
-                "generationConfig": {
-                    "maxOutputTokens": ASSISTANT_MAX_OUTPUT_TOKENS,
-                    "temperature": 0.4,
-                    "thinkingConfig": (
-                        {"thinkingLevel": "minimal"} if model.startswith("gemini-3") else {"thinkingBudget": 256}
-                    ),
-                },
+                "generationConfig": generation_config,
             }
             if tools:
                 payload["tools"] = tools

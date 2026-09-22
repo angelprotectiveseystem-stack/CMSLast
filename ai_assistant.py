@@ -463,16 +463,17 @@ async def _call_gemini(contents: list, tools, tool_config=None):
         for i, model in enumerate(MODEL_CHAIN):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
             is_last_model = (i == len(MODEL_CHAIN) - 1)
-            payload = {
-                "contents": contents,
-                "generationConfig": {
-                    "thinkingConfig": _thinking_config_for(model),
-                    "maxOutputTokens": MAX_OUTPUT_TOKENS,
-                    # دمای پایین‌تر یعنی تصمیم «تابع صدا بزنم یا نه» رو با ثبات بیشتری
-                    # می‌گیره؛ برای یه دستیار اجرایی مهم‌تر از تنوع/خلاقیتِ لحنه.
-                    "temperature": 0.3,
-                },
+            generation_config = {
+                "thinkingConfig": _thinking_config_for(model),
+                "maxOutputTokens": MAX_OUTPUT_TOKENS,
             }
+            # نسل ۳ جمینای (gemini-3.5-flash-lite / gemini-3.6-flash) دیگه temperature
+            # رو قبول نمی‌کنه — از حالتِ «نادیده‌گرفتنِ ساده» به خطای 400 INVALID_ARGUMENT
+            # تغییر کرده (مستنداتِ گوگل، ۲۰۲۶-۰۹-۲۱). برای نسل ۲.۵ همچنان می‌فرستیمش
+            # چون دمای پایین‌تر یعنی تصمیم «تابع صدا بزنم یا نه» با ثبات بیشتری گرفته می‌شه.
+            if not model.startswith("gemini-3"):
+                generation_config["temperature"] = 0.3
+            payload = {"contents": contents, "generationConfig": generation_config}
             if tools:
                 payload["tools"] = tools
                 if tool_config:
