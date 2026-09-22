@@ -42,7 +42,12 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 # بنچمارک‌های عمومی تقریباً ۲۰-۳۰٪ سریع‌تر از 3.6 Flash در اولین توکن) و برخلاف نسل قدیمی
 # 2.5-flash-lite که تشخیص «الان باید تابع صدا بزنم یا نه» توش ناپایدار بود، این نسل جدیدتره.
 # اگه مدل اصلی موقتاً شلوغ بود (503) یا از رده خارج شد (404)، این‌ها رو به‌ترتیب امتحان می‌کنیم.
-FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-2.5-flash-lite"]
+# نکته (۲۰۲۶-۰۹): gemini-2.5-flash-lite که قبلاً اینجا بود با ۴۰۴ رد می‌شه (گوگل انگار
+# حذفش کرده) — دقیقاً مثل ماجرای gemini-2.5-flash که بالاتر توضیح داده شده. به‌جاش از
+# gemini-3.5-flash-lite به‌عنوان fallback دوم استفاده می‌کنیم (همون که principal_panel.py
+# هم استفاده می‌کنه). اگه باز هم مدلی 404 داد، لیست مدل‌های فعال رو با GET به
+# https://generativelanguage.googleapis.com/v1beta/models (با همون API key) بگیر.
+FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
 if GEMINI_MODEL in FALLBACK_MODELS:
     FALLBACK_MODELS.remove(GEMINI_MODEL)
 MODEL_CHAIN = [GEMINI_MODEL] + FALLBACK_MODELS

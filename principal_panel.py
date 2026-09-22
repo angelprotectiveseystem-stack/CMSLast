@@ -629,9 +629,13 @@ async def principal_trends(request):
 # رتبه‌بندیِ «کدوم دانش‌آموز بهتره» نداره؛ اون فقط از تبِ «خانه» قابل دیدنه.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
-ASSISTANT_MODEL_CHAIN = [GEMINI_MODEL, "gemini-3.6-flash", "gemini-2.5-flash-lite"]
+ASSISTANT_MODEL_CHAIN = [GEMINI_MODEL, "gemini-3.6-flash", "gemini-3.5-flash-lite"]
 ASSISTANT_MODEL_CHAIN = list(dict.fromkeys(ASSISTANT_MODEL_CHAIN))  # حذف تکراری با حفظ ترتیب
-ASSISTANT_REQUEST_TIMEOUT = 12
+# نکته (۲۰۲۶-۰۹): gemini-2.5-flash-lite قبلاً اینجا آخرین fallback بود، ولی الان با ۴۰۴
+# رد می‌شه (گوگل انگار حذفش کرده) — یعنی safety net عملاً همیشه شکست می‌خورد. با
+# gemini-3.5-flash-lite جایگزین شد. اگه باز هم مدلی 404 داد، لیست مدل‌های فعال رو با
+# GET به https://generativelanguage.googleapis.com/v1beta/models (با همون API key) بگیر.
+ASSISTANT_REQUEST_TIMEOUT = 20  # قبلاً ۱۲ بود؛ کوتاه بودنش باعث ReadTimeout مکرر روی gemini-3.6-flash می‌شد
 # خطاهای گذرای Gemini (شلوغیِ سرور / محدودیتِ نرخ) معمولاً با یک تلاشِ مجدد و کمی صبر
 # برطرف می‌شن؛ قبلاً همون لحظه می‌رفتیم سراغِ مدلِ بعدی یا پیامِ خطا می‌دادیم.
 ASSISTANT_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
