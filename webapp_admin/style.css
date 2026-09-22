@@ -111,9 +111,14 @@ a { color: var(--amber); }
 
 ::selection { background: var(--amber); color: var(--ink); }
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--walnut); border-radius: 8px; }
+/* نوار اسکرول در همه‌جا حذف شده (اسکرول همچنان کار می‌کند).
+   قبلاً یک اسکرول‌بارِ سفارشیِ ضخیم (کپسولِ گردِ ۱۰px) نمایش داده می‌شد که
+   فضای عرضی رزرو می‌کرد؛ چون این فضا بسته به اینکه صفحه نیاز به اسکرول
+   داشت یا نه ظاهر/محو می‌شد، کل پنل هر بار چند پیکسل به کنار پرت می‌شد.
+   با حذفِ کامل، هم آن کپسول از بین می‌رود و هم آن جابه‌جاییِ افقی. */
+html { scrollbar-width: none; -ms-overflow-style: none; }
+* { scrollbar-width: none; }
+::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
 /* ── صفحه ورود ─────────────────────────────────────────── */
 #login-screen {
@@ -479,7 +484,10 @@ html[data-theme="light"] #theme-toggle-btn .ic-theme-light { display: block; }
 .tab-btn {
   background: var(--panel-2); border: 1px solid var(--line); color: var(--ivory-dim);
   border-radius: 999px; padding: 6px 16px; font-size: 12.8px; cursor: pointer;
-  transition: all .12s;
+  /* «transition: all» باعث می‌شد مرورگر روی هر ویژگیِ قابل‌انیمیشن (حتی
+     آن‌هایی که تغییر نمی‌کنند) گوش بدهد؛ روی گوشیِ ضعیف با چند ده دکمهٔ
+     تب در صفحه، همین باعثِ لَگِ محسوس روی لمس می‌شد. */
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 .tab-btn:hover { color: var(--ivory); }
 .tab-btn.active { background: var(--amber); border-color: var(--amber); color: #201607; font-weight: 700; }
@@ -570,14 +578,16 @@ body.no-scroll { overflow: hidden; }
   bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   z-index: 20;
   justify-content: space-around; align-items: center;
-  background: rgba(23,33,27,0.86);
+  /* قبلاً blur(18px)+saturate بود؛ چون این نوار ثابت روی صفحه می‌ماند و
+     زیرش دائم در حالِ اسکرول/تغییر است، مرورگر مجبور بود هر فریم دوباره
+     بلور را حساب کند — دقیقاً همان‌جایی که لمسِ دکمه‌ها کند حس می‌شد.
+     با کدورتِ بیشتر و بدون blur، همان ظاهر را با هزینهٔ GPU خیلی کمتر می‌دهد. */
+  background: rgba(23,33,27,0.94);
   border: 1px solid rgba(236,227,210,0.08);
   border-radius: 999px;
   padding: 7px 8px;
   box-shadow: 0 10px 28px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.28),
               inset 0 1px 0 rgba(255,255,255,.03);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
 /* پیل کهربایی که زیر آیتم فعال می‌لغزد؛ موقعیت/عرضش را app.js با
    transform تنظیم می‌کند تا انیمیشن روی GPU و روان باشد. */
