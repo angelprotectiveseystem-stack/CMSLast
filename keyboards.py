@@ -269,12 +269,18 @@ def kb_player_select(players, prefix, back="matches", page=0, page_size=8, nav_p
     rows.append(kb_back_row(back))
     return InlineKeyboardMarkup(rows)
 
-def kb_player_actions(player_id, role="pishva", status="active"):
+def kb_player_actions(player_id, role="pishva", status="active", is_elite=False, is_special=False):
     """FIX: قبلاً دکمه‌های اخراج/تعلیق/احیا بدون توجه به وضعیت فعلیِ بازیکن
     همیشه با هم نشون داده می‌شدن — یعنی حتی بعد از اخراج یه بازیکن، دوباره
     که پنلش رو باز می‌کردی دکمه‌ی «🚫 اخراج» جلوت بود (روی بازیکنی که از قبل
     اخراج شده!). حالا: اگه بازیکن فعاله، اخراج/تعلیق نشون داده می‌شه؛ اگه
-    از قبل اخراج/تعلیق/حذف شده، به‌جاش فقط دکمه‌ی «🔄 احیا» نشون داده می‌شه."""
+    از قبل اخراج/تعلیق/حذف شده، به‌جاش فقط دکمه‌ی «🔄 احیا» نشون داده می‌شه.
+
+    FIX۲: همین مشکل برای دکمه‌های برتر/ویژه هم بود — چون وضعیتِ فعلیِ
+    بازیکن (is_elite/is_special) به این تابع پاس داده نمی‌شد، دکمه همیشه
+    «ثبت» نشون داده می‌شد، حتی وقتی بازیکن از قبل برتر/ویژه بود؛ کاربر باید
+    حدس می‌زد که زدنِ دوباره‌ی همون دکمه یعنی حذف. حالا اگه از قبل ثبت شده،
+    دکمه‌ی «❌ حذف از …» نشون داده می‌شه."""
     is_active = status == "active"
     action_buttons = [
         InlineKeyboardButton("✏️ ویرایش نام", callback_data=f"player_editname_{player_id}", style="primary"),
@@ -287,11 +293,17 @@ def kb_player_actions(player_id, role="pishva", status="active"):
     else:
         action_buttons.append(InlineKeyboardButton("🔄 احیا", callback_data=f"player_revive_{player_id}", style="success"))
     action_buttons.append(InlineKeyboardButton("📝 یادداشت", callback_data=f"player_note_{player_id}", style="primary"))
-    action_buttons.append(InlineKeyboardButton("🌟 ثبت برتر", callback_data=f"player_elite_{player_id}", style="success"))
+    if is_elite:
+        action_buttons.append(InlineKeyboardButton("❌ حذف از برترین‌ها", callback_data=f"player_elite_{player_id}", style="danger"))
+    else:
+        action_buttons.append(InlineKeyboardButton("🌟 ثبت برتر", callback_data=f"player_elite_{player_id}", style="success"))
     action_buttons.append(InlineKeyboardButton("📈 امتیاز Elo", callback_data=f"elo_player_{player_id}", style="primary"))
     action_buttons.append(InlineKeyboardButton("🔮 پیش‌بینی", callback_data=f"predict_select_{player_id}", style="primary"))
     if role == "pishva":
-        action_buttons.append(InlineKeyboardButton("⚡ ثبت ویژه", callback_data=f"player_special_{player_id}", style="success"))
+        if is_special:
+            action_buttons.append(InlineKeyboardButton("❌ حذف از ویژه‌ها", callback_data=f"player_special_{player_id}", style="danger"))
+        else:
+            action_buttons.append(InlineKeyboardButton("⚡ ثبت ویژه", callback_data=f"player_special_{player_id}", style="success"))
         action_buttons.append(InlineKeyboardButton("🗑 حذف کامل", callback_data=f"player_harddelete_ask_{player_id}", style="danger"))
 
     rows = [action_buttons[i:i + 2] for i in range(0, len(action_buttons), 2)]
