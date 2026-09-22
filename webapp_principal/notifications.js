@@ -438,6 +438,7 @@
     el.nt.setAttribute("aria-hidden", "false");
     el.bell.setAttribute("aria-expanded", "true");
     document.body.classList.add("nt-open");
+    if (window.__lockBodyScroll) window.__lockBodyScroll();
     paintControls();
     renderBanner();
     render();
@@ -452,6 +453,7 @@
     el.nt.setAttribute("aria-hidden", "true");
     el.bell.setAttribute("aria-expanded", "false");
     document.body.classList.remove("nt-open");
+    if (window.__unlockBodyScroll) window.__unlockBodyScroll();
   }
 
   el.bell.addEventListener("click", function () { state.open ? closeSheet() : openSheet(); });

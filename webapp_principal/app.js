@@ -3,6 +3,33 @@
 // ناوبری پایین (.dock)، ورقه‌های فویلی (.sheets)، رهگشای شناور (#rg-fab/#rg)،
 // و سربرگ ورودی/بقیهٔ صفحه‌ها (#hero / #page-head).
 
+// قفلِ اسکرولِ پس‌زمینه هنگامِ باز بودنِ یک ورقه (چت/اعلانات).
+// «overflow:hidden» روی body کافی نیست: در سافاری/کرومِ موبایل لمس مستقیماً
+// خودِ صفحه (viewport) را اسکرول می‌کند نه باکسِ body، پس صفحهٔ پشتِ ورقه
+// همچنان بالا/پایین می‌رود. راه‌حل: خودِ body را «fixed» و بالا/پایینش را
+// با translate جبران کنیم تا از نظرِ چشم هیچ‌چیز تکان نخورد، و در بسته‌شدن
+// دقیقاً به همان اسکرولِ قبلی برگردیم. شمارنده برای وقتی‌ست که دو ورقه
+// (مثلاً چت و اعلانات) هم‌زمان باز باشند: تا همه بسته نشوند، قفل باز نشود.
+(function () {
+  var count = 0;
+  var savedY = 0;
+  window.__lockBodyScroll = function () {
+    count++;
+    if (count > 1) return;
+    savedY = window.scrollY || window.pageYOffset || 0;
+    document.body.style.top = "-" + savedY + "px";
+    document.body.classList.add("scroll-locked");
+  };
+  window.__unlockBodyScroll = function () {
+    if (count === 0) return;
+    count--;
+    if (count > 0) return;
+    document.body.classList.remove("scroll-locked");
+    document.body.style.top = "";
+    window.scrollTo(0, savedY);
+  };
+})();
+
 const KEY = window.PRINCIPAL_KEY || "";
 const viewTitleEl = document.getElementById("view-title");
 const viewBodyEl = document.getElementById("view-body");
@@ -777,6 +804,7 @@ function openRg() {
   rgEl.setAttribute("aria-hidden", "false");
   rgFabEl.setAttribute("aria-expanded", "true");
   document.body.classList.add("rg-open");
+  window.__lockBodyScroll && window.__lockBodyScroll();
   if (!assistantState.started) startAssistant();
   setTimeout(() => rgInputEl && rgInputEl.focus(), 300);
 }
@@ -785,6 +813,7 @@ function closeRg() {
   rgEl.setAttribute("aria-hidden", "true");
   rgFabEl.setAttribute("aria-expanded", "false");
   document.body.classList.remove("rg-open");
+  window.__unlockBodyScroll && window.__unlockBodyScroll();
 }
 if (rgFabEl) rgFabEl.addEventListener("click", () => (rgEl.classList.contains("open") ? closeRg() : openRg()));
 rgEl.querySelectorAll("[data-close]").forEach(el => el.addEventListener("click", closeRg));

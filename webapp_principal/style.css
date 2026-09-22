@@ -739,6 +739,9 @@ body.ready .fab:active { transform: scale(.9); transition-delay: 0s; transition-
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 body.nt-open { overflow: hidden; }
+/* body.scroll-locked: هنگامِ باز بودنِ چت یا اعلانات، خودِ body ثابت می‌شود
+   تا لمسِ صفحهٔ پشتِ ورقه دیگر اسکرول نکند (نگاه کنید به __lockBodyScroll در app.js). */
+body.scroll-locked { position: fixed; left: 0; right: 0; overflow: hidden; width: 100%; }
 
 .nt { position: fixed; inset: 0; z-index: 62; visibility: hidden; transition: visibility 0s linear .45s; contain: layout style; }
 .nt.open { visibility: visible; transition-delay: 0s; }
