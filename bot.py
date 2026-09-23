@@ -338,6 +338,34 @@ async def global_error_handler(update, context) -> None:
     بازم Markdown رد بشه، به‌صورت متن ساده می‌فرستیم — پس هیچ‌وقت گزارش گم نمی‌شه.
     """
     import traceback
+    import time as _time
+    from telegram.error import Conflict as _TgConflict
+
+    # «Conflict: terminated by other getUpdates request» یعنی هم‌زمان دو نسخه از
+    # ربات با یک توکن در حال polling‌اند (معمولاً موقع دیپلوی Railway که نسخه‌ی
+    # قدیمی چند ثانیه کنار نسخه‌ی جدید زنده می‌ماند، یا یک نسخه‌ی دیگر جایی
+    # روشن است). این خطا از هیچ کاربر/هندلری نیست و با هر تلاشِ مجدد تکرار
+    # می‌شود؛ پس به‌جای اسپمِ مدیر ارشد، فقط لاگ می‌شود و حداکثر هر ۶ ساعت
+    # یک‌بار یک توضیحِ کوتاه می‌رود.
+    if isinstance(context.error, _TgConflict):
+        logger.warning("Telegram Conflict: another bot instance is polling with the same token.")
+        now = _time.time()
+        if now - getattr(global_error_handler, "_last_conflict_notice", 0) >= 6 * 3600:
+            global_error_handler._last_conflict_notice = now
+            try:
+                await context.bot.send_message(
+                    chat_id=PISHVA_ID,
+                    text=(
+                        "⚠️ خطای Conflict تلگرام\n\n"
+                        "هم‌زمان بیش از یک نسخه از ربات با همین توکن روشن است. "
+                        "در Railway مطمئن شوید Replicas روی ۱ است، دیپلوی قدیمی حذف شده، "
+                        "و ربات روی هیچ سیستم/سرویس دیگری (مثلاً لپ‌تاپ یا پروژه‌ی دیگر) اجرا نیست. "
+                        "این پیام حداکثر هر ۶ ساعت یک‌بار ارسال می‌شود."
+                    ),
+                )
+            except Exception:
+                pass
+        return
 
     tb_string = "".join(
         traceback.format_exception(None, context.error, context.error.__traceback__)

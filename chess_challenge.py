@@ -515,7 +515,10 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     accepter_name = await _display_name(uid, ctx.bot)
     time_control = req["time_control"] or 300
     req_color = req["requester_color"] or "random"
-    if req_color == "random":
+    # دکمه‌ی «🎲 تصادفی» مقدار "r" را ذخیره می‌کند (نه "random")؛ قبلاً فقط
+    # "random" چک می‌شد، برای همین "r" هیچ‌وقت قرعه‌کشی نمی‌شد و درخواست‌دهنده
+    # همیشه مهره‌ی سیاه می‌گرفت.
+    if req_color in ("random", "r"):
         req_color = random.choice(["w", "b"])
     if req_color == "w":
         white_id, black_id = requester_id, uid
