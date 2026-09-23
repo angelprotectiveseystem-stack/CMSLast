@@ -519,6 +519,14 @@ html,body{
    قبلاً فقط دکمه‌ی «بستن» تنها بود؛ حالا هر دو در یک ردیفِ افقی، هرکدام
    نیمِ عرضِ کارت، با همان حسِ capsule/گرادیانِ قبلی. */
 .modal-actions-row{ display:flex; gap:10px; margin-top:6px; }
+
+/* شمارشِ معکوسِ خروجِ خودکار بعد از پایانِ بازی */
+.modal-autoclose{ margin-top:14px; }
+.modal-autoclose.hidden{ display:none; }
+.modal-autoclose-bar{ height:4px; border-radius:999px; background: var(--border); overflow:hidden; }
+.modal-autoclose-bar span{ display:block; height:100%; width:0; border-radius:999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.modal-autoclose-text{ margin-top:8px; font-size:12px; color: var(--text-2); }
 .modal-actions-row .action-btn{
   flex:1; width:auto; margin-top:0;
   border-radius:999px; padding:15px 0; font-size:15px; font-weight:800;
