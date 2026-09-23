@@ -18,7 +18,7 @@ from telegram.ext import ContextTypes
 import database as db
 from chess_ai import AI_LEVELS, ai_display_name
 from config import CHESS_AI_ID, PISHVA_ID, WEBAPP_URL, BOT_USERNAME
-from game_server import maybe_play_ai_move, new_game_token
+from game_server import expire_game_if_timed_out, maybe_play_ai_move, new_game_token
 from helpers import safe_edit_message_text, box, pishva_display
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,23 @@ async def _telegram_profile_name(bot, user_id: int):
     ttl = _NAME_CACHE_TTL if name else _NAME_CACHE_TTL_EMPTY
     _name_cache[user_id] = (name, time.monotonic() + ttl)
     return name
+
+
+async def _active_game_for(uid: int):
+    """بازیِ فعالِ واقعیِ کاربر (یا None).
+
+    قبلاً یک بازیِ رهاشده (کاربر مینی‌اپ را وسطِ بازی بسته و ساعتش تمام
+    شده) تا ابد «active» می‌ماند و ربات مدام می‌گفت «بازیِ فعال داری».
+    نگهبانِ پس‌زمینه‌ی game_server معمولاً چنین بازی‌ای را همان لحظه‌ی
+    اتمامِ زمان می‌بندد؛ این چک ایمنیِ دوم است تا اگر نگهبان هنوز به آن
+    بازی نرسیده بود هم، قبل از هر تصمیمی بر پایه‌ی «بازیِ فعال»، بازیِ
+    ساعت‌تمام‌شده خودکار بسته شود و کاربر مجبور به ورود و «بستن» نباشد."""
+    game = None
+    for _ in range(5):  # ممکن است (به‌خاطرِ باگ‌های قدیمی) چند ردیفِ active باشد
+        game = await db.get_active_chess_game_for(uid)
+        if not game or not await expire_game_if_timed_out(game):
+            return game
+    return await db.get_active_chess_game_for(uid)
 
 
 async def _chess_block_reason(uid: int) -> str:
@@ -155,11 +172,11 @@ async def _chess_menu_content(uid: int, chat_type: str = "private", bot=None):
     # کاربر، به هم وابسته نیستن؛ حالا هم‌زمان اجرا می‌شن به‌جای پشتِ‌سرِهم.
     if is_group:
         bot_username, active_game = await asyncio.gather(
-            _resolve_bot_username(bot), db.get_active_chess_game_for(uid)
+            _resolve_bot_username(bot), _active_game_for(uid)
         )
     else:
         bot_username = None
-        active_game = await db.get_active_chess_game_for(uid)
+        active_game = await _active_game_for(uid)
 
     if active_game:
         text = (
@@ -265,7 +282,7 @@ async def chess_challenge_target_from_message(update: Update, ctx: ContextTypes.
     if await db.has_pending_chess_request(uid, target_id):
         await update.message.reply_text("⏳ درخواست قبلی برای همین شخص هنوز در انتظار پاسخ است.")
         return None
-    active_game = await db.get_active_chess_game_for(uid)
+    active_game = await _active_game_for(uid)
     if active_game:
         await update.message.reply_text("⛔ شما یک بازی فعال دارید؛ ابتدا آن را تمام کنید.")
         return None
@@ -374,7 +391,7 @@ async def chess_pick_time(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if await db.has_pending_chess_request(uid, target_id):
         await query.answer("درخواست قبلی هنوز در انتظار پاسخ است.", show_alert=True)
         return
-    active_game = await db.get_active_chess_game_for(uid)
+    active_game = await _active_game_for(uid)
     if active_game:
         await query.answer("شما یک بازی فعال دارید؛ ابتدا آن را تمام کنید.", show_alert=True)
         return
@@ -438,7 +455,7 @@ async def chess_send_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer("درخواست قبلی هنوز در انتظار پاسخ است.", show_alert=True)
         return
 
-    active_game = await db.get_active_chess_game_for(uid)
+    active_game = await _active_game_for(uid)
     if active_game:
         await query.answer("شما یک بازی فعال دارید؛ ابتدا آن را تمام کنید.", show_alert=True)
         return
@@ -498,10 +515,10 @@ async def chess_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # درخواست قبول شده)، دو ردیف active در chess_games ساخته می‌شد و
     # get_active_chess_game_for گاهی بازیِ قدیمی و تمام‌نشده را برمی‌گرداند.
     # پس قبل از ساخت بازی جدید، فعال نبودنِ بازی برای هر دو طرف را می‌سنجیم.
-    if await db.get_active_chess_game_for(uid):
+    if await _active_game_for(uid):
         await query.answer("شما یک بازی فعال دیگر دارید؛ ابتدا آن را تمام کنید.", show_alert=True)
         return
-    if await db.get_active_chess_game_for(requester_id):
+    if await _active_game_for(requester_id):
         await query.answer("درخواست‌دهنده در حال حاضر یک بازی فعال دیگر دارد.", show_alert=True)
         return
 
@@ -633,7 +650,7 @@ async def chess_ai_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
         return
-    active_game = await db.get_active_chess_game_for(uid)
+    active_game = await _active_game_for(uid)
     if active_game:
         await query.answer("شما یک بازی فعال دارید؛ ابتدا آن را تمام کنید.", show_alert=True)
         return
@@ -710,7 +727,7 @@ async def chess_ai_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         await safe_edit_message_text(query, reason, reply_markup=_kb_back(), parse_mode=ParseMode.MARKDOWN)
         return
-    active_game = await db.get_active_chess_game_for(uid)
+    active_game = await _active_game_for(uid)
     if active_game:
         await query.answer("شما یک بازی فعال دارید؛ ابتدا آن را تمام کنید.", show_alert=True)
         return

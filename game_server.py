@@ -374,8 +374,33 @@ async def _maybe_announce_ai_hard_defeat(game, status, winner_id):
             logger.exception("Failed to send AI-hard-defeat broadcast to %s", tid)
 
 
+# ─── جلوگیری از «دوبار تمام‌شدنِ یک بازی» ───────────────────────────
+# حالا علاوه بر مسیرهای API (حرکت/تسلیم/تساوی/poll)، یک نگهبانِ پس‌زمینه
+# (_timeout_sweeper پایین‌تر) هم می‌تواند بازی را به‌خاطرِ اتمامِ زمان تمام
+# کند. اگر دو مسیر هم‌زمان یک بازی را ببندند، بدونِ قفل Eloِ هر دو مدیر دو بار
+# محاسبه می‌شد. پس تمام‌کردنِ هر بازی پشتِ یک قفلِ مخصوصِ همان بازی انجام
+# می‌شود و داخلِ قفل دوباره از دیتابیس چک می‌شود که بازی هنوز active است.
+_finish_locks = {}  # token -> asyncio.Lock
+
+
 async def _finish_with_elo(token, status, game, winner_id):
-    """بازی را با محاسبه‌ی تغییر امتیاز Elo هر دو مدیر تمام می‌کند."""
+    """بازی را با محاسبه‌ی تغییر امتیاز Elo هر دو مدیر تمام می‌کند.
+    اگر بازی قبلاً (توسط مسیر دیگری) تمام شده باشد، هیچ کاری نمی‌کند و
+    False برمی‌گرداند؛ در غیر این صورت True."""
+    lock = _finish_locks.setdefault(token, asyncio.Lock())
+    finished = False
+    async with lock:
+        fresh = await db.get_chess_game(token)
+        if fresh is not None and fresh["status"] == "active":
+            await _finish_with_elo_unlocked(token, status, game, winner_id)
+            finished = True
+    if finished:
+        _finish_locks.pop(token, None)
+    return finished
+
+
+async def _finish_with_elo_unlocked(token, status, game, winner_id):
+    """بدنه‌ی اصلیِ تمام‌کردنِ بازی — فقط با نگه‌داشتنِ قفلِ همان بازی صدا بزنید."""
     result = "draw" if winner_id is None else (
         "white" if winner_id == game["white_id"] else "black"
     )
@@ -400,6 +425,76 @@ async def _finish_with_elo(token, status, game, winner_id):
         await _maybe_announce_ai_hard_defeat(game, status, winner_id)
     except Exception:
         logger.exception("Failed to check/send AI hard-defeat broadcast for %s", token)
+
+
+# ─── پایانِ خودکارِ بازی با اتمامِ زمان (سمتِ سرور) ─────────────────
+# قبلاً ساعت فقط «تنبل» حساب می‌شد: زمانِ طرفِ نوبت‌دار فقط وقتی کم می‌شد و
+# بازی فقط وقتی با timeout بسته می‌شد که یک کلاینت /api/state را poll می‌کرد.
+# یعنی اگر بازیکن وسطِ بازی مینی‌اپ را می‌بست (بدونِ تسلیم/تساوی/پایانِ
+# قانونی)، هیچ‌کس poll نمی‌کرد و بازی تا ابد «active» می‌ماند — حتی بعد از
+# ده روز ربات می‌گفت «یک بازیِ نیمه‌تمام داری» و باید دستی واردش می‌شدی و
+# «بستن» را می‌زدی. حالا:
+#  ۱) یک نگهبانِ پس‌زمینه (_timeout_sweeper) هر چند ثانیه همه‌ی بازی‌های
+#     فعال را چک می‌کند و هر بازیِ ساعت‌تمام‌شده را خودکار می‌بندد (بدونِ
+#     نیاز به بازبودنِ مینی‌اپ)؛
+#  ۲) هر جایی که ربات «بازیِ فعالِ کاربر» را می‌خواند (منوی شطرنج، ساختنِ
+#     بازی جدید، ...) هم قبلش همین چک انجام می‌شود (ایمنیِ دوم).
+def _timeout_result(game):
+    """اگر ساعتِ طرفِ نوبت‌دار تمام شده باشد (loser_id, winner_id) را برمی‌گرداند،
+    وگرنه None. game می‌تواند Row یا dict باشد."""
+    decayed = _apply_clock_decay(game)
+    if decayed["status"] != "active":
+        return None
+    if decayed["white_time"] <= 0:
+        return game["white_id"], game["black_id"]
+    if decayed["black_time"] <= 0:
+        return game["black_id"], game["white_id"]
+    return None
+
+
+async def expire_game_if_timed_out(game) -> bool:
+    """اگر بازیِ داده‌شده هنوز active است ولی ساعتِ طرفِ نوبت‌دارش تمام شده،
+    آن را (با Elo، اطلاع‌رسانی به بازیکن‌ها و پوشِ WebSocket) به‌عنوانِ
+    «timeout» تمام می‌کند و True برمی‌گرداند؛ در غیر این صورت False."""
+    if game is None or game["status"] != "active" or _timeout_result(game) is None:
+        return False
+    token = game["token"]
+    lock = _finish_locks.setdefault(token, asyncio.Lock())
+    finished = False
+    async with lock:
+        # داخلِ قفل دوباره از دیتابیس می‌خوانیم: شاید در همین فاصله حرکتی ثبت
+        # شده یا مسیرِ دیگری بازی را بسته باشد.
+        fresh = await db.get_chess_game(token)
+        if fresh is not None and fresh["status"] == "active":
+            res = _timeout_result(fresh)
+            if res is not None:
+                _, winner = res
+                decayed = _apply_clock_decay(fresh)
+                await db.set_chess_game_clock(token, decayed["white_time"], decayed["black_time"])
+                await _finish_with_elo_unlocked(token, "timeout", fresh, winner)
+                finished = True
+    if finished:
+        _finish_locks.pop(token, None)
+        logger.info("Chess game %s finished automatically by timeout", token)
+        await _notify_state_changed(token)
+    return finished
+
+
+TIMEOUT_SWEEP_INTERVAL = 2  # ثانیه
+_sweeper_task = None
+
+
+async def _timeout_sweeper():
+    while True:
+        try:
+            for game in await db.get_all_active_chess_games():
+                try:
+                    await expire_game_if_timed_out(game)
+                except Exception:
+                    logger.exception("Timeout check failed for chess game %s", game["token"])
+        except Exception:
+            logger.exception("Chess timeout sweeper iteration failed")
+        await asyncio.sleep(TIMEOUT_SWEEP_INTERVAL)
 
 
 def _load_board(game):
@@ -646,18 +741,11 @@ async def api_state(request):
         viewer_name = request.query.get("name") or "تماشاگر"
         _touch_spectator(token, viewer_id, f"👁 {viewer_name}")
     spectators = _active_spectator_names(token, exclude_id=viewer_id)
+    # اگر ساعتِ طرفِ نوبت‌دار تمام شده باشد، همین‌جا (یا قبل‌تر توسطِ
+    # _timeout_sweeper) بازی بسته می‌شود؛ بعدش ردیفِ نهایی را می‌خوانیم.
+    if await expire_game_if_timed_out(game):
+        game = await db.get_chess_game(token)
     game = _apply_clock_decay(game)
-    if game["status"] == "active":
-        loser = None
-        if game["white_time"] <= 0:
-            loser, winner = game["white_id"], game["black_id"]
-        elif game["black_time"] <= 0:
-            loser, winner = game["black_id"], game["white_id"]
-        if loser:
-            await _finish_with_elo(token, "timeout", game, winner)
-            game["status"] = "timeout"
-            game["winner_id"] = winner
-            await _notify_state_changed(token)
     return web.json_response({"ok": True, "state": await _game_to_state(game, viewer_id, spectators)})
 
 
@@ -677,6 +765,11 @@ async def api_move(request):
         return web.json_response({"ok": False, "error": "شما در این بازی نیستید."})
     if not await db.can_use_live_chess(user_id):
         return web.json_response({"ok": False, "error": LIVE_CHESS_LOCKED_MSG})
+
+    # اگر ساعتِ بازیکنِ نوبت‌دار تمام شده، حرکت پذیرفته نمی‌شود؛ بازی همین‌جا
+    # با timeout بسته می‌شود (قبلاً حرکتِ بعد از اتمامِ زمان هم ثبت می‌شد).
+    if await expire_game_if_timed_out(game):
+        return web.json_response({"ok": False, "error": "زمان شما تمام شده و بازی پایان یافت."})
 
     game = _apply_clock_decay(game)
     # از _load_board (نه ساختِ Board فقط از رویِ FEN) استفاده می‌شود چون
@@ -1036,4 +1129,9 @@ async def start_game_server(bot=None):
     site = web.TCPSite(runner, "0.0.0.0", WEBAPP_PORT)
     await site.start()
     logger.info(f"Chess mini-app server running on port {WEBAPP_PORT}")
+    # نگهبانِ پایانِ خودکارِ بازی‌ها با اتمامِ زمان (رفرنس را نگه می‌داریم تا
+    # garbage collector تسک را وسطِ کار نکُشد).
+    global _sweeper_task
+    if _sweeper_task is None or _sweeper_task.done():
+        _sweeper_task = asyncio.create_task(_timeout_sweeper())
     return runner

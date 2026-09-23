@@ -3577,6 +3577,19 @@ async def finish_chess_game(token, status, winner_id, white_elo_change=None, bla
         await db.commit()
 
 
+async def set_chess_game_clock(token, white_time, black_time):
+    """ثبتِ نهاییِ ساعتِ هر دو طرف (بدونِ دست‌زدن به fen/pgn/last_move_at).
+    وقتی بازی به‌خاطرِ اتمامِ زمان خودکار بسته می‌شود، ساعتِ بازنده باید در
+    دیتابیس صفر ثبت شود؛ وگرنه بعداً که کسی همین بازیِ تمام‌شده را باز کند،
+    ساعتِ قدیمیِ آخرین حرکت (نه ۰۰:۰۰) نشان داده می‌شود."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE chess_games SET white_time=?, black_time=? WHERE token=?",
+            (white_time, black_time, token)
+        )
+        await db.commit()
+
+
 async def get_chess_games_log(period="all", limit=100):
     """لیستِ بازی‌های شطرنج زنده‌ی *تمام‌شده‌ی* مدیران، برای پنل «پیگیری
     بازی‌های مدیران» در پنل مدیر ارشد. period مثل get_action_logs عمل
