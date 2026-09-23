@@ -83,7 +83,10 @@ html,body{
   display:flex; align-items:center; justify-content:center;
   animation: floaty 2.4s ease-in-out infinite;
 }
-.brand-mark img{ width:120px !important; height:120px !important; border-radius:0 !important; }
+/* گوشه‌های آیکون: قبلاً border-radius:0 !important بود (لبه‌ی تیز و قدیمی).
+   حالا گوشه‌ها خمیده و مدرن (شکلِ «squircle»/اپ‌آیکونِ امروزی؛ حدودِ ۲۳٪
+   ضلع) و لبه‌ی عکس با overflow:hidden تمیز بریده می‌شود. */
+.brand-mark img{ width:120px !important; height:120px !important; border-radius:28px !important; overflow:hidden; }
 .brand-svg{ width:100%; height:100%; display:block; }
 @keyframes floaty{ 0%,100%{ transform: translateY(0) rotate(0deg);} 50%{ transform: translateY(-8px) rotate(4deg);} }
 .loading-text{ color: var(--text-2); font-size:14px; }
