@@ -484,13 +484,15 @@ async def _call_gemini(contents: list, tools, tool_config=None):
                     resp.raise_for_status()
                     return resp.json()
                 except httpx.TimeoutException as e:
-                    # قبلاً این نوع خطا اصلاً catch نمی‌شد و کل زنجیره‌ی فال‌بک رو
-                    # فوری قطع می‌کرد (حتی اگه مدل بعدی سالم بود). حالا مثل بقیه‌ی
-                    # خطاهای موقت، مدل بعدی رو امتحان می‌کنیم.
+                    # باگِ کندیِ اصلی (رفع‌شده): قبلاً این‌جا روی تایم‌اوت، دوباره همون
+                    # مدل رو امتحان می‌کردیم (RETRIES_PER_MODEL=2) — یعنی تا
+                    # REQUEST_TIMEOUT_SECONDS*2 (حدود ۹۰ ثانیه) روی یک مدلِ کند/از‌کارافتاده
+                    # هدر می‌رفت قبل از رسیدن به مدلِ بعدیِ سالم. principal_panel.py از قبل
+                    # این درس رو یاد گرفته بود: «تلاشِ دوباره‌ی فوری معمولاً همون تایم‌اوت
+                    # رو تکرار می‌کنه و فقط وقتِ کاربر رو تلف می‌کنه» — همون منطق اینجا هم
+                    # پیاده شد. حالا روی تایم‌اوت بلافاصله (بدون تلاشِ دوباره) می‌ریم مدلِ بعدی.
                     last_error = e
-                    logger.warning(f"Gemini {model} attempt {attempt+1} timed out, {'retrying' if attempt+1 < RETRIES_PER_MODEL else 'trying next model'}...")
-                    if attempt + 1 < RETRIES_PER_MODEL:
-                        continue
+                    logger.warning(f"Gemini {model} timed out after {REQUEST_TIMEOUT_SECONDS}s, trying next model...")
                     break
                 except httpx.HTTPStatusError as e:
                     last_error = e
