@@ -639,8 +639,12 @@ function renderPieces(animateFrom, animateTo, silent){
   if(moves.length){
     state.animating = true;
     moves.forEach(function(m){ m.el.classList.add("moving"); });
-    state.pendingAnimFrame = requestAnimationFrame(function(){
-      state.pendingAnimFrame = null;
+    // بدونِ requestAnimationFrameِ بیرونی: قبلاً شروعِ حرکت دو فریم (حدود
+    // ۳۰ms یا بیشتر روی گوشیِ ضعیف) عقب می‌افتاد و حس «کندی» می‌داد.
+    // خواندنِ rect همین‌جا خودش لِی‌آوت را flush می‌کند و مهره از همان
+    // فریمِ اول شروع می‌کند.
+    state.pendingAnimFrame = null;
+    (function(){
       // رفعِ افتِ فریم‌ریت روی حرکاتِ چندمهره‌ای (قلعه، یا چند حرکتِ
       // هم‌زمانِ رسیده از سرور): قبلاً برای هر مهره، خواندنِ rect
       // (getBoundingClientRect) و نوشتنِ transform و خواندنِ اجباریِ
@@ -699,7 +703,7 @@ function renderPieces(animateFrom, animateTo, silent){
           // استفاده می‌کند (حسِ «سریع و قاطع»، نه «آهسته و رویایی») که فقط
           // برای فاصله‌های خیلی بلند (مثل قلعه یا حرکتِ وزیر سرتاسرِ صفحه)
           // کمی بلندتر می‌شود. عدد پایه و سقف نسبت به قبل کاهش یافت.
-          var dur = Math.max(160, Math.min(260, 130 + p.dist * 0.22));
+          var dur = Math.max(140, Math.min(220, 110 + p.dist * 0.2));
           // نکته: برخلاف نسخه‌ی قبلی، اینجا هیچ scale-ای در حینِ حرکت اعمال
           // نمی‌شود — فقط translate خالص. chess.com مهره را در طول حرکت
           // بزرگ/کوچک نمی‌کند؛ فقط با یک سایه‌ی نرم (که در CSS اضافه شد)
@@ -772,7 +776,7 @@ function renderPieces(animateFrom, animateTo, silent){
       setTimeout(function(){
         captureFinishers.forEach(function(fn){ fn(); });
       }, 260);
-    });
+    })();
   }
 
   paintHighlights();
@@ -1295,6 +1299,53 @@ function checkLocalGameOver(){
   }
 }
 
+// ─── خروجِ خودکار بعد از پایانِ بازی ─────────────────────────────
+// قبلاً بعد از پایانِ هر بازی، بازیکن باید دستی وارد مودال می‌شد و «بستن»
+// را می‌زد. حالا مودالِ نتیجه چند ثانیه نشان داده می‌شود و بعد مینی‌اپ
+// خودش بسته می‌شود (نتیجه در چتِ ربات هم برای بازیکن ارسال شده است).
+// اگر کاربر «تحلیل مسابقه» را بزند شمارش لغو می‌شود، و بعد از بستنِ صفحه‌ی
+// تحلیل هم مینی‌اپ خودکار بسته می‌شود.
+var AUTO_CLOSE_SECONDS = 7;   // ← اگر خواستید سریع‌تر/کندتر باشد فقط همین عدد را عوض کنید
+var autoCloseTimer = null;
+
+function closeMiniApp(){
+  if(tg && tg.close){ try{ tg.close(); }catch(e){} }
+}
+
+function cancelAutoClose(){
+  if(autoCloseTimer){ clearInterval(autoCloseTimer); autoCloseTimer = null; }
+  var box = $("modal-autoclose");
+  if(box) box.classList.add("hidden");
+}
+
+function startAutoClose(){
+  cancelAutoClose();
+  // خارج از تلگرام (مثلاً مرورگر معمولی) tg.close وجود ندارد؛ شمارش بی‌معنی است.
+  if(!tg || !tg.close) return;
+  var left = AUTO_CLOSE_SECONDS;
+  var box = $("modal-autoclose"), txt = $("modal-autoclose-text"), fill = $("modal-autoclose-fill");
+  function render(){
+    txt.textContent = "خروج خودکار تا " + left + " ثانیه دیگر…";
+  }
+  render();
+  box.classList.remove("hidden");
+  // نوار پیشرفت: اول صفر (بدون انیمیشن) و بعد با transition خطی تا انتها پر می‌شود
+  fill.style.transition = "none";
+  fill.style.width = "0%";
+  void fill.offsetWidth;
+  fill.style.transition = "width " + AUTO_CLOSE_SECONDS + "s linear";
+  fill.style.width = "100%";
+  autoCloseTimer = setInterval(function(){
+    left--;
+    if(left <= 0){
+      cancelAutoClose();
+      closeMiniApp();
+      return;
+    }
+    render();
+  }, 1000);
+}
+
 function showGameOver(status, winnerId, whiteEloChange, blackEloChange){
   state.gameOverShown = true;
   clearInterval(state.clockTimer);
@@ -1393,6 +1444,7 @@ function _showGameOverModal(status, winnerId, whiteEloChange, blackEloChange){
     }
   }
   $("modal-overlay").classList.remove("hidden");
+  startAutoClose();
   if(iWon) launchConfetti();
   // برای بیننده (spectator) نه بردی هست نه باختی — صدای خنثی پایانِ بازی
   if(state.isSpectator){ Sound.draw(); Haptics.warning(); }
@@ -1666,8 +1718,9 @@ $("btn-draw").addEventListener("click", function(){
 $("btn-history").addEventListener("click", function(){ $("history-panel").classList.add("open"); });
 $("btn-close-history").addEventListener("click", function(){ $("history-panel").classList.remove("open"); });
 $("modal-close").addEventListener("click", function(){
+  cancelAutoClose();
   $("modal-overlay").classList.add("hidden");
-  if(tg) tg.close();
+  closeMiniApp();
 });
 
 // ══════════════════════ تحلیلِ پس از بازی ══════════════════════
@@ -1901,10 +1954,13 @@ $("an-last").addEventListener("click", function(){ anStopPlay(); anGoTo(AnState.
 $("an-play").addEventListener("click", anTogglePlay);
 $("an-btn-close").addEventListener("click", function(){
   anStopPlay();
+  // بازی تمام شده؛ بعد از دیدنِ تحلیل هم لازم نیست کاربر دوباره دستی ببندد.
+  if(tg && tg.close){ closeMiniApp(); return; }
   showScreen("screen-game");
 });
 
 function anOpen(){
+  cancelAutoClose();
   $("modal-overlay").classList.add("hidden");
   showScreen("screen-analysis");
   $("an-content").classList.add("hidden");

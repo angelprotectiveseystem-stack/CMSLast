@@ -196,7 +196,15 @@ html,body{
    لازم نیست ۶۳ خانه‌ی دیگر را هم برای احتمالِ تغییرِ لِی‌آوت بررسی کند —
    این دقیقاً همان چیزی است که در طولِ انیمیشنِ حرکتِ مهره فریم‌ریت را
    پایین می‌آورد، مخصوصاً روی WebViewِ ضعیف‌ترِ اندروید. */
-.square{ position:relative; display:flex; align-items:center; justify-content:center; contain: layout paint; }
+/* رفعِ ریشه‌ایِ «مهره حین حرکت دیده نمی‌شود / انیمیشن ندارد»: قبلاً اینجا
+   contain: layout paint بود. contain:paint محتوای هر خانه را به مرزهای
+   همان خانه کلیپ می‌کند؛ مهره‌ی در حالِ حرکت هم چون داخلِ خانه‌ی *مقصد*
+   قرار دارد و با transform از خانه‌ی مبدأ (بیرونِ مرزهای مقصد) شروع
+   می‌شود، تا لحظه‌ی رسیدن کاملاً کلیپ/نامرئی بود و فقط در آخر ناگهان
+   ظاهر می‌شد — یعنی عملاً هیچ انیمیشنی دیده نمی‌شد. contain همچنین برای
+   هر خانه یک stacking context می‌ساخت و z-index مهره را محدود به همان
+   خانه می‌کرد. با ۶۴ خانه‌ی ساده، هزینه‌ی این contain اصلاً ارزشش را نداشت. */
+.square{ position:relative; display:flex; align-items:center; justify-content:center; }
 .square.light{ background: var(--light-sq); }
 .square.dark{ background: var(--dark-sq); }
 .square::before{
