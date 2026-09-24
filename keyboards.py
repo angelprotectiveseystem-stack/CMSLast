@@ -723,6 +723,7 @@ def kb_pishva_settings_simple(settings):
     rows += pairs(
         toggle("♟️ ثبت مسابقه", "match_registration_enabled", "setting_match_reg"),
         toggle("♟️ شطرنج زنده", "live_chess_enabled", "setting_live_chess"),
+        toggle("🖥️ پنل من (Hub)", "hub_enabled", "setting_hub"),
         toggle("🏆 حالت تیمی", "team_mode_enabled", "setting_team_mode"),
         toggle("📝 ثبت‌نام با تیم", "team_registration_enabled", "setting_team_reg"),
         toggle("👤 ساخت تیم توسط مدیر", "managers_can_create_teams", "setting_mgr_team"),
@@ -1023,6 +1024,7 @@ def kb_admin_permissions(tid, perms):
         InlineKeyboardButton(f"📡 مخابرات {tog('communications')}", callback_data=f"perm_{tid}_communications", style=st('communications'))],
         [InlineKeyboardButton(f"🤖 دسترسی هوش مصنوعی {tog('ai_access')}", callback_data=f"perm_{tid}_ai_access", style=st('ai_access'))],
         [InlineKeyboardButton(f"♟️ شطرنج زنده {tog('chess_access')}", callback_data=f"perm_{tid}_chess_access", style=st('chess_access'))],
+        [InlineKeyboardButton(f"🖥️ پنل من (Hub) {tog('hub_access')}", callback_data=f"perm_{tid}_hub_access", style=st('hub_access'))],
         [InlineKeyboardButton(f"📅 ویرایش تقویم {tog('calendar_edit')}", callback_data=f"perm_{tid}_calendar_edit", style=st('calendar_edit'))],
         [InlineKeyboardButton("✅ ذخیره و بازگشت", callback_data=f"admin_view_{tid}", style="danger")],
     ])

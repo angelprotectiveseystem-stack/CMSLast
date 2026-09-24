@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from telegram.error import BadRequest
 import asyncio
+import logging
 import database as db
 import keyboards as kb
 from helpers import (safe_edit_message_text, box, separator, now_shamsi, broadcast_to_admins,
@@ -15,6 +16,8 @@ from config import (PISHVA_ID, STATUS_NORMAL, STATUS_BAD, STATUS_DANGER, STATUS_
     ST_LOGS_SEARCH_TERM, ST_LOGS_SEARCH_RANGE)
 from telegram.ext import ConversationHandler
 import io
+
+logger = logging.getLogger(__name__)
 
 # ─── Status Management ────────────────────────────────────────
 async def pishva_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -88,7 +91,7 @@ async def pishva_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keys = ["notifications_enabled", "communications_enabled", "help_enabled",
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
-        "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
+        "admin_dashboard_enabled", "ai_online", "live_chess_enabled", "hub_enabled",
         "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled",
         "admin_direct_kick_enabled", "top_players_mode"]
     # FIX: قبلاً این ۱۵ تا db.get_setting با asyncio.gather «هم‌زمان» صدا زده
@@ -123,6 +126,7 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "setting_admin_dashboard": "admin_dashboard_enabled",
         "setting_ai_online": "ai_online",
         "setting_live_chess": "live_chess_enabled",
+        "setting_hub": "hub_enabled",
         "setting_bug_report": "bug_report_to_pishva_enabled",
         "setting_principal_panel": "principal_panel_enabled",
         "setting_admin_webpanel": "admin_webpanel_enabled",
@@ -140,12 +144,19 @@ async def toggle_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             new_val = "0" if current == "1" else "1"
         await db.set_setting(key, new_val)
         await db.log_action(PISHVA_ID, "toggle_setting", f"{key} -> {new_val}")
+        if key == "hub_enabled":
+            # دکمه‌ی «پنل من» کنارِ چتِ همه‌ی مدیران باید فوراً هم‌گام بشه.
+            try:
+                from hub import sync_menu_buttons
+                await sync_menu_buttons(ctx.bot)
+            except Exception:
+                logger.exception("hub menu-button resync after hub_enabled toggle failed")
     else:
         new_val = None
     keys = ["notifications_enabled", "communications_enabled", "help_enabled",
         "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
         "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
-        "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
+        "admin_dashboard_enabled", "ai_online", "live_chess_enabled", "hub_enabled",
         "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled",
         "admin_direct_kick_enabled", "top_players_mode"]
     # FIX (کندیِ وحشتناکِ هر دکمه‌ی تنظیمات): این‌جا قبلاً، بعد از هر تاگل،

@@ -629,6 +629,7 @@ async def init_db():
             "bot_update_mode": "0",
             "ai_online": "1",
             "live_chess_enabled": "1",
+            "hub_enabled": "1",
             # ─── هشدار حذف مشکوک (پنل تنظیمات مدیر ارشد) ───
             "suspicious_alert_enabled": "1",
             "suspicious_deletion_threshold": "5",
@@ -748,7 +749,7 @@ async def create_admin(telegram_id, username, full_name, role):
         "direct_ban": False, "assign_task": False, "report": True,
         "bot_active": True, "settings_access": False, "senior_admin": False,
         "edit_delete_match": True, "communications": True, "ai_access": True,
-        "chess_access": True,
+        "chess_access": True, "hub_access": True,
     })
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -972,6 +973,9 @@ async def set_admin_permission(telegram_id: int, perm: str, value: bool):
                           (json.dumps(perms), telegram_id))
         await db.commit()
     _invalidate_admin_cache(telegram_id)
+    if perm == "hub_access":
+        # دکمه‌ی «پنل من» کنارِ چت باید فوراً هم‌گام بشه، نه فقط با job ساعتی.
+        _hub_menu_sync(telegram_id)
 
 
 # ─── شطرنج زنده — قفل امنیتی و سوییچ دستی ──────────────────────
@@ -1007,6 +1011,34 @@ async def can_use_live_chess(telegram_id: int) -> bool:
     except Exception:
         perms = {}
     return perms.get("chess_access", True)
+
+
+# ─── هاب («پنل من») — سوییچ کلی مدیر ارشد + دسترسی اختصاصی هر مدیر ────
+async def is_hub_admin_switch_off() -> bool:
+    """سوییچ دستیِ مدیر ارشد از پنل تنظیمات (روشن/خاموش هاب)؛ فقط روی
+    مدیران عادی اثر دارد، نه خود مدیر ارشد."""
+    return (await get_setting("hub_enabled", "1")) != "1"
+
+
+async def can_use_hub(telegram_id: int) -> bool:
+    """قفل نهایی و ترکیبیِ هاب برای یک کاربر مشخص:
+    ۱) خود مدیر ارشد → همیشه مجاز.
+    ۲) سوییچ دستی مدیر ارشد (hub_enabled) → مدیران عادی را قفل می‌کند.
+    ۳) دسترسی اختصاصی هر مدیر (hub_access) در پرمیشن‌های شخصی‌اش — مستقل
+       از نقش؛ حتی مدیرِ با نقشِ مجاز اگر hub_access او خاموش باشد، دسترسی
+       ندارد."""
+    if telegram_id == PISHVA_ID:
+        return True
+    if await is_hub_admin_switch_off():
+        return False
+    admin = await get_admin(telegram_id)
+    if not admin:
+        return False
+    try:
+        perms = json.loads(admin["permissions"])
+    except Exception:
+        perms = {}
+    return perms.get("hub_access", True)
 
 
 async def update_admin_display_name(telegram_id: int, name: str):

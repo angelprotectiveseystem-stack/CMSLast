@@ -115,6 +115,8 @@ async def _require_admin(request):
     admin = await db.get_admin(uid)
     if not admin or not admin["is_active"] or admin["role"] not in HUB_ALLOWED_ROLES:
         raise _err(web.HTTPForbidden, "forbidden")
+    if not await db.can_use_hub(uid):
+        raise _err(web.HTTPForbidden, "forbidden")
     # اسمِ تلگرامِ مدیر ممکنه بعد از ثبت‌نام عوض شده باشه؛ همین‌جا هم‌گامش کن.
     try:
         tg_name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x)
@@ -379,6 +381,8 @@ async def sync_menu_button_for(bot, telegram_id: int):
     if not allowed:
         a = await db.get_admin(telegram_id)
         allowed = bool(a and a["is_active"] and a["role"] in HUB_ALLOWED_ROLES)
+        if allowed:
+            allowed = await db.can_use_hub(telegram_id)
     try:
         if allowed:
             btn = _hub_button()
@@ -418,8 +422,9 @@ async def sync_menu_buttons(bot):
     chat_ids = [PISHVA_ID]
     try:
         admins = await db.get_active_admins()
-        chat_ids += [a["telegram_id"] for a in admins
-                     if a["role"] in HUB_ALLOWED_ROLES and a["telegram_id"]]
+        for a in admins:
+            if a["role"] in HUB_ALLOWED_ROLES and a["telegram_id"] and await db.can_use_hub(a["telegram_id"]):
+                chat_ids.append(a["telegram_id"])
     except Exception:
         logger.exception("Could not load active admins for hub menu-button sync.")
 

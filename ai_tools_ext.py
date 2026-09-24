@@ -218,7 +218,7 @@ TOOL_DECLARATIONS_EXT = [
             "notifications اعلان، news اخبار، match_management مسابقات، view_players بازیکنان، issue_warning اخطار، "
             "request_ban درخواست اخراج، direct_ban اخراج مستقیم، assign_task وظیفه، report گزارش، bot_active ربات فعال، "
             "settings_access تنظیمات، senior_admin ارشد، edit_delete_match ویرایش مسابقه، communications مخابرات، "
-            "ai_access دسترسی هوش مصنوعی، chess_access شطرنج زنده، calendar_edit ویرایش تقویم."
+            "ai_access دسترسی هوش مصنوعی، chess_access شطرنج زنده، hub_access پنل من (Hub)، calendar_edit ویرایش تقویم."
         ),
         "parameters": {
             "type": "object",
@@ -741,9 +741,10 @@ ADMIN_PERM_LABELS = {
     "issue_warning": "اخطار", "request_ban": "درخواست اخراج", "direct_ban": "اخراج مستقیم",
     "assign_task": "وظیفه", "report": "گزارش", "bot_active": "ربات فعال", "settings_access": "تنظیمات",
     "senior_admin": "ارشد", "edit_delete_match": "ویرایش مسابقه", "communications": "مخابرات",
-    "ai_access": "دسترسی هوش مصنوعی", "chess_access": "شطرنج زنده", "calendar_edit": "ویرایش تقویم",
+    "ai_access": "دسترسی هوش مصنوعی", "chess_access": "شطرنج زنده", "hub_access": "پنل من (Hub)",
+    "calendar_edit": "ویرایش تقویم",
 }
-_PERM_DEFAULT_TRUE = {"ai_access", "chess_access"}
+_PERM_DEFAULT_TRUE = {"ai_access", "chess_access", "hub_access"}
 _PERM_BY_LABEL = {norm(v): k for k, v in ADMIN_PERM_LABELS.items()}
 
 

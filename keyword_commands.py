@@ -1060,7 +1060,7 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         keys = ["notifications_enabled", "communications_enabled", "help_enabled",
             "match_registration_enabled", "admin_login_enabled", "bot_active_for_admins",
             "team_mode_enabled", "team_registration_enabled", "managers_can_create_teams",
-            "admin_dashboard_enabled", "ai_online", "live_chess_enabled",
+            "admin_dashboard_enabled", "ai_online", "live_chess_enabled", "hub_enabled",
             "bug_report_to_pishva_enabled", "principal_panel_enabled", "admin_webpanel_enabled",
             "admin_direct_kick_enabled", "top_players_mode"]
         settings = await db.get_settings_bulk(keys, "1")
