@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#2547d8">
+<title>پنل من</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="hub.css">
+</head>
+<body data-tab="home">
+
+<!-- آیکون‌ها: یک اسپرایتِ درون‌صفحه‌ای (بدونِ درخواستِ شبکه و بدونِ فونتِ آیکون) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.5 12 4l8 7.5V19a1.5 1.5 0 0 1-1.5 1.5H15V15H9v5.5H5.5A1.5 1.5 0 0 1 4 19z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19c.4-3.2 2.7-5 5.5-5s5.1 1.8 5.5 5"/><circle cx="17" cy="9.5" r="2.5"/><path d="M16.5 14.3c2.4.2 3.9 1.8 4.2 4.2"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a1 1 0 0 0-1 1c0 2.2 1.6 3.6 4 3.8M16 6h3a1 1 0 0 1 1 1c0 2.2-1.6 3.6-4 3.8"/><path d="M12 13v4M8.5 20h7M10 17h4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="4"/><path d="M12 5.5v13"/><path d="M15.2 9.7h2.6v4.6h-2.6z" fill="currentColor"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c.6-3.8 3.4-6 7-6s6.4 2.2 7 6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.8 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 17.1l-5.2 2.7 1-5.8L3.6 9.9l5.8-.8z"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></symbol>
+  <symbol id="i-crown" viewBox="0 0 24 24"><path d="M4 8.5 7.6 12 12 6l4.4 6L20 8.5 18.6 18H5.4z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l1.9-1.5-2-3.4-2.3.9a7.6 7.6 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.5a7.6 7.6 0 0 0-2.6 1.5l-2.3-.9-2 3.4 1.9 1.5a7.6 7.6 0 0 0 0 3l-1.9 1.5 2 3.4 2.3-.9a7.6 7.6 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 2.6-1.5l2.3.9 2-3.4z"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="m4 20 1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M9.5 7V4.5h5V7M7 7l.8 12.5h8.4L17 7"/></symbol>
+  <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M7 3.5h10M7 20.5h10M8 3.5c0 4 4 4.5 4 8.5s-4 4.5-4 8.5M16 3.5c0 4-4 4.5-4 8.5s4 4.5 4 8.5"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.5 5.8M4 19v-5h5"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 5v14M8 19l-3-3M8 19l3-3M16 19V5M16 5l-3 3M16 5l3 3"/></symbol>
+</defs></svg>
+
+<main id="app">
+  <!-- خانه: هیرو از همان لحظه‌ی اول (پیش از اجرای JS) رنگ می‌شود -->
+  <section id="tab-home" class="tab">
+    <header class="hero">
+      <div class="hero-bg"></div><div class="hero-board"></div>
+      <svg class="crest pop" width="88" height="88" viewBox="0 0 88 88" aria-hidden="true" role="img">
+        <rect width="88" height="88" rx="26" fill="url(#crestGrad)"/>
+        <path d="M44 20c3.3 0 6 2.7 6 6 0 2-1 3.8-2.5 4.9l3.8 12.6H38.7l3.8-12.6A6 6 0 0 1 44 20z" fill="#fff" fill-opacity=".95"/>
+        <path d="M34 47h20l3 11H31z" fill="#fff" fill-opacity=".95"/>
+        <rect x="29" y="60" width="30" height="7" rx="2.5" fill="#fff" fill-opacity=".95"/>
+        <defs><linearGradient id="crestGrad" x1="0" y1="0" x2="88" y2="88"><stop stop-color="#3a63ff"/><stop offset="1" stop-color="#1c2f8f"/></linearGradient></defs>
+      </svg>
+      <h1 class="hello"><span id="hello">سلام</span></h1>
+      <p class="hello-sub" id="hello-sub"></p>
+    </header>
+    <div id="home-body"></div>
+  </section>
+  <section id="tab-players" class="tab" hidden></section>
+  <section id="tab-tours" class="tab" hidden></section>
+  <section id="tab-clock" class="tab" hidden></section>
+  <section id="tab-me" class="tab" hidden></section>
+</main>
+
+<nav class="tabbar" id="tabbar" aria-label="بخش‌ها">
+  <i class="tab-pill" id="pill"></i>
+  <button data-go="home" class="on"><svg class="ic"><use href="#i-home"/></svg><span>خانه</span></button>
+  <button data-go="players"><svg class="ic"><use href="#i-users"/></svg><span>بازیکنان</span></button>
+  <button data-go="tours"><svg class="ic"><use href="#i-trophy"/></svg><span>مسابقات</span></button>
+  <button data-go="clock"><svg class="ic"><use href="#i-clock"/></svg><span>ساعت</span></button>
+  <button data-go="me"><span class="me-ic" id="me-ic"><svg class="ic" style="width:16px;height:16px"><use href="#i-user"/></svg></span><span>پروفایل</span></button>
+</nav>
+
+<div id="sheet-root" role="presentation">
+  <div class="backdrop"></div>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="grab"><i></i><div class="sheet-title"></div></div>
+    <div class="sheet-body"></div>
+    <div class="sheet-foot"></div>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"><span></span></div>
+
+<script>window.__V="__V__";</script>
+<script src="hub.js" defer></script>
+</body>
+</html>
