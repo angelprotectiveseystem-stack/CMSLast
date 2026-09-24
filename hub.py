@@ -20,6 +20,7 @@ URL)، این یک Telegram Mini App واقعی‌ست: از همان دکمه�
 صدا زده می‌شود.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -33,7 +34,8 @@ from aiohttp import web
 
 import database as db
 import elo
-from config import BOT_TOKEN, PISHVA_ID
+from config import (BOT_TOKEN, PISHVA_ID, ROLE_TOURNAMENT_MANAGER,
+                    ROLE_SECURITY_MANAGER)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,11 @@ routes = web.RouteTableDef()
 
 HUB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hub")
 INIT_DATA_MAX_AGE = 24 * 3600  # ثانیه، هم‌راستا با game_server.py
+
+# نقش‌هایی که اجازه‌ی ورود به هاب را دارند. مدیر ارشد (PISHVA_ID) جدا و با
+# آی‌دی چک می‌شود (ردیفی در admins ندارد)، پس اینجا فقط دو نقشِ دیگر است.
+# هر مقدارِ ناشناخته‌ای در ستونِ role → ۴۰۳ (لیستِ سفید، نه لیستِ سیاه).
+HUB_ALLOWED_ROLES = frozenset({ROLE_TOURNAMENT_MANAGER, ROLE_SECURITY_MANAGER})
 
 
 # ─── احرازِ هویتِ initData تلگرام ───────────────────────────────────
@@ -88,15 +95,25 @@ async def _identify(request):
 
 async def _require_admin(request):
     """۴۰۱ اگر initData نامعتبر/خالی باشد؛ ۴۰۳ اگر کاربرِ معتبرِ تلگرام
-    باشد ولی نه مدیرِ فعال و نه پیشوا. برمی‌گرداند: (is_pishva, admin_row_or_None, tg_user)."""
+    باشد ولی نه پیشوا، نه مدیرِ فعالِ یکی از نقش‌های مجاز (مسئول مسابقات /
+    مسئول انتظامات)، یا در لیست بلاک باشد.
+    برمی‌گرداند: (is_pishva, admin_row_or_None, tg_user).
+
+    هویت فقط از initData امضاشده‌ی تلگرام (HMAC با توکنِ ربات) می‌آید؛ آی‌دی
+    یا یوزرنیمِ ربات به‌تنهایی هیچ دسترسی‌ای نمی‌دهد."""
     user = await _identify(request)
     if not user or "id" not in user:
         raise _err(web.HTTPUnauthorized, "unauthorized")
-    uid = int(user["id"])
+    try:
+        uid = int(user["id"])
+    except (TypeError, ValueError):
+        raise _err(web.HTTPUnauthorized, "unauthorized")
     if uid == PISHVA_ID:
         return True, None, user
+    if await db.get_blocked_user(uid):
+        raise _err(web.HTTPForbidden, "forbidden")
     admin = await db.get_admin(uid)
-    if not admin or not admin["is_active"]:
+    if not admin or not admin["is_active"] or admin["role"] not in HUB_ALLOWED_ROLES:
         raise _err(web.HTTPForbidden, "forbidden")
     return False, admin, user
 
@@ -326,30 +343,76 @@ async def hub_update_profile(request):
 
 
 # ─── دکمه‌ی «پنل من» کنارِ چت (menu button) ──────────────────────────
-async def sync_menu_buttons(bot):
-    """دکمه‌ی منویِ چتِ خودِ پیشوا + همه‌ی مدیرانِ فعال را روی «پنل من»
-    (باز شدنِ hub در Telegram Mini App) می‌گذارد. کاربرانِ دیگر دکمه‌ی
-    پیش‌فرض را می‌بینند (نه این دکمه) — چون بدونِ بودن در admins یا
-    PISHVA_ID، هر تلاشی برای باز کردنِ هاب فقط ۴۰۳ می‌گیرد.
-    اگر WEBAPP_URL تنظیم نشده باشد (مثلاً روی توسعه‌ی محلی)، کاری
-    نمی‌کند — نه خطا می‌دهد، نه دکمه‌ای می‌گذارد."""
+_BOT = None  # رفرنسِ ربات؛ در اولین sync_menu_buttons ست می‌شود
+
+
+def _hub_button():
     from config import WEBAPP_URL
     if not WEBAPP_URL:
-        logger.info("WEBAPP_URL not set; skipping hub menu-button sync.")
-        return
+        return None
     try:
         from telegram import MenuButtonWebApp, WebAppInfo
     except ImportError:
         logger.warning("MenuButtonWebApp not available in this python-telegram-bot version.")
-        return
+        return None
+    return MenuButtonWebApp(text="CMS", web_app=WebAppInfo(url=f"{WEBAPP_URL}/hub/"))
 
-    url = f"{WEBAPP_URL}/hub/"
-    button = MenuButtonWebApp(text="CMS", web_app=WebAppInfo(url=url))
+
+async def sync_menu_button_for(bot, telegram_id: int):
+    """دکمه‌ی «CMS» را برای *یک* نفر همین حالا هم‌گام می‌کند: اگر پیشوا یا
+    مدیرِ فعالِ نقشِ مجاز است دکمه می‌گیرد، وگرنه دکمه‌ی پیش‌فرض برمی‌گردد
+    (مثلاً بعد از اخراج). نیازی به صبر برای job ساعتی نیست."""
+    if bot is None or not telegram_id:
+        return
+    try:
+        from telegram import MenuButtonDefault
+    except ImportError:
+        return
+    allowed = telegram_id == PISHVA_ID
+    if not allowed:
+        a = await db.get_admin(telegram_id)
+        allowed = bool(a and a["is_active"] and a["role"] in HUB_ALLOWED_ROLES)
+    try:
+        if allowed:
+            btn = _hub_button()
+            if btn is None:
+                return
+            await bot.set_chat_menu_button(chat_id=telegram_id, menu_button=btn)
+        else:
+            await bot.set_chat_menu_button(chat_id=telegram_id, menu_button=MenuButtonDefault())
+    except Exception:
+        logger.warning("Could not sync hub menu button for %s", telegram_id, exc_info=True)
+
+
+def schedule_menu_sync(telegram_id):
+    """غیرمسدودکننده؛ از database.py بعد از افزودن/اخراج/تغییرِ نقشِ مدیر
+    صدا زده می‌شود. اگر حلقه‌ی asyncio یا ربات هنوز آماده نباشد، بی‌صدا رد
+    می‌شود (job ساعتی جبران می‌کند)."""
+    if _BOT is None or not telegram_id:
+        return
+    try:
+        asyncio.get_running_loop().create_task(sync_menu_button_for(_BOT, int(telegram_id)))
+    except RuntimeError:
+        pass
+
+
+async def sync_menu_buttons(bot):
+    """دکمه‌ی منویِ چتِ خودِ پیشوا + همه‌ی مدیرانِ فعالِ نقشِ مجاز را روی
+    «پنل من» می‌گذارد. کاربرانِ دیگر دکمه‌ی پیش‌فرض را می‌بینند — و حتی اگر
+    لینک را از جایی پیدا کنند، بدونِ initData امضاشده و ردیف در admins فقط
+    ۴۰۱/۴۰۳ می‌گیرند. اگر WEBAPP_URL تنظیم نشده باشد کاری نمی‌کند."""
+    global _BOT
+    _BOT = bot
+    button = _hub_button()
+    if button is None:
+        logger.info("WEBAPP_URL not set (or no MenuButtonWebApp); skipping hub menu-button sync.")
+        return
 
     chat_ids = [PISHVA_ID]
     try:
         admins = await db.get_active_admins()
-        chat_ids += [a["telegram_id"] for a in admins]
+        chat_ids += [a["telegram_id"] for a in admins
+                     if a["role"] in HUB_ALLOWED_ROLES and a["telegram_id"]]
     except Exception:
         logger.exception("Could not load active admins for hub menu-button sync.")
 

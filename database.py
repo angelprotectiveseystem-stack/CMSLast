@@ -163,6 +163,16 @@ def _invalidate_admin_cache(telegram_id=None):
     _admin_list_cache.clear()
 
 
+def _hub_menu_sync(telegram_id):
+    """بعد از هر تغییرِ وضعیتِ مدیر، دکمه‌ی «CMS» کنارِ چتش همان لحظه هم‌گام
+    شود (نه تا یک ساعتِ بعد). import تنبل، چون hub خودش database را import می‌کند."""
+    try:
+        from hub import schedule_menu_sync
+        schedule_menu_sync(telegram_id)
+    except Exception:
+        pass
+
+
 def _invalidate_blocked_cache(telegram_id=None):
     if telegram_id is None:
         _blocked_cache.clear()
@@ -747,6 +757,7 @@ async def create_admin(telegram_id, username, full_name, role):
         )
         await db.commit()
     _invalidate_admin_cache(telegram_id)
+    _hub_menu_sync(telegram_id)
 
 
 async def update_admin_activity(telegram_id):
@@ -995,6 +1006,7 @@ async def kick_admin(telegram_id: int):
         await db.execute("UPDATE admins SET is_active=0 WHERE telegram_id=?", (telegram_id,))
         await db.commit()
     _invalidate_admin_cache(telegram_id)
+    _hub_menu_sync(telegram_id)
 
 
 async def revive_admin(telegram_id: int):
@@ -1004,6 +1016,7 @@ async def revive_admin(telegram_id: int):
         await db.execute("UPDATE admins SET is_active=1 WHERE telegram_id=?", (telegram_id,))
         await db.commit()
     _invalidate_admin_cache(telegram_id)
+    _hub_menu_sync(telegram_id)
 
 
 async def set_admin_warnings(telegram_id: int, count: int):
@@ -1020,6 +1033,7 @@ async def set_admin_role(telegram_id: int, new_role: str):
         await db.execute("UPDATE admins SET role=? WHERE telegram_id=?", (new_role, telegram_id))
         await db.commit()
     _invalidate_admin_cache(telegram_id)
+    _hub_menu_sync(telegram_id)
 
 
 async def update_admin_role_active(telegram_id: int, new_role: str):
@@ -1033,6 +1047,7 @@ async def update_admin_role_active(telegram_id: int, new_role: str):
         )
         await db.commit()
     _invalidate_admin_cache(telegram_id)
+    _hub_menu_sync(telegram_id)
 
 
 # ─── Classes ─────────────────────────────────────────────────
