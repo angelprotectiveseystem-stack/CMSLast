@@ -245,6 +245,16 @@ async def post_init(application: Application) -> None:
     except Exception as e:
         logger.warning(f"Could not set commands: {e}")
 
+    # دکمه‌ی «پنل من» کنارِ چت (Telegram Mini App menu button) — فقط برای
+    # پیشوا و مدیرانِ فعال، نه برای همه (تا کاربرِ عادی دکمه‌ای نبیند که
+    # وارد شدنش فقط ۴۰۳ می‌گیرد). WEBAPP_URL باید HTTPS و عمومی باشد.
+    try:
+        from hub import sync_menu_buttons
+        await sync_menu_buttons(application.bot)
+        logger.info("Hub (پنل من) menu buttons set.")
+    except Exception as e:
+        logger.warning(f"Could not set hub menu buttons: {e}")
+
     # Schedule weekly champion announcement — دقیقاً هر دوشنبه ساعت ۹ صبح
     # به‌وقت تهران، با precise_scheduler روی یک لحظهٔ مطلق (نه run_repeating
     # نسبی که با هر ری‌استارت رایلوی جابه‌جا می‌شد و انحراف جمع می‌کرد)
@@ -321,6 +331,21 @@ async def post_init(application: Application) -> None:
         logger.info("Reminder checks scheduled every 1h.")
     except Exception as e:
         logger.warning(f"Could not schedule reminder checks: {e}")
+
+    # هم‌گام‌سازیِ دوره‌ایِ دکمه‌ی «پنل من»: مدیرانِ تازه‌ترفیع‌گرفته یا
+    # مدیرانِ اخراج‌شده هرچند وقت یک‌بار دکمه‌شان به‌روز می‌شود (به‌جای قلاب‌
+    # زدن به همه‌ی نقطه‌های create_admin/kick_admin در فایل‌های مختلف).
+    try:
+        from hub import sync_menu_buttons_job
+        application.job_queue.run_repeating(
+            sync_menu_buttons_job,
+            interval=timedelta(hours=1),
+            first=timedelta(minutes=10),
+            name="hub_menu_sync"
+        )
+        logger.info("Hub menu-button sync scheduled every 1h.")
+    except Exception as e:
+        logger.warning(f"Could not schedule hub menu-button sync: {e}")
 
 
 async def _noop_callback(update: Update, ctx) -> None:

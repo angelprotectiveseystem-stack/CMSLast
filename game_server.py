@@ -1124,6 +1124,11 @@ async def start_game_server(bot=None):
         register_principal_routes(app)
     except Exception:
         logger.exception("Principal panel routes could not be registered")
+    try:
+        from hub import register_hub_routes
+        register_hub_routes(app)
+    except Exception:
+        logger.exception("Hub (پنل من) routes could not be registered")
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", WEBAPP_PORT)

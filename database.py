@@ -582,6 +582,13 @@ async def init_db():
             # ─── رنگ دکمه‌ی هر کلاس (فقط مدیر ارشد تنظیمش می‌کنه): NULL = پیش‌فرضِ همون منو،
             # 'none' = بی‌رنگ، و 'primary'/'success'/'danger' = آبی/سبز/قرمز.
             "ALTER TABLE classes ADD COLUMN button_style TEXT",
+            # ─── پروفایلِ مدیران در مینی‌اپِ «پنل من» (hub.py): سمت/شهر/بیوگرافی
+            # + تا ۵ ردیفِ جزئیاتِ دلخواه (details، به‌صورتِ JSON: [{"k":...,"v":...}])
+            # که هر مدیر یا مدیر ارشد خودش از داخلِ مینی‌اپ ویرایش می‌کنه.
+            "ALTER TABLE admins ADD COLUMN title TEXT DEFAULT ''",
+            "ALTER TABLE admins ADD COLUMN city TEXT DEFAULT ''",
+            "ALTER TABLE admins ADD COLUMN bio TEXT DEFAULT ''",
+            "ALTER TABLE admins ADD COLUMN details TEXT DEFAULT '[]'",
         ):
             try:
                 await db.execute(stmt)
@@ -1629,6 +1636,249 @@ async def set_match_result(mid: int, result: str, draw_reason: str, updated_by: 
         )
         await db.commit()
     _invalidate_matches_cache()
+
+
+# ─── «پنل من» (hub.py) ─────────────────────────────────────────
+async def get_tournaments_with_counts():
+    """همان get_all_tournaments، به‌علاوه‌ی total/done برای هرکدام —
+    با یک کوئریِ GROUP BY (نه N+1 تا کوئریِ جدا برای هر تورنمنت) — برای
+    لیستِ مسابقاتِ هاب."""
+    tours = await get_all_tournaments()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT tournament_id,
+                      COUNT(*) as total,
+                      SUM(CASE WHEN result IS NOT NULL THEN 1 ELSE 0 END) as done
+               FROM matches WHERE tournament_id IS NOT NULL GROUP BY tournament_id"""
+        ) as cur:
+            rows = await cur.fetchall()
+    counts = {r["tournament_id"]: (r["total"], r["done"]) for r in rows}
+    out = []
+    for t in tours:
+        total, done = counts.get(t["id"], (0, 0))
+        out.append({
+            "id": t["id"], "name": t["name"], "status": t["status"],
+            "created": t["created_at"], "total": total, "done": done,
+        })
+    return out
+
+
+async def get_all_player_elo() -> dict:
+    """رتبه‌ی Elo همه‌ی بازیکنان با یک کوئریِ واحد (نه یکی‌یکی) — برای
+    /hub/api/players و کارتِ «برترین‌ها»، جایی که ممکن است ده‌ها/صدها
+    بازیکن با هم لازم شوند. خروجی: {player_id: {rating, peak_rating,
+    games_played}}؛ بازیکنی که هنوز رکوردِ Elo ندارد در دیکشنری نیست —
+    خواننده باید پیش‌فرضِ ELO_DEFAULT=1200 را خودش در نظر بگیرد."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT player_id, rating, peak_rating, games_played FROM player_elo") as cur:
+            rows = await cur.fetchall()
+    return {r["player_id"]: dict(r) for r in rows}
+
+
+async def get_hub_matches_summary():
+    """خلاصه‌ی وضعیتِ مسابقات برای صفحه‌ی خانه‌ی هاب: تعدادِ منتظرِ نتیجه،
+    قدیمی‌ترینِ آن‌ها بر حسبِ روز، و تعدادِ نتیجه‌ی ثبت‌شده‌ی «امروز»
+    (بر اساسِ ساعتِ سرور، مثلِ بقیه‌ی ثبتِ زمان‌های این پروژه)."""
+    now = datetime.now()
+    today_prefix = now.strftime("%Y-%m-%d")
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT created_at FROM matches WHERE result IS NULL ORDER BY created_at ASC LIMIT 1"
+        ) as cur:
+            oldest = await cur.fetchone()
+        async with db.execute("SELECT COUNT(*) as c FROM matches WHERE result IS NULL") as cur:
+            pending = (await cur.fetchone())["c"]
+        async with db.execute(
+            "SELECT COUNT(*) as c FROM matches WHERE result IS NOT NULL AND updated_at LIKE ?",
+            (today_prefix + "%",)
+        ) as cur:
+            done_today = (await cur.fetchone())["c"]
+    oldest_days = 0
+    if oldest and oldest["created_at"]:
+        try:
+            delta = now - datetime.fromisoformat(str(oldest["created_at"])[:19])
+            oldest_days = max(0, delta.days)
+        except Exception:
+            oldest_days = 0
+    return {"pending": pending, "done_today": done_today, "oldest_pending_days": oldest_days}
+
+
+async def get_hub_trend(days: int = 7):
+    """تعدادِ نتیجه‌های ثبت‌شده در هر یک از N روزِ اخیر (بر اساسِ updated_at)
+    + ترکیبِ نتیجه‌ها (برد سفید/سیاه/تساوی) در ۳۰ روزِ اخیر، برای کارتِ
+    «روند» در خانه‌ی هاب."""
+    now = datetime.now()
+    day_keys = [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days - 1, -1, -1)]
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT updated_at FROM matches WHERE result IS NOT NULL AND updated_at >= ?",
+            ((now - timedelta(days=days)).isoformat(),)
+        ) as cur:
+            recent_rows = await cur.fetchall()
+        async with db.execute(
+            "SELECT result FROM matches WHERE result IS NOT NULL AND updated_at >= ?",
+            ((now - timedelta(days=30)).isoformat(),)
+        ) as cur:
+            mix_rows = await cur.fetchall()
+    counts = {k: 0 for k in day_keys}
+    for r in recent_rows:
+        key = str(r["updated_at"])[:10]
+        if key in counts:
+            counts[key] += 1
+    mix = {"white": 0, "black": 0, "draw": 0}
+    for r in mix_rows:
+        if r["result"] in mix:
+            mix[r["result"]] += 1
+    return {"days": [{"d": k, "c": counts[k]} for k in day_keys], "mix": mix}
+
+
+async def get_admin_match_stats(admin_id: int):
+    """چند نتیجه این مدیر در ۷ روزِ اخیر و در کل ثبت کرده — برای بخشِ
+    «فعالیتِ من» در پروفایلِ خودِ هر مدیر."""
+    now = datetime.now()
+    week_ago = (now - timedelta(days=7)).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM matches WHERE updated_by=? AND result IS NOT NULL", (admin_id,)
+        ) as cur:
+            total = (await cur.fetchone())[0]
+        async with db.execute(
+            "SELECT COUNT(*) FROM matches WHERE updated_by=? AND result IS NOT NULL AND updated_at>=?",
+            (admin_id, week_ago)
+        ) as cur:
+            week = (await cur.fetchone())[0]
+    return {"total": total, "week": week}
+
+
+def _clean_profile_fields(display_name, title, city, bio, details):
+    display_name = (display_name or "").strip()[:40]
+    title = (title or "").strip()[:40]
+    city = (city or "").strip()[:30]
+    bio = (bio or "").strip()[:300]
+    clean_details = []
+    for d in (details or [])[:5]:
+        k = str(d.get("k", "")).strip()[:20]
+        v = str(d.get("v", "")).strip()[:60]
+        if k and v:
+            clean_details.append({"k": k, "v": v})
+    return display_name, title, city, bio, clean_details
+
+
+async def update_admin_profile(telegram_id: int, display_name: str, title: str, city: str, bio: str, details: list):
+    """پروفایلِ یک مدیرِ معمولی را می‌نویسد (روی ردیفِ خودش در admins).
+    برای مدیر ارشد (که ردیفی در admins ندارد) از update_pishva_profile
+    استفاده کن، نه این تابع."""
+    now = datetime.now().isoformat()
+    display_name, title, city, bio, clean_details = _clean_profile_fields(display_name, title, city, bio, details)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE admins SET display_name=?, title=?, city=?, bio=?, details=?, last_active=? WHERE telegram_id=?",
+            (display_name or None, title, city, bio, json.dumps(clean_details, ensure_ascii=False), now, telegram_id)
+        )
+        await db.commit()
+    _invalidate_admin_cache(telegram_id)
+    admin = await get_admin(telegram_id)
+    return {
+        "name": admin["display_name"] or admin["full_name"],
+        "title": admin["title"] or "",
+        "city": admin["city"] or "",
+        "bio": admin["bio"] or "",
+        "details": clean_details,
+    }
+
+
+# ─── پروفایلِ مدیر ارشد (پیشوا) ─────────────────────────────────
+# چون PISHVA_ID ردیفی در جدولِ admins ندارد (همه‌جای پروژه با یک
+# ثابتِ config.PISHVA_ID شناخته می‌شود، نه یک رکورد)، فیلدهای
+# پروفایلش را به‌جای admins در system_settings نگه می‌داریم.
+_PISHVA_PROFILE_KEYS = {
+    "pishva_display_name": "مدیر ارشد",
+    "pishva_title": "",
+    "pishva_city": "",
+    "pishva_bio": "",
+    "pishva_details": "[]",
+}
+
+
+async def get_pishva_profile_fields() -> dict:
+    settings = await get_settings_bulk(list(_PISHVA_PROFILE_KEYS.keys()), default=None)
+    for k, dflt in _PISHVA_PROFILE_KEYS.items():
+        if settings.get(k) is None:
+            settings[k] = dflt
+    try:
+        details = json.loads(settings["pishva_details"] or "[]")
+    except Exception:
+        details = []
+    return {
+        "name": settings["pishva_display_name"],
+        "title": settings["pishva_title"],
+        "city": settings["pishva_city"],
+        "bio": settings["pishva_bio"],
+        "details": details if isinstance(details, list) else [],
+        "joined_at": None,
+    }
+
+
+async def update_pishva_profile(display_name: str, title: str, city: str, bio: str, details: list):
+    display_name, title, city, bio, clean_details = _clean_profile_fields(display_name, title, city, bio, details)
+    if display_name:
+        await set_setting("pishva_display_name", display_name)
+    await set_setting("pishva_title", title)
+    await set_setting("pishva_city", city)
+    await set_setting("pishva_bio", bio)
+    await set_setting("pishva_details", json.dumps(clean_details, ensure_ascii=False))
+    return {
+        "name": display_name or await get_setting("pishva_display_name", "مدیر ارشد"),
+        "title": title, "city": city, "bio": bio, "details": clean_details,
+    }
+
+
+async def get_tournament_matches_named(tid: int):
+    """بازی‌های یک تورنمنت با نامِ بازیکنان، تازه‌ترین اول — برای شیتِ
+    جزئیاتِ تورنمنت در هاب (renderTours/openTournament)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT m.*, wp.full_name as white_name, bp.full_name as black_name
+               FROM matches m
+               LEFT JOIN players wp ON m.white_player_id=wp.id
+               LEFT JOIN players bp ON m.black_player_id=bp.id
+               WHERE m.tournament_id=? ORDER BY m.created_at DESC""",
+            (tid,)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def get_player_hub_detail(player_id: int, limit: int = 15):
+    """جزئیاتِ یک بازیکن برای شیتِ پروفایلِ او در هاب: رتبه‌ی فعلی (بر
+    اساسِ Elo در میانِ بازیکنانِ فعال) + آخرین بازی‌ها."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT m.*, wp.full_name as white_name, bp.full_name as black_name, t.name as t_name
+               FROM matches m
+               LEFT JOIN players wp ON m.white_player_id=wp.id
+               LEFT JOIN players bp ON m.black_player_id=bp.id
+               LEFT JOIN tournaments t ON m.tournament_id=t.id
+               WHERE m.white_player_id=? OR m.black_player_id=?
+               ORDER BY m.created_at DESC LIMIT ?""",
+            (player_id, player_id, limit)
+        ) as cur:
+            matches = await cur.fetchall()
+        async with db.execute(
+            """SELECT COUNT(*)+1 as rank FROM player_elo pe
+               JOIN players p ON p.id=pe.player_id
+               WHERE p.status='active' AND pe.rating > (
+                   SELECT COALESCE(rating,1200) FROM player_elo WHERE player_id=?
+               )""",
+            (player_id,)
+        ) as cur:
+            rank_row = await cur.fetchone()
+    return {"matches": matches, "rank_row": rank_row}
 
 
 async def record_match_result(mid: int, result: str, reason: str, updated_by: int, match=None):
