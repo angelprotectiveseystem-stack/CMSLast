@@ -39,6 +39,7 @@ from datetime import datetime, timedelta
 from urllib.parse import quote
 
 import httpx
+import net_utils
 from aiohttp import web
 
 import database as db
@@ -898,64 +899,70 @@ async def _call_assistant_gemini(contents: list, tools=None, model_chain=None):
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
     last_empty = None
     last_empty_model = None
-    async with httpx.AsyncClient(timeout=ASSISTANT_REQUEST_TIMEOUT) as client:
-        for model in chain:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-            is_gen3 = model.startswith("gemini-3")
-            generation_config = {
-                "maxOutputTokens": ASSISTANT_MAX_OUTPUT_TOKENS,
-                "thinkingConfig": (
-                    {"thinkingLevel": "minimal"} if is_gen3 else {"thinkingBudget": 256}
-                ),
-            }
-            # نسل ۳ جمینای (gemini-3.5-flash-lite / gemini-3.6-flash) دیگه پارامترِ
-            # temperature رو قبول نمی‌کنه و به‌جای نادیده‌گرفتنِ ساده‌اش، مستقیماً
-            # خطای 400 INVALID_ARGUMENT برمی‌گردونه (طبق مستنداتِ به‌روزشده‌ی گوگل،
-            # ۲۰۲۶-۰۹-۲۱). چون این پارامتر همیشه توی payload بود، هر بار که زنجیره
-            # به این دو مدل می‌رسید (مثلاً چون gemini-2.5-flash-lite از کار افتاده)
-            # همون یک درخواست هم با 400 رد می‌شد — یعنی هر سه مدلِ زنجیره شکست
-            # می‌خوردن و دستیار همیشه پیامِ «امکان پاسخ‌گویی وجود ندارد» رو نشون می‌داد.
-            if not is_gen3:
-                generation_config["temperature"] = 0.4
-            payload = {
-                "contents": contents,
-                "generationConfig": generation_config,
-            }
-            if tools:
-                payload["tools"] = tools
-            data = None
-            for attempt in range(2):  # حداکثر یک تلاشِ مجدد برای خطاهای گذرا
-                try:
-                    resp = await client.post(url, headers=headers, json=payload)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    break
-                except httpx.HTTPStatusError as e:
-                    code = e.response.status_code
-                    logger.warning(
-                        f"Principal assistant: model {model} failed ({code}) "
-                        f"attempt {attempt + 1}: {e.response.text[:200]}"
-                    )
-                    if code in ASSISTANT_TRANSIENT_STATUS and attempt == 0:
-                        await asyncio.sleep(ASSISTANT_RETRY_DELAY)
-                        continue
-                    break
-                except Exception as e:
-                    # شاملِ تایم‌اوت هم می‌شه (httpx.TimeoutException و مشابه)؛ عمداً برای
-                    # این‌ها تلاشِ مجدد نمی‌کنیم — اگه یک مدل تایم‌اوت می‌کنه، تلاشِ دوباره‌ی
-                    # فوری معمولاً همون تایم‌اوت رو تکرار می‌کنه و فقط وقتِ کاربر رو تلف می‌کنه.
-                    logger.warning(f"Principal assistant: model {model} failed ({e!r})")
-                    break
-            if data is None:
-                continue  # مدلِ بعدی
-            if _extract_assistant_parts(data):
-                return data, model
-            # پاسخِ بدونِ متن/تابع (مثلاً قطع‌شدن به‌خاطر سقفِ توکن یا فیلترِ ایمنی) —
-            # قبلاً همین‌جا به کاربر «متوجه نشدم» می‌گفتیم؛ اول مدلِ بعدی رو امتحان می‌کنیم.
-            fr = ((data.get("candidates") or [{}])[0]).get("finishReason")
-            logger.warning(f"Principal assistant: model {model} returned an empty reply (finishReason={fr})")
-            last_empty = data
-            last_empty_model = model
+    # کلاینتِ مشترک و ماندگار (به‌جای ساختن یه AsyncClient تازه برای هر پیام) —
+    # همون الگوی turso_db.py و ai_assistant.py، تا اتصالِ TCP/TLS با گوگل بینِ
+    # درخواست‌های پیاپی keep-alive بمونه. timeout رو صریحاً per-request می‌دیم
+    # چون کلاینتِ مشترک خودش timeout سراسری نداره.
+    client = net_utils.get_gemini_client()
+    for model in chain:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        is_gen3 = model.startswith("gemini-3")
+        generation_config = {
+            "maxOutputTokens": ASSISTANT_MAX_OUTPUT_TOKENS,
+            "thinkingConfig": (
+                {"thinkingLevel": "minimal"} if is_gen3 else {"thinkingBudget": 256}
+            ),
+        }
+        # نسل ۳ جمینای (gemini-3.5-flash-lite / gemini-3.6-flash) دیگه پارامترِ
+        # temperature رو قبول نمی‌کنه و به‌جای نادیده‌گرفتنِ ساده‌اش، مستقیماً
+        # خطای 400 INVALID_ARGUMENT برمی‌گردونه (طبق مستنداتِ به‌روزشده‌ی گوگل،
+        # ۲۰۲۶-۰۹-۲۱). چون این پارامتر همیشه توی payload بود، هر بار که زنجیره
+        # به این دو مدل می‌رسید (مثلاً چون gemini-2.5-flash-lite از کار افتاده)
+        # همون یک درخواست هم با 400 رد می‌شد — یعنی هر سه مدلِ زنجیره شکست
+        # می‌خوردن و دستیار همیشه پیامِ «امکان پاسخ‌گویی وجود ندارد» رو نشون می‌داد.
+        if not is_gen3:
+            generation_config["temperature"] = 0.4
+        payload = {
+            "contents": contents,
+            "generationConfig": generation_config,
+        }
+        if tools:
+            payload["tools"] = tools
+        data = None
+        for attempt in range(2):  # حداکثر یک تلاشِ مجدد برای خطاهای گذرا
+            try:
+                resp = await client.post(
+                    url, headers=headers, json=payload, timeout=ASSISTANT_REQUEST_TIMEOUT
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except httpx.HTTPStatusError as e:
+                code = e.response.status_code
+                logger.warning(
+                    f"Principal assistant: model {model} failed ({code}) "
+                    f"attempt {attempt + 1}: {e.response.text[:200]}"
+                )
+                if code in ASSISTANT_TRANSIENT_STATUS and attempt == 0:
+                    await asyncio.sleep(ASSISTANT_RETRY_DELAY)
+                    continue
+                break
+            except Exception as e:
+                # شاملِ تایم‌اوت هم می‌شه (httpx.TimeoutException و مشابه)؛ عمداً برای
+                # این‌ها تلاشِ مجدد نمی‌کنیم — اگه یک مدل تایم‌اوت می‌کنه، تلاشِ دوباره‌ی
+                # فوری معمولاً همون تایم‌اوت رو تکرار می‌کنه و فقط وقتِ کاربر رو تلف می‌کنه.
+                logger.warning(f"Principal assistant: model {model} failed ({e!r})")
+                break
+        if data is None:
+            continue  # مدلِ بعدی
+        if _extract_assistant_parts(data):
+            return data, model
+        # پاسخِ بدونِ متن/تابع (مثلاً قطع‌شدن به‌خاطر سقفِ توکن یا فیلترِ ایمنی) —
+        # قبلاً همین‌جا به کاربر «متوجه نشدم» می‌گفتیم؛ اول مدلِ بعدی رو امتحان می‌کنیم.
+        fr = ((data.get("candidates") or [{}])[0]).get("finishReason")
+        logger.warning(f"Principal assistant: model {model} returned an empty reply (finishReason={fr})")
+        last_empty = data
+        last_empty_model = model
     if last_empty is not None:
         return last_empty, last_empty_model
     logger.error("Principal assistant: all models failed")

@@ -1,4 +1,5 @@
 import logging
+import net_utils  # noqa: F401  # اجبار IPv4 برای DNS باید قبل از هر ایمپورتی که httpx می‌سازه اجرا بشه
 from datetime import timedelta
 from telegram import Update, BotCommand, BotCommandScopeChat
 from telegram.ext import (

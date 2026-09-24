@@ -18,6 +18,7 @@ import logging
 import re
 
 import httpx
+import net_utils
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
@@ -453,57 +454,63 @@ async def _call_gemini(contents: list, tools, tool_config=None):
     headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY}
 
     last_error = None
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
-        for i, model in enumerate(MODEL_CHAIN):
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-            is_last_model = (i == len(MODEL_CHAIN) - 1)
-            generation_config = {
-                "thinkingConfig": _thinking_config_for(model),
-                "maxOutputTokens": MAX_OUTPUT_TOKENS,
-            }
-            # نسل ۳ جمینای (gemini-3.5-flash-lite / gemini-3.6-flash) دیگه temperature
-            # رو قبول نمی‌کنه — از حالتِ «نادیده‌گرفتنِ ساده» به خطای 400 INVALID_ARGUMENT
-            # تغییر کرده (مستنداتِ گوگل، ۲۰۲۶-۰۹-۲۱). برای نسل ۲.۵ همچنان می‌فرستیمش
-            # چون دمای پایین‌تر یعنی تصمیم «تابع صدا بزنم یا نه» با ثبات بیشتری گرفته می‌شه.
-            if not model.startswith("gemini-3"):
-                generation_config["temperature"] = 0.3
-            payload = {"contents": contents, "generationConfig": generation_config}
-            if tools:
-                payload["tools"] = tools
-                if tool_config:
-                    payload["toolConfig"] = tool_config
-            for attempt in range(RETRIES_PER_MODEL):
-                try:
-                    resp = await client.post(url, headers=headers, json=payload)
-                    resp.raise_for_status()
-                    return resp.json()
-                except httpx.TimeoutException as e:
-                    # باگِ کندیِ اصلی (رفع‌شده): قبلاً این‌جا روی تایم‌اوت، دوباره همون
-                    # مدل رو امتحان می‌کردیم (RETRIES_PER_MODEL=2) — یعنی تا
-                    # REQUEST_TIMEOUT_SECONDS*2 (حدود ۹۰ ثانیه) روی یک مدلِ کند/از‌کارافتاده
-                    # هدر می‌رفت قبل از رسیدن به مدلِ بعدیِ سالم. principal_panel.py از قبل
-                    # این درس رو یاد گرفته بود: «تلاشِ دوباره‌ی فوری معمولاً همون تایم‌اوت
-                    # رو تکرار می‌کنه و فقط وقتِ کاربر رو تلف می‌کنه» — همون منطق اینجا هم
-                    # پیاده شد. حالا روی تایم‌اوت بلافاصله (بدون تلاشِ دوباره) می‌ریم مدلِ بعدی.
-                    last_error = e
-                    logger.warning(f"Gemini {model} timed out after {REQUEST_TIMEOUT_SECONDS}s, trying next model...")
+    # کلاینتِ مشترک و ماندگار (به‌جای ساختن یه AsyncClient تازه برای هر پیام) —
+    # همون الگوی turso_db.py، تا اتصالِ TCP/TLS با گوگل بینِ درخواست‌های پیاپی
+    # keep-alive بمونه و reuse بشه. timeout رو اینجا صریحاً per-request می‌دیم
+    # چون کلاینتِ مشترک خودش timeout سراسری نداره.
+    client = net_utils.get_gemini_client()
+    for i, model in enumerate(MODEL_CHAIN):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        is_last_model = (i == len(MODEL_CHAIN) - 1)
+        generation_config = {
+            "thinkingConfig": _thinking_config_for(model),
+            "maxOutputTokens": MAX_OUTPUT_TOKENS,
+        }
+        # نسل ۳ جمینای (gemini-3.5-flash-lite / gemini-3.6-flash) دیگه temperature
+        # رو قبول نمی‌کنه — از حالتِ «نادیده‌گرفتنِ ساده» به خطای 400 INVALID_ARGUMENT
+        # تغییر کرده (مستنداتِ گوگل، ۲۰۲۶-۰۹-۲۱). برای نسل ۲.۵ همچنان می‌فرستیمش
+        # چون دمای پایین‌تر یعنی تصمیم «تابع صدا بزنم یا نه» با ثبات بیشتری گرفته می‌شه.
+        if not model.startswith("gemini-3"):
+            generation_config["temperature"] = 0.3
+        payload = {"contents": contents, "generationConfig": generation_config}
+        if tools:
+            payload["tools"] = tools
+            if tool_config:
+                payload["toolConfig"] = tool_config
+        for attempt in range(RETRIES_PER_MODEL):
+            try:
+                resp = await client.post(
+                    url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT_SECONDS
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.TimeoutException as e:
+                # باگِ کندیِ اصلی (رفع‌شده): قبلاً این‌جا روی تایم‌اوت، دوباره همون
+                # مدل رو امتحان می‌کردیم (RETRIES_PER_MODEL=2) — یعنی تا
+                # REQUEST_TIMEOUT_SECONDS*2 (حدود ۹۰ ثانیه) روی یک مدلِ کند/از‌کارافتاده
+                # هدر می‌رفت قبل از رسیدن به مدلِ بعدیِ سالم. principal_panel.py از قبل
+                # این درس رو یاد گرفته بود: «تلاشِ دوباره‌ی فوری معمولاً همون تایم‌اوت
+                # رو تکرار می‌کنه و فقط وقتِ کاربر رو تلف می‌کنه» — همون منطق اینجا هم
+                # پیاده شد. حالا روی تایم‌اوت بلافاصله (بدون تلاشِ دوباره) می‌ریم مدلِ بعدی.
+                last_error = e
+                logger.warning(f"Gemini {model} timed out after {REQUEST_TIMEOUT_SECONDS}s, trying next model...")
+                break
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                code = e.response.status_code
+                if code in (503, 429):
+                    # شلوغی موقت سرور یا محدودیت نرخ — همین مدل رو دوباره امتحان کن
+                    logger.warning(f"Gemini {model} attempt {attempt+1} failed ({code}), retrying...")
+                    await asyncio.sleep(RETRY_DELAY_SECONDS)
+                    continue
+                elif code in (404, 400) and not is_last_model:
+                    # مدل موجود نیست (404) یا این مدل خاص یه ایراد تنظیماتی داره (400) —
+                    # برو سراغ مدل بعدی؛ تلاش دوباره روی همین مدل بی‌فایده‌ست
+                    logger.warning(f"Gemini model {model} failed ({code}), trying next model...")
                     break
-                except httpx.HTTPStatusError as e:
-                    last_error = e
-                    code = e.response.status_code
-                    if code in (503, 429):
-                        # شلوغی موقت سرور یا محدودیت نرخ — همین مدل رو دوباره امتحان کن
-                        logger.warning(f"Gemini {model} attempt {attempt+1} failed ({code}), retrying...")
-                        await asyncio.sleep(RETRY_DELAY_SECONDS)
-                        continue
-                    elif code in (404, 400) and not is_last_model:
-                        # مدل موجود نیست (404) یا این مدل خاص یه ایراد تنظیماتی داره (400) —
-                        # برو سراغ مدل بعدی؛ تلاش دوباره روی همین مدل بی‌فایده‌ست
-                        logger.warning(f"Gemini model {model} failed ({code}), trying next model...")
-                        break
-                    else:
-                        raise  # خطای دیگه (کلید نامعتبر و ...) یا آخرین مدل هم بود — دیگه فایده‌ای نداره
-            # اگه به اینجا رسیدیم یعنی این مدل بعد از چند تلاش/یا 404 جواب نداد؛ برو مدل بعدی
+                else:
+                    raise  # خطای دیگه (کلید نامعتبر و ...) یا آخرین مدل هم بود — دیگه فایده‌ای نداره
+        # اگه به اینجا رسیدیم یعنی این مدل بعد از چند تلاش/یا 404 جواب نداد؛ برو مدل بعدی
     raise last_error
 
 
