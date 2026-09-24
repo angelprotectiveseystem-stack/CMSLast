@@ -344,7 +344,7 @@ async def sync_menu_buttons(bot):
         return
 
     url = f"{WEBAPP_URL}/hub/"
-    button = MenuButtonWebApp(text="سی ام اس", web_app=WebAppInfo(url=url))
+    button = MenuButtonWebApp(text="CMS", web_app=WebAppInfo(url=url))
 
     chat_ids = [PISHVA_ID]
     try:
