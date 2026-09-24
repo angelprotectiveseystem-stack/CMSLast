@@ -109,6 +109,17 @@
     try { tg.ready(); } catch (e) {}
     try { tg.expand(); } catch (e) {}
     try { tg.disableVerticalSwipes(); } catch (e) {}
+    // تمام‌صفحه‌ی واقعی (مثل ویب‌چس): هدر تلگرام جمع می‌شود. فقط در Bot API
+    // 8.0+ موجوده، expand() بالا به‌عنوان fallback همیشه اجرا شده.
+    // تمام‌صفحه‌ی واقعی (مثل ویب‌چس): هدر تلگرام جمع می‌شود. فقط در Bot API
+    // 8.0+ موجوده؛ expand() بالا به‌عنوان fallback همیشه اجرا شده. متغیرهای
+    // --tg-content-safe-area-inset-* را خودِ تلگرام ست می‌کند و hub.css از
+    // قبل از همان‌ها استفاده می‌کند، پس نیازی به کدِ اضافه نیست.
+    try {
+      if (tg.isVersionAtLeast && tg.isVersionAtLeast('8.0') && typeof tg.requestFullscreen === 'function') {
+        tg.requestFullscreen();
+      }
+    } catch (e) {}
     try { tg.BackButton.onClick(function () { var f = backStack[backStack.length - 1]; if (f) f(); }); } catch (e) {}
     try { tg.onEvent('themeChanged', chrome); } catch (e) {}
     chrome();
