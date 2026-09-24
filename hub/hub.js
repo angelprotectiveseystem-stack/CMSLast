@@ -711,12 +711,12 @@
 
   /* ─── دروازه‌ها (خطا/عدمِ دسترسی) ─────────────────────────── */
   function gateCrest() {
-    return h('span', { class: 'crest sm', role: 'img', 'aria-label': 'لوگوی سی ام اس' });
+    return h('span', { class: 'crest sm', role: 'img', 'aria-label': 'لوگوی CMS' });
   }
   function gate(kind) {
     bar.hidden = true;
     var msg = kind === 403 ? ['دسترسی ندارید', 'این بخش فقط برای مدیر ارشد و مدیران فعالِ ربات است. اگر فکر می‌کنید اشتباه است، به مدیر ارشد خبر بدهید.']
-      : kind === 401 ? ['از داخل تلگرام باز کنید', 'این صفحه فقط با دکمه‌ی «سی ام اس» در چتِ ربات کار می‌کند.']
+      : kind === 401 ? ['از داخل تلگرام باز کنید', 'این صفحه فقط با دکمه‌ی «CMS» در چتِ ربات کار می‌کند.']
       : ['اتصال برقرار نشد', 'اینترنت را بررسی کنید و دوباره امتحان کنید.'];
     $('#app').replaceChildren(h('div', { class: 'gate' }, gateCrest(), h('h2', { text: msg[0] }), h('p', { text: msg[1] }),
       kind !== 401 && kind !== 403 ? h('button', { class: 'btn', type: 'button', text: 'تلاش دوباره', onclick: function () { location.reload(); } }) : null));
