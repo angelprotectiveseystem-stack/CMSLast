@@ -1,4 +1,4 @@
-/* پنل من — مینی‌اپ مدیران (بدونِ فریم‌ورک؛ کوچک و سریع)
+/* سی ام اس — مینی‌اپ مدیران (بدونِ فریم‌ورک؛ کوچک و سریع)
    قواعدِ کارایی: هیچ innerHTML با داده‌ی کاربر (همه با textContent)، لیست‌های بلند
    تکه‌تکه رندر می‌شوند، فقط transform/opacity انیمیت می‌شود، داده‌ها ابتدا از
    کشِ محلی نشان داده می‌شوند و در پس‌زمینه تازه می‌شوند. ساعت (clock.js) تنبل بار می‌شود. */
@@ -103,7 +103,7 @@
   }
 
   /* ─── تلگرام ───────────────────────────────────────────────── */
-  var HERO_HEX = '#2547d8';
+  var HERO_HEX = '#b3121c';
   function initTelegram() {
     if (!tg) return;
     try { tg.ready(); } catch (e) {}
@@ -672,8 +672,13 @@
   function movePill() {
     var b = $('button.on', bar); if (!b) return;
     var br = b.getBoundingClientRect(), rr = bar.getBoundingClientRect();
-    pill.style.width = br.width + 'px';
-    pill.style.transform = 'translateX(' + (br.left - rr.left) + 'px)';
+    var w = br.width + 'px', t = 'translateX(' + (br.left - rr.left) + 'px)';
+    var moved = pill.style.transform !== t;
+    if (moved && pill.style.transform && !pill.dataset.init) {
+      pill.classList.remove('go'); void pill.offsetWidth; pill.classList.add('go');
+    }
+    pill.style.width = w;
+    pill.style.transform = t;
   }
   function go(name, opts) {
     if (name === 'players' && opts) { if (opts.f) P.f = opts.f; if (opts.sort) P.sort = opts.sort; }
@@ -686,6 +691,7 @@
     panels[name].hidden = false;
     bar.querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', b.dataset.go === name); });
     movePill();
+    bar.querySelectorAll('button.pop').forEach(function (x) { x.classList.remove('pop'); });
     if (!built[name]) {
       if (name === 'players') buildPlayers();
       else if (name === 'tours') buildTours();
@@ -705,15 +711,12 @@
 
   /* ─── دروازه‌ها (خطا/عدمِ دسترسی) ─────────────────────────── */
   function gateCrest() {
-    var s = doc.createElementNS(NS, 'svg');
-    s.setAttribute('width', '64'); s.setAttribute('height', '64'); s.setAttribute('viewBox', '0 0 88 88'); s.setAttribute('aria-hidden', 'true');
-    s.innerHTML = '<rect width="88" height="88" rx="26" fill="url(#gg)"/><path d="M44 20c3.3 0 6 2.7 6 6 0 2-1 3.8-2.5 4.9l3.8 12.6H38.7l3.8-12.6A6 6 0 0 1 44 20z" fill="#fff" fill-opacity=".95"/><path d="M34 47h20l3 11H31z" fill="#fff" fill-opacity=".95"/><rect x="29" y="60" width="30" height="7" rx="2.5" fill="#fff" fill-opacity=".95"/><defs><linearGradient id="gg" x1="0" y1="0" x2="88" y2="88"><stop stop-color="#3a63ff"/><stop offset="1" stop-color="#1c2f8f"/></linearGradient></defs>';
-    return s;
+    return h('span', { class: 'crest sm', role: 'img', 'aria-label': 'لوگوی سی ام اس' });
   }
   function gate(kind) {
     bar.hidden = true;
     var msg = kind === 403 ? ['دسترسی ندارید', 'این بخش فقط برای مدیر ارشد و مدیران فعالِ ربات است. اگر فکر می‌کنید اشتباه است، به مدیر ارشد خبر بدهید.']
-      : kind === 401 ? ['از داخل تلگرام باز کنید', 'این صفحه فقط با دکمه‌ی «پنل من» در چتِ ربات کار می‌کند.']
+      : kind === 401 ? ['از داخل تلگرام باز کنید', 'این صفحه فقط با دکمه‌ی «سی ام اس» در چتِ ربات کار می‌کند.']
       : ['اتصال برقرار نشد', 'اینترنت را بررسی کنید و دوباره امتحان کنید.'];
     $('#app').replaceChildren(h('div', { class: 'gate' }, gateCrest(), h('h2', { text: msg[0] }), h('p', { text: msg[1] }),
       kind !== 401 && kind !== 403 ? h('button', { class: 'btn', type: 'button', text: 'تلاش دوباره', onclick: function () { location.reload(); } }) : null));
