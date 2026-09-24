@@ -790,6 +790,34 @@ async def update_admin_activity(telegram_id):
         _admin_cache[telegram_id] = (row, expires_at)
 
 
+async def sync_admin_identity(telegram_id, username, full_name):
+    """اسم/یوزرنیمِ تلگرامِ مدیر رو با دیتابیس هم‌گام می‌کنه. فقط وقتی چیزی
+    واقعاً عوض شده باشه می‌نویسه (مقایسه با نسخه‌ی کش‌شده) پس روی هر کلیک
+    هزینه‌ای نداره. اگه مدیر اسمِ نمایشی‌ش (display_name) رو دستی تو وب‌اپ
+    عوض کرده باشه، دست نمی‌خوره؛ فقط وقتی اسمِ نمایشی همون اسمِ قدیمیِ
+    تلگرام (یا خالی) بوده، با اسمِ جدید عوض می‌شه."""
+    full_name = (full_name or "").strip()
+    username = (username or "").strip()
+    if not telegram_id or not full_name:
+        return
+    admin = await get_admin(telegram_id)
+    if not admin:
+        return
+    old_full = (admin["full_name"] or "").strip()
+    old_user = (admin["username"] or "").strip()
+    if old_full == full_name and (not username or old_user == username):
+        return
+    old_display = (admin["display_name"] or "").strip()
+    new_display = full_name if (not old_display or old_display == old_full) else old_display
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE admins SET full_name=?, display_name=?, username=? WHERE telegram_id=?",
+            (full_name, new_display, username or old_user, telegram_id)
+        )
+        await db.commit()
+    _invalidate_admin_cache(telegram_id)
+
+
 # ─── ردیابیِ فعالیتِ کاربرهای «غریبه» (نه مدیر ارشد، نه ادمینِ ثبت‌شده) ──
 # هر پیام یا دکمه‌ای که این‌جور کاربرها بزنن، این‌جا لاگ می‌شه؛ هم برای این‌که
 # توی لیست «آنلاین/الان» دیده بشن، هم برای این‌که با زدن دکمه‌ی جزییات دقیقاً

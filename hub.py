@@ -115,6 +115,13 @@ async def _require_admin(request):
     admin = await db.get_admin(uid)
     if not admin or not admin["is_active"] or admin["role"] not in HUB_ALLOWED_ROLES:
         raise _err(web.HTTPForbidden, "forbidden")
+    # اسمِ تلگرامِ مدیر ممکنه بعد از ثبت‌نام عوض شده باشه؛ همین‌جا هم‌گامش کن.
+    try:
+        tg_name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x)
+        await db.sync_admin_identity(uid, user.get("username"), tg_name)
+        admin = await db.get_admin(uid) or admin
+    except Exception:
+        logger.exception("hub: sync_admin_identity failed for %s", uid)
     return False, admin, user
 
 

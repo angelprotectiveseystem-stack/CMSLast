@@ -42,6 +42,10 @@ async def _track_activity(update: Update, admin=None):
             admin = await db.get_admin(uid)
         if admin and admin["is_active"]:
             await db.update_admin_activity(uid)
+            try:
+                await db.sync_admin_identity(uid, getattr(user, "username", None), getattr(user, "full_name", None))
+            except Exception:
+                pass
             return
 
         # ─── غریبه: نه مدیر ارشد، نه ادمینِ فعال ───

@@ -57,7 +57,7 @@ def set_bot(bot):
 # get_file استفاده می‌کند و از قبل ثابت شده کار می‌کند)، پس دیگر جایی
 # برای عدمِ تطابقِ توکن/URL باقی نمی‌ماند.
 _avatar_cache = {}  # user_id -> (bytes_or_None, content_type_or_None, monotonic_expiry)
-_AVATAR_CACHE_TTL = 300       # ثانیه — برای نتیجه‌ی موفق (عکس دانلود شد)
+_AVATAR_CACHE_TTL = 60        # ثانیه — برای نتیجه‌ی موفق (عکس دانلود شد)
 _AVATAR_CACHE_TTL_EMPTY = 30  # ثانیه — برای نتیجه‌ی خالی/خطا، چون می‌تواند موقتی باشد
 
 
@@ -102,7 +102,10 @@ async def _fetch_avatar(user_id, *, force=False):
         else:
             # کوچک‌ترین سایزِ موجود کافی است چون آواتار در وب‌اپ خیلی
             # کوچک نمایش داده می‌شود.
-            file_id = photos.photos[0][0].file_id
+            sizes = photos.photos[0]
+            # کوچک‌ترین سایزِ ≥۳۲۰ پیکسل (اگه نبود بزرگ‌ترین) تا آواتار مات نشه.
+            pick = next((x for x in sizes if (x.width or 0) >= 320), sizes[-1])
+            file_id = pick.file_id
             tg_file = await BOT.get_file(file_id)
             if not tg_file or not tg_file.file_path:
                 # این دقیقاً همان حالتی بود که قبلاً کشف نمی‌شد: اگر
@@ -714,9 +717,9 @@ async def avatar_proxy(request):
     return web.Response(
         body=data,
         content_type=content_type,
-        # ۵ دقیقه، هم‌راستا با TTLِ کشِ خودِ _fetch_avatar — بعد از آن اگر
+        # ۱ دقیقه، هم‌راستا با TTLِ کشِ خودِ _fetch_avatar — بعد از آن اگر
         # عکسِ پروفایل واقعاً عوض شود، درخواستِ بعدی آن را می‌گیرد.
-        headers={"Cache-Control": "public, max-age=300"},
+        headers={"Cache-Control": "public, max-age=60"},
     )
 
 
