@@ -440,35 +440,51 @@ function buildBoard(){
   document.addEventListener("pointercancel", endDrag);
 })();
 
-// ─── Piece movement / animation engine (rewritten from scratch) ─────
+// ─── Piece movement / animation engine (v3 — full rAF-driven rebuild) ────
 //
-// این پیاده‌سازی قبلی جهت جابه‌جایی را از روی «اندیس ستون/ردیف در DOM»
-// حساب می‌کرد (col/row * اندازه‌ی فرضی خانه). چون صفحه dir="rtl" است،
-// در CSS Grid محور افقی (ستون‌ها) از راست به چپ چیده می‌شود، ولی
-// transform: translateX یک آفست فیزیکی (بدون توجه به direction) است.
-// نتیجه: برای هر حرکتی که مولفه‌ی افقی داشت (همه‌ی حرکات به‌جز حرکت
-// روی یک ستون ثابت)، مهره در مسیر اشتباه (آینه‌شده) حرکت می‌کرد و فقط
-// در فریم پایانی به‌خانه‌ی درست می‌پرید — همان «حرکت برعکس» که گزارش
-// شده بود. علاوه بر این، رندر جدیدی که حین یک انیمیشن می‌رسید (مثلاً
-// poll که هر ۱.۵ ثانیه بررسی می‌کند) به‌جای اعمال فوری، در صف
-// (pendingRender) نگه داشته می‌شد؛ این تاخیر دقیقاً همان «سکته»/جهش
-// وسط حرکت بود، و چون paintHighlights در پایان renderPieces دوباره
-// اجرا می‌شد، نقطه‌های حرکت (move-dot) هم دوباره ساخته و انیمیشن
-// dotpop‌شان از نو پخش می‌شد — همان سکته‌ی «نقطه‌ها بعد از کلیک».
+// نسخه‌ی قبلی (v2) با یک CSS transition دو-نقطه‌ای + یک ترفندِ
+// «reflow اجباری + دو requestAnimationFrame تودرتو» کار می‌کرد تا مرورگر
+// را مجبور کند نقطه‌ی شروع را واقعاً رسم کند، بعد transition را وصل کند.
+// خودِ همین ترفند، ریشه‌ی سکته‌ای بود که باز هم گزارش شد: بینِ appendChild
+// و لحظه‌ای که transition واقعاً وصل می‌شد، مهره حداقل دو فریمِ کامل
+// (نزدیکِ ۳۰-۴۰ms روی گوشیِ متوسط، بیشتر روی گوشیِ ضعیف) کاملاً بی‌حرکت
+// روی خانه‌ی مقصد می‌نشست و بعد یک‌دفعه شروع به حرکت می‌کرد — یعنی یک
+// «تعلیقِ» کوتاهِ قابلِ‌حس قبلِ شروعِ هر حرکت، که دقیقاً همان سکته‌ای است
+// که حس می‌شود. علاوه‌براین، همان reflow اجباری (خواندنِ offsetWidth) یک
+// لِی‌آوتِ سنگرونِ کاملِ صفحه را دقیقاً همان لحظه‌ای اجرا می‌کرد که
+// paintHighlights (چند خط پایین‌تر) دارد دات‌های مسیر را می‌سازد — همان
+// هم‌زمانی، سکته‌ی دات‌ها را هم توضیح می‌دهد.
 //
-// راه‌حل ریشه‌ای (به‌جای رفع مورد به مورد):
-// ۱) مسافت جابه‌جایی از روی مختصات واقعی پیکسلی صفحه
-//    (getBoundingClientRect) محاسبه می‌شود، نه اندیس ستون/ردیف. این
-//    مقدار فیزیکی و مستقل از rtl/ltr، چرخش تخته (flip)، و هر گونه
-//    گرد شدن اعشاری در اندازه‌ی خانه‌هاست — پس امکان «برعکس رفتن»
-//    اصولاً وجود ندارد.
-// ۲) هیچ رندری هرگز به تعویق نمی‌افتد. اگر انیمیشنی در حال اجراست و
-//    رندر جدیدی لازم شد، انیمیشن‌های فعلی فوراً (بدون پرش بصری، چون
-//    Animation.finish() دقیقاً کی‌فریم پایانی را اعمال می‌کند) به
-//    پایان می‌رسند و بلافاصله رندر جدید روی وضعیت واقعی انجام می‌شود.
-//    یعنی همیشه حداکثر یک انیمیشن روی هر مهره در جریان است و رندرها
-//    هرگز صف نمی‌شوند — سکته‌ی ناشی از تاخیر یا هم‌پوشانی دو انیمیشن
-//    از ریشه حذف می‌شود.
+// v3 کاملاً این معماری را کنار می‌گذارد: هیچ CSS transition، هیچ
+// transitionend، هیچ reflowِ اجباری، و هیچ انتظاری برای فریمِ دوم وجود
+// ندارد. به‌جایش یک تیکِ rAF ساده و متمرکز (tickPieceAnims) خودش هر فریم
+// دستی transform را بر اساسِ زمانِ سپری‌شده محاسبه و می‌نویسد — یعنی
+// جابه‌جایی از همان اولین فریم شروع می‌شود، چون خودِ نوشتنِ transform
+// همزمان با appendChild اتفاق می‌افتد، نه با یک تاخیرِ دو-فریمی بعدش.
+// این دقیقاً همان تکنیکِ استانداردِ FLIP-با-rAF است که کتابخانه‌هایی مثل
+// Framer Motion/GSAP هم استفاده می‌کنند، و چون هیچ اتکایی به تفسیرِ
+// transition/keyframe توسطِ موتورِ مرورگر ندارد، حتی روی قدیمی‌ترین
+// WebViewها هم رفتارش یکنواخت و قابل‌پیش‌بینی است.
+function easeSpring(t){
+  // معادلِ دستیِ همان منحنیِ قبلی (cubic-bezier(.22,1.15,.36,1)) — یک
+  // ease-out با کمی overshootِ ظریف در انتها، پیاده‌سازی‌شده به‌صورتِ یک
+  // فرمولِ ساده به‌جای وابستگی به تفسیرِ CSS.
+  var c1 = 1.10, c3 = c1 + 1;
+  var p = t - 1;
+  return 1 + c3 * p * p * p + c1 * p * p;
+}
+function tickPieceAnims(now){
+  state.pendingAnimFrame = null;
+  var anims = state.activeAnims.slice();
+  anims.forEach(function(a){
+    var t = (now - a.start) / a.dur;
+    if(t >= 1){ a.finish(); return; }
+    var e = easeSpring(t);
+    var x = a.dx * (1 - e), y = a.dy * (1 - e);
+    a.el.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
+  });
+  if(state.activeAnims.length) state.pendingAnimFrame = requestAnimationFrame(tickPieceAnims);
+}
 function settleActiveAnimations(){
   if(state.pendingAnimFrame){
     cancelAnimationFrame(state.pendingAnimFrame);
@@ -611,172 +627,65 @@ function renderPieces(animateFrom, animateTo, silent){
   });
 
   // PLAY — مسافت جابه‌جایی از روی مختصات واقعیِ پیکسلی صفحه محاسبه
-  // می‌شود (rect مبدا که پیش از جابه‌جایی گرفتیم، در برابر rect مقصد
-  // که همین الان بعد از appendChild گرفته می‌شود). این عدد فیزیکی است
-  // و به rtl/ltr، چرخش تخته، یا گرد شدن اعشاری اندازه‌ی خانه‌ها کاری
-  // ندارد؛ پس مهره همیشه دقیقاً در مسیر واقعی‌اش حرکت می‌کند.
-  //
-  // رویکرد عوض شد: به‌جای Web Animations API (`el.animate()` با چند
-  // keyframe و یک offset میانی)، از یک CSS transition ساده‌ی دو-نقطه‌ای
-  // روی transform استفاده می‌شود. دلیل تعویض: `el.animate()` با
-  // keyframeهای دارای offset (مثل ۰٫۸۲ این‌جا) روی برخی WebViewهای
-  // اندرویدِ قدیمی/داخل تلگرام به‌صورت غیریکنواخت تفسیر می‌شود — بعضی
-  // نسخه‌ها بین دو keyframe درون‌یابی نرم انجام نمی‌دهند و رسماً می‌پرند،
-  // که خودش یک نوع «سکته» است که نمی‌شود از کدِ سطح بالا حدس زد چون در
-  // مرورگرهای دسکتاپ دیده نمی‌شود. CSS transition روی transform قدیمی‌ترین
-  // و پایدارترین قابلیتِ انیمیشنِ شتاب‌گرفته‌با-GPU در وب است و در همه‌ی
-  // نسخه‌های WebView (از اندروید ۴ به بعد) یکسان و بدون‌جهش کار می‌کند.
-  //
-  // ترفند دو-مرحله‌ای برای اجرای درست: ۱) مهره فوراً (بدون transition) به
-  // موقعیت قبلی‌اش منتقل می‌شود (یعنی چون appendChild همین الان آن را در
-  // خانه‌ی مقصد نشانده، این‌جا transform معکوسِ فاصله اعمال می‌شود تا
-  // دوباره سرِ جای قبلی‌اش دیده شود) ۲) با یک reflow اجباری (خواندن
-  // offsetWidth) این حالت را «قفل» می‌کنیم تا مرورگر مطمئن این را یک
-  // فریم واقعی رسم‌شده بداند، نه چیزی که می‌شود با نوشتنِ بعدی ادغامش کرد
-  // ۳) بعد transition را وصل و مقصد را روی صفر می‌گذاریم — همین یک
-  // تغییر است که مرورگر بین دو مقدار transform به‌طور تضمینی و یکنواخت
-  // میان‌یابی می‌کند.
+  // می‌شود (rect مبدا که پیش از جابه‌جایی گرفتیم، در برابر rect مقصد که
+  // همین الان بعد از appendChild گرفته می‌شود) — فیزیکی و مستقل از
+  // rtl/ltr و چرخشِ تخته، پس امکانِ «برعکس رفتن» وجود ندارد. برخلافِ
+  // نسخه‌ی قبلی، اینجا دیگر transition/reflowِ اجباری/فریمِ دوم وجود
+  // ندارد: transform شروع همین‌جا و به‌صورتِ همزمان با appendChild
+  // نوشته می‌شود، و بعد یک تیکِ rAF متمرکز (tickPieceAnims، تعریف‌شده
+  // در بالای این فایل) هر فریم مقدارِ بعدی را دستی حساب و می‌نویسد.
   if(moves.length){
     state.animating = true;
-    moves.forEach(function(m){ m.el.classList.add("moving"); });
-    // بدونِ requestAnimationFrameِ بیرونی: قبلاً شروعِ حرکت دو فریم (حدود
-    // ۳۰ms یا بیشتر روی گوشیِ ضعیف) عقب می‌افتاد و حس «کندی» می‌داد.
-    // خواندنِ rect همین‌جا خودش لِی‌آوت را flush می‌کند و مهره از همان
-    // فریمِ اول شروع می‌کند.
-    state.pendingAnimFrame = null;
-    (function(){
-      // رفعِ افتِ فریم‌ریت روی حرکاتِ چندمهره‌ای (قلعه، یا چند حرکتِ
-      // هم‌زمانِ رسیده از سرور): قبلاً برای هر مهره، خواندنِ rect
-      // (getBoundingClientRect) و نوشتنِ transform و خواندنِ اجباریِ
-      // بعدیِ offsetWidth پشتِ‌سرِ‌هم و به‌ازای *هرکدام* جداگانه انجام
-      // می‌شد. چون خواندن بعد از نوشتنِ روی مهره‌ی قبلی می‌آید، مرورگر
-      // مجبور بود لِی‌آوت را بارها در همان فریم از نو محاسبه کند
-      // (layout thrashing) — دقیقاً همان‌جایی که خطرِ افتِ فریم واقعی
-      // است. حالا همه‌ی خواندن‌ها اول و یک‌جا انجام می‌شوند، بعد همه‌ی
-      // نوشتن‌ها، و فقط یک reflowِ اجباریِ مشترک برای کلِ دسته — نه یکی
-      // به‌ازای هر مهره.
-      var toRects = moves.map(function(m){ return m.el.getBoundingClientRect(); }); // فازِ خواندن
-      var prepared = [];
-      moves.forEach(function(m, i){
-        // باگِ «تکونِ عجیب هنگام نشستن روی خانه‌ی مقصد»: اینجا قبلاً rect خودِ
-        // خانه‌ی مقصد (state.boardEls[m.toSq]) اندازه‌گیری می‌شد، نه rect خودِ
-        // مهره. چون .piece داخل خانه‌اش width:92%/height:92%/margin:auto دارد
-        // (برای وسط‌چین‌شدن)، rect مهره‌ی نشسته همیشه حدود ۴٪ اندازه‌ی خانه از
-        // rect خودِ خانه کوچک‌تر و به‌سمتِ داخل offset دارد. در نتیجه dx/dy
-        // یک خطای ثابتِ کوچک داشت: کل مسیرِ انیمیشن با همین آفستِ ثابت جابه‌جا
-        // انیمیت می‌شد، و درست در لحظه‌ی پایان — وقتی transform پاک می‌شد و
-        // مرورگر به موقعیتِ واقعیِ CSS (وسط‌چینِ خانه) برمی‌گشت — مهره یک
-        // پرشِ کوچکِ ناگهانی می‌کرد که حسِ «تکون/سکته» می‌داد. m.el همین الان
-        // (چند خط بالاتر) با appendChild داخل خانه‌ی مقصد قرار گرفته، پس
-        // گرفتنِ rect مستقیماً از خودِ m.el (نه از خانه) دقیقاً همان موقعیتِ
-        // واقعیِ نهایی‌اش را می‌دهد و این خطا را کاملاً حذف می‌کند.
-        var toRect = toRects[i];
-        if(!m.fromRect){ m.el.classList.remove("moving"); return; }
-        var dx = m.fromRect.left - toRect.left;
-        var dy = m.fromRect.top - toRect.top;
-        if(!dx && !dy){ m.el.classList.remove("moving"); return; }
-        prepared.push({ m: m, dx: dx, dy: dy, dist: Math.sqrt(dx*dx + dy*dy) });
-      });
-      // فازِ نوشتن: همه‌ی مهره‌ها بدونِ transition به موقعیتِ قبلی‌شان
-      // (نقطه‌ی شروعِ بصریِ انیمیشن) منتقل می‌شوند — بین این نوشتن‌ها هیچ
-      // خواندنی وجود ندارد، پس لِی‌آوت هنوز invalidate نشده و مرورگر
-      // نوشتن‌ها را دسته‌جمعی صف می‌کند، نه یکی‌یکی.
-      prepared.forEach(function(p){
-        p.m.el.style.transition = "none";
-        p.m.el.style.transform = "translate(" + p.dx + "px," + p.dy + "px)";
-      });
-      // یک reflow اجباریِ مشترک برای کلِ دسته (نه یکی به‌ازای هر مهره) —
-      // نقطه‌ی شروع را برای همه‌ی مهره‌ها هم‌زمان قفل می‌کند.
-      if(prepared.length) void prepared[0].m.el.offsetWidth;
-      // یک requestAnimationFrame دوم و تودرتو لازم است: reflow فقط
-      // layout را محاسبه می‌کند، نه اینکه تضمین کند مرورگر واقعاً یک
-      // فریم را رسم (paint) کرده باشد. اگر وصل‌کردن transition و
-      // نوشتنِ مقصد در همان تسکِ همزمانِ جاوااسکریپت انجام شود، روی
-      // بعضی WebViewها (به‌خصوص اندرویدِ داخلِ تلگرام) هر دو تغییر با
-      // هم در یک فریم ادغام می‌شوند و مرورگر مستقیم به state نهایی
-      // می‌پرد. با این rAF دوم، موقعیتِ شروع تضمین می‌شود که واقعاً
-      // رسم شده باشد، و فقط بعد از آن transition وصل و مقصد نوشته شود.
-      requestAnimationFrame(function(){
-        prepared.forEach(function(p){
-          var m = p.m, el = m.el;
-          // مدت‌زمانِ حرکت: chess.com از یک مدتِ نسبتاً کوتاه و تقریباً ثابت
-          // استفاده می‌کند (حسِ «سریع و قاطع»، نه «آهسته و رویایی») که فقط
-          // برای فاصله‌های خیلی بلند (مثل قلعه یا حرکتِ وزیر سرتاسرِ صفحه)
-          // کمی بلندتر می‌شود. عدد پایه و سقف نسبت به قبل کاهش یافت.
-          var dur = Math.max(140, Math.min(220, 110 + p.dist * 0.2));
-          // نکته: برخلاف نسخه‌ی قبلی، اینجا هیچ scale-ای در حینِ حرکت اعمال
-          // نمی‌شود — فقط translate خالص. chess.com مهره را در طول حرکت
-          // بزرگ/کوچک نمی‌کند؛ فقط با یک سایه‌ی نرم (که در CSS اضافه شد)
-          // حسِ «بلندشدن از سطح تخته» را می‌دهد، و اندازه ثابت می‌ماند.
-          // به‌روزرسانیِ Liquid Glass: طبق درخواست، ایزینگ به یه
-          // spring-like واقعی‌تر با overshootِ خیلی کوچک عوض شد
-          // (cubic-bezier(.22,1.15,.36,1) به‌جای .22,.61,.36,1 قبلی).
-          // فقط همین رشته‌ی timing-function عوض شده؛ خودِ منطقِ
-          // FLIP/rect/reflow (توضیح‌داده‌شده در کامنتِ بالای این تابع)
-          // دست‌نخورده مونده — هیچ transform یا محاسبه‌ی rect جدیدی
-          // اضافه نشده، فقط منحنیِ همون transition روی همون یک
-          // translate عوض شده.
-          el.style.transition = "transform " + dur + "ms cubic-bezier(.22,1.15,.36,1)";
-          el.style.transform = "translate(0px,0px)";
-
-          var entry = { el: el, done: false };
-          var finish = function(){
-            if(entry.done) return;
-            entry.done = true;
-            el.removeEventListener("transitionend", onEnd);
-            clearTimeout(fallbackTimer);
-            el.style.transition = "";
-            el.style.transform = "";
-            // رفعِ باگِ «لرزش/سکته‌ی لحظه‌ی فرود»: قبلاً همین‌جا، بلافاصله بعد
-            // از برداشتنِ moving، کلاسِ just-arrived اضافه می‌شد که یک
-            // انیمیشنِ کوچکِ scale (به اسمِ settle) اجرا می‌کرد. حتی بعد از
-            // فیکسِ will-change (که مشکلِ دموت/پروموتِ لایه‌ی GPU را حل کرد)،
-            // خودِ همین پالسِ بعد-از-فرود — هرچند ظریف — دقیقاً همان تکونی
-            // بود که حسِ سکته می‌داد. چون مشکل خودِ این انیمیشنِ بعد از
-            // نشستن بود (نه انیمیشنِ آمدن/سُرخوردن)، ساده‌ترین رفع این است
-            // که اصلاً اضافه نشود: دیگر هیچ کلاس/انیمیشنی بعد از فرودِ مهره
-            // اجرا نمی‌شود، فقط moving برداشته می‌شود و مهره دقیقاً در حالتِ
-            // ثابتِ نهایی‌اش می‌ماند.
-            el.classList.remove("moving");
-            // اگر این خانه محلِ گرفتنِ یک مهره بود، همین الان (لحظه‌ی واقعیِ
-            // رسیدنِ مهاجم) مهره‌ی گرفته‌شده را محو کن — نه زودتر.
-            var capFns = captureFinishersBySquare[m.toSq];
-            if(capFns) capFns.forEach(function(fn){ fn(); });
-            var i2 = state.activeAnims.indexOf(entry);
-            if(i2 >= 0) state.activeAnims.splice(i2, 1);
-            if(!state.activeAnims.length){
-              state.animating = false;
-              // sizeBoard() فوراً همین‌جا صدا زده نمی‌شود، بلکه با کمی تأخیر:
-              // اگر resizeِ واقعیِ --board-size دقیقاً همان فریمی رخ بدهد که
-              // moving برداشته می‌شود، آن هم‌زمانی خودش می‌تواند حسِ تکون
-              // بدهد. با این تأخیرِ کوتاه از آن لحظه‌ی حساس دور می‌شویم؛ خودِ
-              // sizeBoard هم اگر تا آن موقع حرکتِ دیگری شروع شده باشد
-              // (state.animating دوباره true شود) کاری نمی‌کند، پس هیچ
-              // ری‌سایزِ واقعی از دست نمی‌رود.
-              setTimeout(sizeBoard, 220);
-            }
-          };
-          function onEnd(ev){ if(ev.target === el && ev.propertyName === "transform") finish(); }
-          el.addEventListener("transitionend", onEnd);
-          // محافظ: اگر به هر دلیلی (مثل قطع‌شدن transition وسط راه توسط
-          // یک رندر جدید که خودش settleActiveAnimations را صدا می‌زند)
-          // transitionend هرگز نرسد، حداکثر کمی بعد از پایانِ مدتِ مورد
-          // انتظار خودمان finish را صدا می‌زنیم تا مهره هیچ‌وقت گیر نکند.
-          var fallbackTimer = setTimeout(finish, dur + 150); // ۵۰ms اضافه برای تأخیرِ rAF دوم
-          entry.finish = finish;
-          state.activeAnims.push(entry);
-        });
-        if(!state.activeAnims.length) state.animating = false;
-      });
-      if(!prepared.length) state.animating = false;
-      // شبکه‌ی ایمنیِ نهایی: هر مهره‌ی گرفته‌شده‌ای که هنوز محو نشده
-      // (مثلاً en passant — جایی که مهره‌ی گرفته‌شده در toSq مهاجم
-      // نیست، بلکه یک خانه‌ی کناری است) با تأخیرِ کوتاهی همراستا با
-      // مدت‌زمانِ متوسطِ حرکت محو می‌شود تا هیچ‌وقت روی صفحه گیر نکند.
-      setTimeout(function(){
-        captureFinishers.forEach(function(fn){ fn(); });
-      }, 260);
-    })();
+    var toRects = moves.map(function(m){ return m.el.getBoundingClientRect(); });
+    var now = performance.now();
+    moves.forEach(function(m, i){
+      var toRect = toRects[i];
+      if(!m.fromRect) return;
+      var dx = m.fromRect.left - toRect.left;
+      var dy = m.fromRect.top - toRect.top;
+      if(!dx && !dy) return;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      // مدت‌زمانِ حرکت: کوتاه و قاطع (حسِ chess.com)، فقط برای مسافتِ
+      // بلند (قلعه، حرکتِ سرتاسریِ وزیر) کمی بلندتر می‌شود.
+      var dur = Math.max(140, Math.min(220, 110 + dist * 0.2));
+      var el = m.el;
+      el.classList.add("moving");
+      var entry = { el: el, dx: dx, dy: dy, dur: dur, start: now, toSq: m.toSq, done: false };
+      entry.finish = function(){
+        if(entry.done) return;
+        entry.done = true;
+        el.style.transform = "";
+        el.classList.remove("moving");
+        // اگر این خانه محلِ گرفتنِ یک مهره بود، همین الان (لحظه‌ی واقعیِ
+        // رسیدنِ مهاجم) مهره‌ی گرفته‌شده را محو کن — نه زودتر.
+        var capFns = captureFinishersBySquare[entry.toSq];
+        if(capFns) capFns.forEach(function(fn){ fn(); });
+        var i2 = state.activeAnims.indexOf(entry);
+        if(i2 >= 0) state.activeAnims.splice(i2, 1);
+        if(!state.activeAnims.length){
+          state.animating = false;
+          // با کمی تأخیر تا هم‌زمانی با لحظه‌ی حساسِ برداشتنِ moving حسِ
+          // تکون ندهد؛ اگر حرکتِ دیگری تا آن موقع شروع شده sizeBoard
+          // خودش کاری نمی‌کند.
+          setTimeout(sizeBoard, 220);
+        }
+      };
+      // نوشتنِ فوری و همزمانِ نقطه‌ی شروع — همان فریمی که appendChild
+      // اتفاق افتاده، پس هیچ تاخیر/تعلیقِ قابل‌حسی قبلِ شروعِ حرکت نیست.
+      el.style.transform = "translate3d(" + dx + "px," + dy + "px,0)";
+      state.activeAnims.push(entry);
+    });
+    if(state.activeAnims.length && !state.pendingAnimFrame){
+      state.pendingAnimFrame = requestAnimationFrame(tickPieceAnims);
+    } else if(!state.activeAnims.length){
+      state.animating = false;
+    }
+    // شبکه‌ی ایمنیِ نهایی: هر مهره‌ی گرفته‌شده‌ای که هنوز محو نشده
+    // (مثلاً en passant) با تأخیرِ کوتاهی محو می‌شود تا هیچ‌وقت روی
+    // صفحه گیر نکند.
+    setTimeout(function(){
+      captureFinishers.forEach(function(fn){ fn(); });
+    }, 260);
   }
 
   paintHighlights();
