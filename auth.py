@@ -448,6 +448,13 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
+    # 🌊 ضدِ فلود: اگه این غریبه در بازه‌ی زمانیِ تنظیم‌شده (پنل امنیتی APS)
+    # بیش از حدِ مجاز /start بزنه، خودکار وارد صف انتظار امنیتی می‌شه و
+    # نیازی به ادامه‌ی مسیرِ عادی (نمایشِ انتخاب نقش) نیست.
+    from security import check_stranger_flood
+    if await check_stranger_flood(update, ctx, uid, update.effective_user.username, update.effective_user.full_name):
+        return ConversationHandler.END
+
     admin_login = await db.get_setting("admin_login_enabled", "1")
     if admin_login != "1":
         await update.message.reply_text("🔒 ورود ادمین‌ها غیرفعال است.")

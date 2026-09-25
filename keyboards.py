@@ -1344,8 +1344,25 @@ def kb_security_panel():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⏳ صف انتظار", callback_data="security_queue", style="primary"),
         InlineKeyboardButton("🚫 بلاک‌شده‌ها", callback_data="security_blocked", style="danger")],
+        [InlineKeyboardButton("🌊 ضدِ فلود (صف خودکار)", callback_data="security_flood_menu", style="primary")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
     ])
+
+def kb_flood_menu(current_max, current_window):
+    from security import FLOOD_MAX_CHOICES, FLOOD_WINDOW_CHOICES
+    max_row = []
+    for n in FLOOD_MAX_CHOICES:
+        label = f"✅ {n} تلاش" if n == current_max else f"{n} تلاش"
+        max_row.append(InlineKeyboardButton(label, callback_data=f"flood_set_max_{n}",
+                                             style="success" if n == current_max else "primary"))
+    win_row = []
+    for n in FLOOD_WINDOW_CHOICES:
+        label = f"✅ {n} دقیقه" if n == current_window else f"{n} دقیقه"
+        win_row.append(InlineKeyboardButton(label, callback_data=f"flood_set_window_{n}",
+                                             style="success" if n == current_window else "primary"))
+    rows = [max_row[:2], max_row[2:], win_row[:2], win_row[2:]]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="security_panel", style="danger")])
+    return InlineKeyboardMarkup(rows)
 
 def kb_queue_list(queued):
     rows = []

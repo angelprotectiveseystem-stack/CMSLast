@@ -184,6 +184,7 @@ from security import (
     request_to_queue, queue_approve, queue_release, queue_block_ask,
     request_block_ask, block_confirm, security_blocked_list,
     security_blocked_item, unblock_action, block_gate,
+    security_flood_menu, security_flood_set_max, security_flood_set_window,
 )
 from anomaly_alerts import suspicious_undo, suspicious_disable, suspicious_dismiss
 
@@ -1084,6 +1085,9 @@ def build_application():
     app.add_handler(CallbackQueryHandler(update_sleep, pattern="^update_sleep$"))
     app.add_handler(CallbackQueryHandler(pishva_vault, pattern="^pishva_vault$"))
     app.add_handler(CallbackQueryHandler(security_panel, pattern="^security_panel$"))
+    app.add_handler(CallbackQueryHandler(security_flood_menu, pattern="^security_flood_menu$"))
+    app.add_handler(CallbackQueryHandler(security_flood_set_max, pattern="^flood_set_max_\\d+$"))
+    app.add_handler(CallbackQueryHandler(security_flood_set_window, pattern="^flood_set_window_\\d+$"))
     app.add_handler(CallbackQueryHandler(security_queue_list, pattern="^security_queue$"))
     app.add_handler(CallbackQueryHandler(security_queue_item, pattern="^queueview_"))
     app.add_handler(CallbackQueryHandler(request_to_queue, pattern="^req_queue_"))

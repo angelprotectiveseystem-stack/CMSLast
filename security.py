@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -190,20 +191,29 @@ async def aps_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user=None, ad
 
 
 # ─── پنل امنیتی ─────────────────────────────────────────────────
+async def build_security_panel_text() -> str:
+    """متنِ پنل امنیتی APS رو می‌سازه. تابعِ مشترک بین بازکردنِ پنل از طریقِ
+    دکمه (callback) و از طریقِ کلمه‌ی «APS» در پیوی/گروه (keyword_commands.py)
+    تا هر دو مسیر دقیقاً یک چیزِ یکسان نشون بدن."""
+    queued = await db.get_queued_requests()
+    blocked = await db.get_all_blocked()
+    max_n, win_min = await get_flood_settings()
+    return (
+        f"{box('🛡️ پنل امنیتی APS')}\n\n"
+        f"⏳ در صف انتظار: `{len(queued)}` نفر\n"
+        f"🚫 بلاک‌شده: `{len(blocked)}` نفر\n"
+        f"🌊 ضدِ فلود: حداکثر `{max_n}` تلاش در `{win_min}` دقیقه\n\n"
+        "📌 یک بخش را انتخاب کنید:"
+    )
+
+
 async def security_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != PISHVA_ID:
         await query.answer("⛔ فقط مدیر ارشد به این بخش دسترسی دارد.", show_alert=True)
         return
     await query.answer()
-    queued = await db.get_queued_requests()
-    blocked = await db.get_all_blocked()
-    text = (
-        f"{box('🛡️ پنل امنیتی APS')}\n\n"
-        f"⏳ در صف انتظار: `{len(queued)}` نفر\n"
-        f"🚫 بلاک‌شده: `{len(blocked)}` نفر\n\n"
-        "📌 یک بخش را انتخاب کنید:"
-    )
+    text = await build_security_panel_text()
     await safe_edit_message_text(query, text, reply_markup=kb.kb_security_panel(), parse_mode="Markdown")
 
 
@@ -431,3 +441,125 @@ async def unblock_action(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
     await security_blocked_list(update, ctx)
+
+
+# ─── ضدِ فلود روی /start غریبه‌ها (صف انتظارِ خودکار) ──────────────
+# وقتی یک کاربر غریبه (نه مدیر ارشد، نه ادمین، نه از قبل در صف) در یک بازه‌ی
+# زمانیِ مشخص بیش از تعدادِ مجاز /start بزنه، به‌جای این‌که هر بار دوباره
+# منوی انتخاب نقش رو ببینه، خودکار (بدون نیاز به دخالتِ دستیِ مدیر ارشد)
+# دقیقاً مثلِ زمانی که مدیر ارشد از دکمه‌ی «صف انتظار» استفاده می‌کنه، وارد
+# صف انتظار امنیتی می‌شه. تعداد و بازه از پنل امنیتی APS قابل‌تنظیم‌اند.
+FLOOD_MAX_KEY = "aps_flood_max"
+FLOOD_WINDOW_KEY = "aps_flood_window_min"
+FLOOD_MAX_DEFAULT = "3"
+FLOOD_WINDOW_DEFAULT = "10"
+FLOOD_MAX_CHOICES = (2, 3, 5, 10)
+FLOOD_WINDOW_CHOICES = (5, 10, 15, 30)
+
+AUTO_QUEUE_MESSAGE = (
+    "⏳ *به‌دلیل تعداد زیادِ درخواست در بازه‌ی زمانیِ کوتاه، به‌طور خودکار وارد صف انتظار امنیتی شدید.*\n\n"
+    "درخواست شما در حال بررسی توسط واحد امنیتی APS است.\n"
+    "تا اطلاع ثانویه امکان ارسال درخواست جدید برای شما وجود ندارد. لطفاً صبور باشید."
+)
+
+
+async def get_flood_settings():
+    """(حداکثرِ تعدادِ مجاز، بازه‌ی زمانی به‌دقیقه) رو از تنظیماتِ ذخیره‌شده
+    (پنل امنیتی APS) برمی‌گردونه؛ اگه هنوز تنظیم نشده باشن، مقدارِ پیش‌فرض."""
+    max_s = await db.get_setting(FLOOD_MAX_KEY, FLOOD_MAX_DEFAULT)
+    win_s = await db.get_setting(FLOOD_WINDOW_KEY, FLOOD_WINDOW_DEFAULT)
+    try:
+        max_n = max(1, int(max_s))
+    except (TypeError, ValueError):
+        max_n = int(FLOOD_MAX_DEFAULT)
+    try:
+        win_n = max(1, int(win_s))
+    except (TypeError, ValueError):
+        win_n = int(FLOOD_WINDOW_DEFAULT)
+    return max_n, win_n
+
+
+async def check_stranger_flood(update: Update, ctx: ContextTypes.DEFAULT_TYPE,
+                                uid: int, username: str, full_name: str) -> bool:
+    """ضدِ فلودِ /start برای غریبه‌ها (auth.cmd_start فراخوانش می‌کنه، *فقط*
+    برای کسی که نه مدیر ارشده، نه ادمین، نه از قبل در صفه).
+
+    اگه کاربر از سقفِ مجاز (تعداد/بازه‌ی تنظیم‌شده در پنل APS) رد شده باشه:
+    - خودش رو خودکار وارد صف انتظار امنیتی می‌کنه (access_requests با
+      status='queued'، دقیقاً مثلِ صف‌کردنِ دستی)،
+    - پیامِ مناسب براش می‌فرسته،
+    - True برمی‌گردونه یعنی فراخوان (cmd_start) باید همینجا متوقف بشه.
+
+    در غیرِ این صورت (هنوز داخلِ سقفه) فقط این تلاش رو در ردیاب (حافظه‌ی
+    موقتِ bot_data — نیازی به نوشتنِ دیتابیس در هر تلاش نیست) ثبت می‌کنه و
+    False برمی‌گردونه تا cmd_start مسیرِ عادی رو ادامه بده."""
+    max_n, win_min = await get_flood_settings()
+    window_seconds = win_min * 60
+    now_ts = time.monotonic()
+
+    tracker = ctx.bot_data.setdefault("aps_flood_tracker", {})
+    hits = [t for t in tracker.get(uid, []) if now_ts - t < window_seconds]
+    hits.append(now_ts)
+
+    if len(hits) <= max_n:
+        tracker[uid] = hits
+        return False
+
+    # ── سقف رد شد → صف انتظارِ خودکار ──
+    tracker.pop(uid, None)  # ریست، تا بلافاصله دوباره تریگر نشه
+    req_id = await db.create_access_request(
+        uid, username or "", full_name or "", "نامشخص (ضدِ فلود خودکار)", ""
+    )
+    await db.set_request_status(req_id, "queued")
+    await db.log_action(
+        PISHVA_ID, "auto_queue_flood",
+        f"صف انتظار خودکار (ضدِ فلود): {full_name or uid} — بیش از {max_n} تلاش در {win_min} دقیقه",
+        uid,
+    )
+    try:
+        await update.message.reply_text(AUTO_QUEUE_MESSAGE, parse_mode="Markdown")
+    except Exception:
+        pass
+    return True
+
+
+# ─── تنظیمِ ضدِ فلود (بخشِ جدید در پنل امنیتی APS) ──────────────
+async def security_flood_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
+        return
+    await query.answer()
+    max_n, win_min = await get_flood_settings()
+    text = (
+        f"{box('🌊 ضدِ فلود — صف انتظار خودکار')}\n\n"
+        "وقتی یک کاربر غریبه در بازه‌ی زمانیِ زیر، بیش از تعدادِ مجازِ زیر "
+        "دکمه‌ی /start را بزند، به‌طور خودکار (بدون نیاز به تأییدِ شما) وارد "
+        "صف انتظار امنیتی می‌شود.\n\n"
+        f"🔢 تعدادِ مجاز: `{max_n}` تلاش\n"
+        f"⏱️ بازه‌ی زمانی: `{win_min}` دقیقه\n\n"
+        "📌 مقدارِ جدید را انتخاب کنید:"
+    )
+    await safe_edit_message_text(query, text, reply_markup=kb.kb_flood_menu(max_n, win_min), parse_mode="Markdown")
+
+
+async def security_flood_set_max(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
+        return
+    n = int(query.data.split("_")[-1])
+    await db.set_setting(FLOOD_MAX_KEY, str(n))
+    await query.answer(f"✅ تعدادِ مجاز به {n} تغییر یافت", show_alert=True)
+    await security_flood_menu(update, ctx)
+
+
+async def security_flood_set_window(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != PISHVA_ID:
+        await query.answer("⛔ فقط مدیر ارشد.", show_alert=True)
+        return
+    n = int(query.data.split("_")[-1])
+    await db.set_setting(FLOOD_WINDOW_KEY, str(n))
+    await query.answer(f"✅ بازه‌ی زمانی به {n} دقیقه تغییر یافت", show_alert=True)
+    await security_flood_menu(update, ctx)

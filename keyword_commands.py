@@ -96,6 +96,9 @@ SIMPLE_KEYWORDS = {
     "ساعت کاری": "workhours_menu",  # مترادف
     "کاری": "workhours_menu",       # مترادف
     "زمان": "workhours_menu",       # مترادف
+    # ─── پنل امنیتی APS (فقط مدیر ارشد) ───
+    "APS": "aps_panel",
+    "aps": "aps_panel",
 }
 
 # این کلمات مستقیماً به workhours_conv (در bot.py) به‌عنوان entry_point
@@ -108,6 +111,7 @@ PISHVA_ONLY_ACTIONS = {
     "security", "status", "backup", "requests", "logs", "reminders", "settings",
     "pishva_panel", "online_admins", "ai_manage_panel", "admin_manage_panel",
     "workhours_menu", "workhours_start", "workhours_end", "reply_admin_panel",
+    "aps_panel",
 }
 
 
@@ -201,17 +205,27 @@ async def _clear_previous_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE,
 
 async def register_panel_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE, msg_id: int,
                                 timeout_seconds: int = None):
-    """صاحب پنل رو ثبت می‌کنه، پنلِ قبلیِ همون کاربر (اگه هنوز باز بود) رو
-    حذف می‌کنه، و تایمر بسته‌شدن خودکار (عدم فعالیت) رو راه‌اندازی می‌کنه.
-    timeout_seconds برای override کردنِ بازه‌ی پیش‌فرض (۳ دقیقه)."""
+    """صاحب پنل رو ثبت می‌کنه، پنلِ قبلیِ همون کاربر (چه در گروه/سوپرگروه، چه
+    در پیوی — اگه هنوز باز بود) رو حذف می‌کنه، و تایمر بسته‌شدن خودکار
+    (عدم فعالیت) رو فقط برای گروه/سوپرگروه راه‌اندازی می‌کنه (پیوی نیازی به
+    قفل مالکیت/تایمر نداره چون فقط خودِ کاربر می‌بینتش).
+    timeout_seconds برای override کردنِ بازه‌ی پیش‌فرض (۳ دقیقه) استفاده می‌شه.
+
+    FIX: قبلاً این تابع در پیوی هیچ‌کاری نمی‌کرد (return زودهنگام)، در نتیجه
+    وقتی کاربر توی پیوی کلمه‌ی «بستن»/«خروج» (یا هر کلمه‌ی دیگه‌ای که پنل باز
+    می‌کنه) رو می‌فرستاد، پیامِ پنلِ قبلی حذف نمی‌شد و فقط پیامِ تازه اضافه
+    می‌شد. حالا حذفِ پنلِ قبلی (_clear_previous_panel) در همه‌ی حالت‌ها
+    (گروه و پیوی) انجام می‌شه؛ فقط تایمرِ خودکار همچنان مخصوصِ گروه می‌مونه."""
     chat = update.effective_chat
-    if not chat or chat.type not in ("group", "supergroup"):
+    if not chat:
         return
     uid = update.effective_user.id if update.effective_user else None
-    if uid and ctx.chat_data is not None:
-        await _clear_previous_panel(update, ctx, chat.id, uid, msg_id)
-        ctx.chat_data[f"panel_owner_{msg_id}"] = uid
-        ctx.chat_data[f"active_panel_msg_{uid}"] = msg_id
+    if not uid or ctx.chat_data is None:
+        return
+    await _clear_previous_panel(update, ctx, chat.id, uid, msg_id)
+    ctx.chat_data[f"panel_owner_{msg_id}"] = uid
+    ctx.chat_data[f"active_panel_msg_{uid}"] = msg_id
+    if chat.type in ("group", "supergroup"):
         schedule_panel_timeout(ctx, chat.id, msg_id, uid, timeout_seconds=timeout_seconds)
 
 
@@ -274,6 +288,7 @@ def _action_label(action: str) -> str:
         "quick_panel": "پنل",
         "ai_manage_panel": "مدیریت دستیار",
         "admin_manage_panel": "مدیریت مدیران",
+        "aps_panel": "پنل امنیتی APS",
         "security": "امنیت",
         "backup": "بکاپ",
         "requests": "درخواست‌ها",
@@ -354,6 +369,13 @@ async def _panel_content(action: str, uid: int, is_pishva: bool, admin):
             kb.kb_admin_list(admins),
             None,
         )
+
+    if action == "aps_panel":
+        if not is_pishva:
+            return None, None, "⛔ این دستور فقط برای مدیر ارشد است."
+        from security import build_security_panel_text
+        text = await build_security_panel_text()
+        return text, kb.kb_security_panel(), None
 
     if action == "dashboard":
         from dashboard import build_dashboard_pishva_text, build_dashboard_admin_text
@@ -615,6 +637,20 @@ async def handle_keyword_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             await ask_panel_location(update, ctx, "admin_manage_panel")
         else:
             text, markup, err = await _panel_content("admin_manage_panel", uid, is_pishva, admin)
+            if text is None:
+                await update.message.reply_text(err or "⛔ شما مجوز باز کردن این پنل را ندارید.")
+                raise ApplicationHandlerStop()
+            sent = await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+            await register_panel_owner(update, ctx, sent.message_id)
+        raise ApplicationHandlerStop()
+
+    # ─── پنل امنیتی APS (کلمه «APS») ───
+    if action == "aps_panel":
+        chat = update.effective_chat
+        if chat and chat.type in ("group", "supergroup"):
+            await ask_panel_location(update, ctx, "aps_panel")
+        else:
+            text, markup, err = await _panel_content("aps_panel", uid, is_pishva, admin)
             if text is None:
                 await update.message.reply_text(err or "⛔ شما مجوز باز کردن این پنل را ندارید.")
                 raise ApplicationHandlerStop()
