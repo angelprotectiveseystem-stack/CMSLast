@@ -222,7 +222,15 @@ html,body{
   background: var(--hi-sq); opacity:1; transform: scale(1);
 }
 .square.last-from::before, .square.last-to::before{
-  background: rgba(240,185,63,.28); opacity:1;
+  /* قبلاً یه پرِ رنگِ توپر (amber fill) بود. طبق رفرنس (اسکرین‌رکوردِ
+     اپِ دیگه)، آخرین حرکت با یه خط‌چینِ نازک دورِ خانه نشون داده می‌شه،
+     نه یه پرِ رنگ. اینجا از همون ::beforeِ مشترک استفاده می‌کنیم ولی
+     background رو خالی می‌کنیم و به‌جاش یه border-dashed می‌ذاریم؛
+     box-sizing:border-box لازمه چون ::before با inset:0 دقیقاً هم‌اندازه‌ی
+     خانه‌ست و بدونِ border-box، border باعثِ بزرگ‌ترشدنِ جعبه و هم‌پوشانی
+     با خانه‌ی کناری می‌شد. */
+  background: transparent; opacity:1; transform: scale(1);
+  border: 3px dashed var(--accent); box-sizing: border-box;
 }
 /* هدف زیرِ انگشت/موس هنگامِ درگ‌کردنِ مهره (نه هنگامِ تپ‌کردن) —
    جدا از .selected چون هردو می‌توانند هم‌زمان روی صفحه باشند (خانه‌ی

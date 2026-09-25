@@ -467,13 +467,18 @@ function buildBoard(){
 // Framer Motion/GSAP هم استفاده می‌کنند، و چون هیچ اتکایی به تفسیرِ
 // transition/keyframe توسطِ موتورِ مرورگر ندارد، حتی روی قدیمی‌ترین
 // WebViewها هم رفتارش یکنواخت و قابل‌پیش‌بینی است.
-function easeSpring(t){
-  // معادلِ دستیِ همان منحنیِ قبلی (cubic-bezier(.22,1.15,.36,1)) — یک
-  // ease-out با کمی overshootِ ظریف در انتها، پیاده‌سازی‌شده به‌صورتِ یک
-  // فرمولِ ساده به‌جای وابستگی به تفسیرِ CSS.
-  var c1 = 1.10, c3 = c1 + 1;
-  var p = t - 1;
-  return 1 + c3 * p * p * p + c1 * p * p;
+function easeOutSmooth(t){
+  // طبقِ رفرنس (اسکرین‌رکوردِ اپِ دیگر)، حرکتِ مهره هیچ فنر/overshootی
+  // نداره — یه شتاب‌گیریِ کاملاً نرم و یکنواخته که دقیقاً در t=1 (بدون
+  // هیچ برگشت یا لرزش) متوقف می‌شه. قبلاً اینجا یه easeSpring با کمی
+  // overshoot بود (معادلِ cubic-bezier(.22,1.15,.36,1))؛ چون خودِ رفرنس
+  // خطی/decelerate ساده بود، به easeOutCubic استاندارد تغییر کرد —
+  // ساده‌ترین و «تمیزترین» منحنیِ ease-out که در هیچ نقطه‌ای از h(t)
+  // مشتقش منفی نمی‌شه (یعنی مهره هرگز حتی یک پیکسل به‌عقب برنمی‌گرده،
+  // نه در جهتِ حرکت و نه در اسکیل)، پس مطلقاً هیچ لرزش/سکته‌ای در
+  // نمی‌آد.
+  var p = 1 - t;
+  return 1 - p * p * p;
 }
 function tickPieceAnims(now){
   state.pendingAnimFrame = null;
@@ -481,7 +486,7 @@ function tickPieceAnims(now){
   anims.forEach(function(a){
     var t = (now - a.start) / a.dur;
     if(t >= 1){ a.finish(); return; }
-    var e = easeSpring(t);
+    var e = easeOutSmooth(t);
     var x = a.dx * (1 - e), y = a.dy * (1 - e);
     a.el.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
   });
@@ -527,7 +532,7 @@ function tickDotAnims(now){
     if(elapsed < a.delay) continue; // هنوز نوبتش نرسیده — نامرئی می‌ماند
     var t = Math.min(1, (elapsed - a.delay) / a.dur);
     if(a.mode === "in"){
-      var e = easeSpring(t);
+      var e = easeOutSmooth(t);
       a.el.style.opacity = Math.min(1, t * 2.2).toFixed(3);
       a.el.style.transform = "scale(" + (0.35 + 0.65 * e).toFixed(3) + ")";
     } else { // "out": محوشدنِ دات‌های قبلی وقتی انتخاب عوض/لغو می‌شود —
@@ -719,9 +724,17 @@ function renderPieces(animateFrom, animateTo, silent){
       var dy = m.fromRect.top - toRect.top;
       if(!dx && !dy) return;
       var dist = Math.sqrt(dx*dx + dy*dy);
-      // مدت‌زمانِ حرکت: کوتاه و قاطع (حسِ chess.com)، فقط برای مسافتِ
-      // بلند (قلعه، حرکتِ سرتاسریِ وزیر) کمی بلندتر می‌شود.
-      var dur = Math.max(140, Math.min(220, 110 + dist * 0.2));
+      // مدت‌زمانِ حرکت بر اساسِ تعدادِ خانه‌ها محاسبه می‌شود، نه فاصله‌ی
+      // خامِ پیکسلی — با تقسیمِ فاصله بر اندازه‌ی خودِ خانه (toRect.width)،
+      // این عدد مستقل از اندازه‌ی صفحه/تراکمِ پیکسلیِ گوشی می‌شود، یعنی
+      // یک حرکتِ «۲ خانه‌ای» روی هر گوشی‌ای دقیقاً همون مدت‌زمانِ حسی را
+      // دارد. طبق اندازه‌گیریِ دقیقِ رفرنس (اسکرین‌رکوردِ اپِ دیگر،
+      // حرکتِ اسب از g8 به f6 که فاصله‌اش تقریباً ۲.۲ خانه است)، آن حرکت
+      // حدودِ ۳۵۰ میلی‌ثانیه طول کشید؛ ضرایبِ زیر دقیقاً برای رسیدن به
+      // همون عدد روی یک حرکتِ هم‌فاصله تنظیم شده‌اند.
+      var squareSize = toRect.width || toRect.height || 40;
+      var squareDist = dist / squareSize;
+      var dur = Math.max(220, Math.min(520, 190 + squareDist * 70));
       var el = m.el;
       el.classList.add("moving");
       var entry = { el: el, dx: dx, dy: dy, dur: dur, start: now, toSq: m.toSq, done: false };
