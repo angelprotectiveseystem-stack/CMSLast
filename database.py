@@ -1877,6 +1877,10 @@ _PISHVA_PROFILE_KEYS = {
     "pishva_bio": "",
     "pishva_details": "[]",
 }
+# اسمِ تلگرامی که آخرین بار هم‌گام شده — فقط برای تشخیصِ «آیا مدیر ارشد
+# اسمِ نمایشی‌ش رو دستی عوض کرده یا نه» (دقیقاً همون منطقِ full_name/
+# display_name جدولِ admins، اینجا چون پیشوا ردیفی در آن جدول ندارد).
+_PISHVA_TG_NAME_KEY = "pishva_tg_full_name"
 
 
 async def get_pishva_profile_fields() -> dict:
@@ -1910,6 +1914,24 @@ async def update_pishva_profile(display_name: str, title: str, city: str, bio: s
         "name": display_name or await get_setting("pishva_display_name", "مدیر ارشد"),
         "title": title, "city": city, "bio": bio, "details": clean_details,
     }
+
+
+async def sync_pishva_identity(full_name: str):
+    """اسمِ تلگرامِ مدیر ارشد رو با پروفایلش هم‌گام می‌کنه — دقیقاً معادلِ
+    sync_admin_identity ولی برای پیشوا (که ردیفی در admins ندارد). فقط
+    وقتی اسمِ نمایشیِ فعلی همون اسمِ قدیمیِ تلگرام (یا مقدارِ پیش‌فرض/خالی)
+    بوده باشه عوض می‌شه؛ اگه دستی از توی وب‌اپ یه اسمِ دیگه گذاشته، دست
+    نمی‌خوره."""
+    full_name = (full_name or "").strip()
+    if not full_name:
+        return
+    old_tg_name = (await get_setting(_PISHVA_TG_NAME_KEY, "")).strip()
+    if old_tg_name == full_name:
+        return
+    current_display = (await get_setting("pishva_display_name", "مدیر ارشد")).strip()
+    if not current_display or current_display in (old_tg_name, "مدیر ارشد"):
+        await set_setting("pishva_display_name", full_name)
+    await set_setting(_PISHVA_TG_NAME_KEY, full_name)
 
 
 async def get_tournament_matches_named(tid: int):

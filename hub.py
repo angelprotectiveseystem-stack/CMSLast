@@ -109,6 +109,15 @@ async def _require_admin(request):
     except (TypeError, ValueError):
         raise _err(web.HTTPUnauthorized, "unauthorized")
     if uid == PISHVA_ID:
+        # اسمِ تلگرامِ مدیر ارشد هم مثلِ بقیه‌ی مدیرها همین‌جا هم‌گام می‌شه
+        # (قبلاً این بخش کلاً برای پیشوا رد می‌شد، برای همین با تغییرِ
+        # اسم/عکسِ تلگرام، وب‌اپ هیچ‌وقت پروفایلِ او را آپدیت نمی‌کرد؛
+        # عکس چون هرلحظه زنده از تلگرام proxy می‌شود مشکلی نداشت، فقط اسم).
+        try:
+            tg_name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x)
+            await db.sync_pishva_identity(tg_name)
+        except Exception:
+            logger.exception("hub: sync_pishva_identity failed for %s", uid)
         return True, None, user
     if await db.get_blocked_user(uid):
         raise _err(web.HTTPForbidden, "forbidden")
