@@ -150,7 +150,17 @@ def _role_label(role: str) -> str:
 
 
 def _avatar_path(telegram_id) -> str:
-    return f"/api/avatar/{telegram_id}" if telegram_id else None
+    # یک کوئری‌استرینگِ زمانی (هم‌بازه با TTLِ ۶۰ثانیه‌ایِ خودِ کشِ آواتار
+    # در game_server) اضافه شده. بدونِ این، URL همیشه دقیقاً یکی بود
+    # («/api/avatar/123») و وب‌ویوِ تلگرام (که کشِ عکس‌هاش معمولاً خیلی
+    # تهاجمی‌تر از هدرِ استانداردِ Cache-Control عمل می‌کنه) همون اولین
+    # عکسی که دیده بود رو برای همیشه نشون می‌داد، حتی بعد از عوض‌شدنِ
+    # واقعیِ عکسِ پروفایلِ تلگرام. حالا هر ۶۰ ثانیه URL عوض می‌شه، پس
+    # مرورگر/وب‌ویو مجبور می‌شه یک درخواستِ واقعاً تازه بزنه.
+    if not telegram_id:
+        return None
+    bucket = int(time.time() // 60)
+    return f"/api/avatar/{telegram_id}?t={bucket}"
 
 
 def _admin_details(admin) -> list:
