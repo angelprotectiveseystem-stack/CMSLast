@@ -186,6 +186,7 @@ html,body{
   width: var(--board-size, min(96vw, 560px));
   aspect-ratio:1;
   display:grid;
+  direction: ltr; /* صفحه RTL است، اما چیدمانِ گریدِ خانه‌ها باید همیشه LTR بماند وگرنه با مختصاتِ پیکسلیِ مهره‌ها (که به dir حساس نیستند) هم‌خوانی نخواهد داشت و هایلایت/دات‌ها قرینه‌ی افقی نمایش داده می‌شوند */
   grid-template-columns: repeat(8,1fr);
   grid-template-rows: repeat(8,1fr);
   border-radius:12px;
