@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>پنل مدیریت — مسابقات شطرنج</title>
+<script>
+// قبل از لود شدن CSS، تمِ ذخیره‌شده رو روی <html> می‌ذاریم تا هیچ
+// چشمک تاریک/روشنی موقع بارگذاری اولیه دیده نشه (بدون این خط، یک
+// لحظه تمِ پیش‌فرض تیره دیده می‌شه و بعد به روشن سوییچ می‌کنه).
+(function () {
+  try {
+    var t = localStorage.getItem("panel_theme");
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  } catch (e) {}
+})();
+</script>
+<link rel="stylesheet" href="/panel/style.css?v={{V}}">
+</head>
+<body>
+
+<!-- ── صفحه ورود ───────────────────────────────────────────── -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-mark">
+      <img src="data:image/webp;base64,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" width="64" height="64" alt="" aria-hidden="true" style="border-radius:14px;display:block;">
+    </div>
+    <h1>پنل مدیریت مسابقات شطرنج</h1>
+    <p class="login-sub">برای ورود، رمز عبور پنل را وارد کنید.</p>
+    <input type="password" id="login-password" placeholder="رمز عبور" autocomplete="current-password">
+    <button id="login-btn">ورود به پنل</button>
+    <div id="login-error" class="login-error"></div>
+  </div>
+</div>
+
+<!-- ── برنامه اصلی ─────────────────────────────────────────── -->
+<div id="app" class="hidden">
+
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">
+        <img src="data:image/webp;base64,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" width="30" height="30" alt="" aria-hidden="true" style="border-radius:7px;display:block;">
+      </span>
+      <span class="brand-text">پنل مسابقات</span>
+      <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="جمع/باز کردن منو" aria-label="جمع/باز کردن منو">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l-6 7 6 7M15 5l6 7-6 7" style="display:none"/><path class="collapse-ic-arrow" d="M14 6l-6 6 6 6"/><line x1="4" y1="4" x2="4" y2="20"/></svg>
+      </button>
+    </div>
+
+    <div class="nav-search-wrap">
+      <svg class="nav-search-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M19.5 19.5 15 15"/></svg>
+      <input type="text" id="nav-search" class="nav-search" placeholder="جستجوی بخش‌ها…" autocomplete="off">
+      <kbd class="nav-search-kbd">/</kbd>
+    </div>
+    <nav id="nav">
+      <div class="nav-indicator" aria-hidden="true"></div>
+      <span class="nav-group-label" data-group="کلی">کلی</span>
+      <button class="nav-item active" data-view="home"><span class="nav-coord">e1</span><span class="nav-ic">🏠</span><span class="nav-label">خانه</span></button>
+
+      <span class="nav-group-label" data-group="مسابقات">مسابقات</span>
+      <button class="nav-item" data-view="matches"><span class="nav-coord">a2</span><span class="nav-ic">♟️</span><span class="nav-label">مسابقات شطرنج</span></button>
+      <button class="nav-item" data-view="live"><span class="nav-coord">d4</span><span class="nav-ic">🔴</span><span class="nav-label">شطرنج زنده</span></button>
+      <button class="nav-item" data-view="players"><span class="nav-coord">b1</span><span class="nav-ic">🧑‍🤝‍🧑</span><span class="nav-label">مسابقه‌دهنده‌ها</span></button>
+      <button class="nav-item" data-view="elo"><span class="nav-coord">h8</span><span class="nav-ic">📊</span><span class="nav-label">سطح پیشرفت / ELO</span></button>
+
+      <span class="nav-group-label" data-group="مدیریت">مدیریت</span>
+      <button class="nav-item" data-view="admins"><span class="nav-coord">c1</span><span class="nav-ic">🛡️</span><span class="nav-label">مدیر‌ها</span></button>
+      <button class="nav-item" data-view="online"><span class="nav-coord">g1</span><span class="nav-ic">🟢</span><span class="nav-label">آنلاین‌ها</span><span class="nav-badge hidden" id="nav-badge-online">0</span></button>
+      <button class="nav-item" data-view="messages"><span class="nav-coord">f1</span><span class="nav-ic">✉️</span><span class="nav-label">پیام‌های ارسالی</span></button>
+      <button class="nav-item" data-view="activity"><span class="nav-coord">a8</span><span class="nav-ic">🧾</span><span class="nav-label">فعالیت‌ها</span></button>
+      <button class="nav-item" data-view="principal-devices"><span class="nav-coord">b8</span><span class="nav-ic">🖥️</span><span class="nav-label">ورودهای مدیر مدرسه</span></button>
+
+      <span class="nav-group-label" data-group="مدیریت">مدیریت</span>
+      <button class="nav-item" data-view="notifications"><span class="nav-coord">e8</span><span class="nav-ic">🔔</span><span class="nav-label">ارسال اعلان</span></button>
+
+      <span class="nav-group-label" data-group="سیستم">سیستم</span>
+      <button class="nav-item" data-view="charts"><span class="nav-coord">d1</span><span class="nav-ic">📈</span><span class="nav-label">نمودارها</span></button>
+      <button class="nav-item" data-view="assistant"><span class="nav-coord">h1</span><span class="nav-ic">🤖</span><span class="nav-label">رهگشا</span></button>
+      <button class="nav-item" data-view="settings"><span class="nav-coord">a1</span><span class="nav-ic">⚙️</span><span class="nav-label">تنظیمات</span></button>
+      <div class="nav-empty hidden" id="nav-empty">چیزی با این عنوان پیدا نشد</div>
+    </nav>
+
+    <div class="sidebar-foot">
+      <span class="live-dot"></span>
+      <span id="conn-status">در حال اتصال…</span>
+      <span class="sidebar-foot-tools">
+        <button class="icon-toggle-btn" id="sound-toggle-btn" title="صدا و لرزش اعلان‌ها" aria-label="صدا و لرزش اعلان‌ها">
+          <svg class="ic-sound-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+          <svg class="ic-sound-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><line x1="17" y1="9" x2="22" y2="14"/><line x1="22" y1="9" x2="17" y2="14"/></svg>
+        </button>
+        <button class="icon-toggle-btn" id="theme-toggle-btn" title="تغییر پوسته‌ی روشن/تاریک" aria-label="تغییر پوسته‌ی روشن/تاریک">
+          <svg class="ic-theme-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <svg class="ic-theme-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2.4M12 19.1v2.4M4.6 4.6l1.7 1.7M17.7 17.7l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.6 19.4l1.7-1.7M17.7 6.3l1.7-1.7"/></svg>
+        </button>
+      </span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h2 id="view-title">خانه</h2>
+      <div id="topbar-clock" class="topbar-clock">--:--:--</div>
+    </header>
+
+    <div class="ptr-indicator" id="ptr-indicator" aria-hidden="true">
+      <span class="ptr-spinner"></span>
+    </div>
+    <div id="view-body" class="view-body">
+      <div class="loading-state"><span class="spinner"></span>در حال بارگذاری…</div>
+    </div>
+  </main>
+
+  <!-- ── ناوبری پایین صفحه (فقط موبایل) — قاب بیضی شناور ───── -->
+  <nav id="bottom-nav" class="bottom-nav">
+    <div class="bn-indicator" aria-hidden="true"></div>
+    <button class="bn-item active" data-view="home">
+      <span class="bn-ic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.2 12 4l9 7.2"/><path d="M5.2 9.8V19a1 1 0 0 0 1 1H9.6v-5.6h4.8V20H17.8a1 1 0 0 0 1-1V9.8"/></svg>
+      </span>
+      <span class="bn-label">خانه</span>
+    </button>
+    <button class="bn-item" data-view="matches">
+      <span class="bn-ic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4h9v3.6a4.5 4.5 0 0 1-9 0V4Z"/><path d="M7.5 5.2H5a2 2 0 0 0 0 4h2.3M16.5 5.2H19a2 2 0 0 1 0 4h-2.3"/><path d="M12 12.6v2.6M9.3 20h5.4M10.3 15.2h3.4v3h-3.4z"/></svg>
+      </span>
+      <span class="bn-label">مسابقات</span>
+    </button>
+    <button class="bn-item" data-view="players">
+      <span class="bn-ic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.3" cy="7.8" r="2.6"/><path d="M4.4 19c0-2.7 2.2-4.6 4.9-4.6s4.9 1.9 4.9 4.6"/><circle cx="17" cy="8.6" r="2"/><path d="M15.2 19c.2-2 1.5-3.5 3.3-3.9"/></svg>
+      </span>
+      <span class="bn-label">بازیکن‌ها</span>
+    </button>
+    <button class="bn-item" data-view="charts">
+      <span class="bn-ic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5V11M10.2 19.5V5.5M15.9 19.5v-6.8M21 19.5H4"/></svg>
+      </span>
+      <span class="bn-label">نمودارها</span>
+    </button>
+    <button class="bn-item bn-more" data-action="more">
+      <span class="bn-ic">
+        <svg viewBox="0 0 24 24"><circle cx="5.2" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="18.8" cy="12" r="1.7" fill="currentColor"/></svg>
+      </span>
+      <span class="bn-label">بیشتر</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- ── جعبه‌ی نوتیف‌های لحظه‌ای (Toast) ──────────────────────── -->
+<div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
+<!-- ── دکمه‌ی شناور رهگشا + پنل کناری سریع ──────────────────── -->
+<button id="assistant-fab" class="assistant-fab" title="رهگشا — دسترسی سریع" aria-label="باز کردن رهگشا">
+  <span class="assistant-fab-ic">🤖</span>
+</button>
+<div id="assistant-panel-backdrop" class="assistant-panel-backdrop"></div>
+<aside id="assistant-panel" class="assistant-panel" role="dialog" aria-modal="true" aria-label="رهگشا">
+  <div class="assistant-panel-head">
+    <button id="assistant-panel-back" class="assistant-panel-back hidden" aria-label="بازگشت">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+    </button>
+    <span class="assistant-panel-title">🤖 رهگشا — گفتگوهای اخیر</span>
+    <button id="assistant-panel-close" class="assistant-panel-close" aria-label="بستن">✕</button>
+  </div>
+  <div id="assistant-panel-body" class="assistant-panel-body"></div>
+  <div class="assistant-panel-foot">
+    <button id="assistant-panel-full" class="assistant-panel-full-btn">مشاهده‌ی همه در صفحه‌ی رهگشا ←</button>
+  </div>
+</aside>
+
+<!-- ── منوی «بیشتر» (فقط موبایل) — شیت پایین با گروه‌بندی و انیمیشن پلکانی ── -->
+<div id="more-backdrop" class="more-backdrop"></div>
+<div id="more-sheet" class="more-sheet" role="dialog" aria-modal="true" aria-label="منوی بیشتر">
+  <div class="more-sheet-handle" aria-hidden="true"></div>
+  <div class="more-sheet-head">
+    <span class="more-sheet-title">بخش‌های بیشتر</span>
+  </div>
+  <div class="more-sheet-body">
+    <div class="more-group">
+      <span class="more-group-label">مسابقات</span>
+      <div class="more-grid cols-2">
+        <button class="more-tile" data-view="live"><span class="more-tile-ic">🔴</span><span class="more-tile-label">شطرنج زنده</span></button>
+        <button class="more-tile" data-view="elo"><span class="more-tile-ic">📊</span><span class="more-tile-label">سطح پیشرفت</span></button>
+      </div>
+    </div>
+    <div class="more-group">
+      <span class="more-group-label">مدیریت</span>
+      <div class="more-grid">
+        <button class="more-tile" data-view="admins"><span class="more-tile-ic">🛡️</span><span class="more-tile-label">مدیر‌ها</span></button>
+        <button class="more-tile" data-view="online"><span class="more-tile-ic">🟢</span><span class="more-tile-label">آنلاین‌ها</span><span class="more-tile-badge hidden" id="more-badge-online">0</span></button>
+        <button class="more-tile" data-view="messages"><span class="more-tile-ic">✉️</span><span class="more-tile-label">پیام‌ها</span></button>
+        <button class="more-tile" data-view="activity"><span class="more-tile-ic">🧾</span><span class="more-tile-label">فعالیت‌ها</span></button>
+        <button class="more-tile" data-view="principal-devices"><span class="more-tile-ic">🖥️</span><span class="more-tile-label">ورود مدیر مدرسه</span></button>
+        <button class="more-tile" data-view="notifications"><span class="more-tile-ic">🔔</span><span class="more-tile-label">ارسال اعلان</span></button>
+      </div>
+    </div>
+    <div class="more-group">
+      <span class="more-group-label">سیستم</span>
+      <div class="more-grid cols-2">
+        <button class="more-tile" data-view="assistant"><span class="more-tile-ic">🤖</span><span class="more-tile-label">رهگشا</span></button>
+        <button class="more-tile" data-view="settings"><span class="more-tile-ic">⚙️</span><span class="more-tile-label">تنظیمات</span></button>
+        <button class="more-tile" id="more-tile-theme" data-action="toggle-theme"><span class="more-tile-ic">🌙</span><span class="more-tile-label">پوسته‌ی روشن</span></button>
+        <button class="more-tile" id="more-tile-sound" data-action="toggle-sound"><span class="more-tile-ic">🔔</span><span class="more-tile-label">صدا و لرزش</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── نشانگر موس سفارشی (فقط برای دسکتاپ با موس واقعی؛ با app.js فعال می‌شود) ── -->
+<div id="cursor-dot" class="cursor-dot" aria-hidden="true"></div>
+<div id="cursor-ring" class="cursor-ring" aria-hidden="true"></div>
+
+<script src="/panel/app.js?v={{V}}"></script>
+</body>
+</html>
