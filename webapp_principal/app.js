@@ -440,6 +440,18 @@ function playerCard(p) {
     </div>`;
 }
 
+// فقط کارت‌های «برتر/ویژه»ای که واقعاً رویِ صفحه دیده می‌شوند انیمیشن می‌گیرند (کلاسِ in-view) —
+// با ۳۰-۴۰ نیرویِ ویژه، بقیه‌شان که پایینِ لیست و خارج از دید هستند، هیچ فریمی مصرف نمی‌کنند.
+let specialCardsObserver = null;
+function watchSpecialCards(container) {
+  if (!("IntersectionObserver" in window)) return;
+  if (specialCardsObserver) specialCardsObserver.disconnect();
+  else specialCardsObserver = new IntersectionObserver((entries) => {
+    entries.forEach(en => en.target.classList.toggle("in-view", en.isIntersecting));
+  }, { rootMargin: "200px 0px", threshold: 0 });
+  container.querySelectorAll(".pcard.is-elite, .pcard.is-special").forEach(el => specialCardsObserver.observe(el));
+}
+
 async function renderPlayers() {
   beginRender(renderPlayers);
   const data = await api("/api/principal/players");
@@ -479,6 +491,7 @@ async function renderPlayers() {
     }
     countEl.textContent = rows.length ? rows.length + " بازیکن" : "";
     listEl.innerHTML = rows.length ? rows.map(playerCard).join("") : emptyHTML("بازیکنی با این مشخصات یافت نشد.", "i-search");
+    watchSpecialCards(listEl);
   }
   sheetBtns.forEach((b, i) => {
     b.addEventListener("click", () => {

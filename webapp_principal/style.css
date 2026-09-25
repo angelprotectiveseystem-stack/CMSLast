@@ -361,7 +361,7 @@ html[data-theme="dark"] .stat-ic { background: rgba(255, 112, 120, .12); }
 .ccard-head small { font-size: 12.5px; color: var(--muted); }
 
 /* ── کارت بازیکن ──────────────────────────────────────────── */
-.pcard { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 10px 13px; align-items: center; padding: 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); }
+.pcard { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 10px 13px; align-items: center; padding: 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); content-visibility: auto; contain-intrinsic-size: 0 128px; }
 .pcard .tiles, .pcard .wdl { grid-column: 1 / -1; }
 /* بازیکنانِ ویژه (elite): حلقهٔ طلاییِ چرخان دورِ کارت + هالهٔ نور دورِ آواتار + درخششِ ستاره. */
 .pcard.is-elite {
@@ -384,13 +384,15 @@ html[data-theme="dark"] .stat-ic { background: rgba(255, 112, 120, .12); }
   content: ""; position: absolute; inset: -50%;
   background: conic-gradient(from 0deg, var(--gold), transparent 30%, transparent 70%, var(--gold));
   animation: elite-spin 4s linear infinite;
-  will-change: transform;
+  animation-play-state: paused; /* فقط وقتی کارت رویِ صفحه دیده می‌شود اجرا می‌شود، نه همیشه برایِ همه‌ی کارت‌ها */
 }
+.pcard.is-elite.in-view .elite-ring::before { animation-play-state: running; will-change: transform; }
 @keyframes elite-spin { to { transform: rotate(360deg); } }
 .pcard.is-elite .avatar {
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--gold), 0 0 14px -2px color-mix(in srgb, var(--gold) 75%, transparent);
 }
-.pcard.is-elite .pc-main h4 .ic { color: var(--gold); animation: elite-star 1.8s ease-in-out infinite; }
+.pcard.is-elite .pc-main h4 .ic { color: var(--gold); animation: elite-star 1.8s ease-in-out infinite; animation-play-state: paused; }
+.pcard.is-elite.in-view .pc-main h4 .ic { animation-play-state: running; }
 @keyframes elite-star { 0%, 100% { transform: scale(1) rotate(0deg); } 50% { transform: scale(1.22) rotate(10deg); } }
 
 /* ── نیروهای ویژه (⚡ is_special) ─────────────────────────────
@@ -413,8 +415,9 @@ html[data-theme="dark"] { --volt: #a58fff; --volt-2: #62d6ff; --volt-soft: rgba(
   background: linear-gradient(100deg, transparent 0%, color-mix(in srgb, var(--volt-2) 26%, transparent) 42%, color-mix(in srgb, #fff 38%, transparent) 50%, transparent 100%);
   transform: translate3d(-130%, 0, 0) skewX(-18deg);
   animation: volt-sweep 4.2s cubic-bezier(.4, 0, .2, 1) var(--vd, 0s) infinite;
-  will-change: transform;
+  animation-play-state: paused;
 }
+.pcard.is-special.in-view::after { animation-play-state: running; will-change: transform; }
 @keyframes volt-sweep {
   0%, 55% { transform: translate3d(-130%, 0, 0) skewX(-18deg); }
   100%    { transform: translate3d(330%, 0, 0) skewX(-18deg); }
@@ -426,7 +429,9 @@ html[data-theme="dark"] { --volt: #a58fff; --volt-2: #62d6ff; --volt-soft: rgba(
   content: ""; position: absolute; inset: -4px; border-radius: 20px; pointer-events: none;
   border: 2px solid var(--volt-2); opacity: 0;
   animation: volt-pulse 2.4s ease-out var(--vd, 0s) infinite;
+  animation-play-state: paused;
 }
+.pcard.is-special.in-view .avatar::after { animation-play-state: running; will-change: transform, opacity; }
 @keyframes volt-pulse {
   0%       { opacity: .75; transform: scale(.92); }
   70%, 100% { opacity: 0; transform: scale(1.28); }
@@ -435,7 +440,9 @@ html[data-theme="dark"] { --volt: #a58fff; --volt-2: #62d6ff; --volt-soft: rgba(
 .pcard.is-special .pc-main h4 .ic.bolt {
   color: var(--volt-2); filter: drop-shadow(0 0 4px color-mix(in srgb, var(--volt-2) 80%, transparent));
   animation: volt-flicker 3.2s linear var(--vd, 0s) infinite;
+  animation-play-state: paused;
 }
+.pcard.is-special.in-view .pc-main h4 .ic.bolt { animation-play-state: running; }
 @keyframes volt-flicker {
   0%, 20%, 100% { opacity: 1; transform: scale(1); }
   4%  { opacity: .3; }
@@ -446,6 +453,16 @@ html[data-theme="dark"] { --volt: #a58fff; --volt-2: #62d6ff; --volt-soft: rgba(
 /* هر کارت زمانِ خودش را دارد تا همه‌ی کارت‌ها هم‌زمان نورگیری نکنند */
 .stack > .pcard.is-special:nth-child(2n) { --vd: -1.7s; }
 .stack > .pcard.is-special:nth-child(3n) { --vd: -2.9s; }
+/* روی گوشی‌های ضعیف یا وقتی کاربر انیمیشن‌های سیستم را خاموش کرده، همه‌ی جلوه‌ها کاملاً خاموش می‌شوند */
+@media (prefers-reduced-motion: reduce) {
+  .pcard.is-elite .elite-ring::before,
+  .pcard.is-elite .pc-main h4 .ic,
+  .pcard.is-special::after,
+  .pcard.is-special .avatar::after,
+  .pcard.is-special .pc-main h4 .ic.bolt {
+    animation: none !important;
+  }
+}
 .avatar { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 16px; font-size: 19px; font-weight: 800; color: #fff3da; background: linear-gradient(135deg, var(--c1, #a3121b), var(--c2, #6f0a11)); }
 .avatar.t1 { --c1: #b8801f; --c2: #7a520c; }
 .avatar.t2 { --c1: #7d2a55; --c2: #4e1236; }
