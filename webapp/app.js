@@ -800,8 +800,18 @@ function paintHighlights(){
   Object.keys(state.boardEls).forEach(function(sq){
     var el = state.boardEls[sq];
     el.classList.remove("selected","last-from","last-to","check");
-    var dots = el.querySelectorAll(".move-dot");
-    dots.forEach(function(d){ d.remove(); });
+    // رفعِ «دات‌ها انیمیشن ندارن / لگی‌ان»: قبلاً اینجا با d.remove() فوری
+    // پاک می‌شدند — یعنی هر بار که انتخاب عوض/لغو می‌شد، دات‌های قبلی بدونِ
+    // هیچ گذاری ناپدید می‌شدند. حالا کلاسِ leaving اضافه می‌شود (که در CSS
+    // یک محوشدنِ کوتاه دارد) و remove واقعی بعد از پایانِ همان انیمیشن
+    // انجام می‌شود. دات‌هایی که همین الان دارند leave می‌کنند دوباره
+    // انتخاب نمی‌شوند (querySelectorAll فقط .move-dot:not(.leaving) را
+    // می‌گیرد) تا با فراخوانی‌های پی‌درپیِ paintHighlights تداخل نکنند.
+    var dots = el.querySelectorAll(".move-dot:not(.leaving)");
+    dots.forEach(function(d){
+      d.classList.add("leaving");
+      setTimeout(function(){ if(d.parentNode) d.parentNode.removeChild(d); }, 150);
+    });
     // پیکِ انتخابِ خودِ مهره (نه فقط خانه) هم اینجا پاک می‌شود تا اگر
     // انتخاب عوض/لغو شد، مهره‌ی قبلی بزرگ‌شده نماند.
     var pieceEl = el.querySelector(".piece");

@@ -242,14 +242,37 @@ html,body{
 .move-dot{
   position:absolute; width:26%; height:26%; border-radius:50%;
   background: var(--move-dot); pointer-events:none;
-  animation: dotpop .26s cubic-bezier(.34,1.56,.64,1);
-  will-change: transform;
+  /* قبلاً فقط scale(0)→scale(1) بود و چون هیچ حالتِ پایه‌ای برای opacity/transform
+     تعریف نشده بود، دات بینِ لحظه‌ی appendChild تا لحظه‌ی شروعِ واقعیِ انیمیشن
+     (به‌خصوص برای دات‌های دورتر که animation-delay بالاتری دارند) با اندازه‌ی
+     کامل و کاملاً واضح روی صفحه می‌نشست و بعد ناگهان "پاپ" می‌کرد؛ یعنی موجِ
+     پلکانی که در JS محاسبه می‌شد (paintHighlights) عملاً دیده نمی‌شد و کل مسیر
+     یک‌جا و بی‌انیمیشن ظاهر می‌شد. با تعریفِ صریحِ حالتِ پایه اینجا، دات تا لحظه‌ی
+     شروعِ انیمیشنِ خودش کاملاً نامرئی می‌ماند و موجِ واقعی از مهره به بیرون دیده می‌شود. */
+  opacity:0; transform: scale(.35);
+  animation: dotpop .22s cubic-bezier(.34,1.56,.64,1) forwards;
+  will-change: transform, opacity;
 }
 .move-dot.capture{
   width:82%; height:82%; background:transparent;
   border: 4px solid var(--move-dot); border-radius:50%;
+  /* برای خانه‌های گرفتن، علاوه بر پاپِ معمولی، یک حلقه‌ی نرمِ یک‌بارمصرف هم
+     دورش باز می‌شود (نه پیوسته/بی‌نهایت — فقط یک "پینگ" کوتاه هنگامِ ظاهرشدن)
+     تا خانه‌های قابلِ گرفتن واضح‌تر از خانه‌های خالی به چشم بیایند. */
+  animation: dotpop .22s cubic-bezier(.34,1.56,.64,1) forwards, dotcapturering .5s ease-out forwards;
 }
-@keyframes dotpop{ from{ transform: scale(0);} to{ transform: scale(1);} }
+/* حالتِ محوشدنِ دات‌های قبلی وقتی انتخاب عوض/لغو می‌شود — قبلاً این دات‌ها با
+   el.remove() فوری و بدونِ هیچ انیمیشنی از DOM حذف می‌شدند؛ همین "پریدنِ"
+   ناگهانی بود که حسِ لگی/بی‌انیمیشن می‌داد. حالا paintHighlights اول کلاسِ
+   leaving را اضافه می‌کند تا این انیمیشنِ محوشدن پخش شود، و remove واقعی بعد
+   از پایانِ آن (در JS) انجام می‌شود. specificity برابرِ .capture است، پس چون
+   این قانون در فایل بعد از آن آمده در تعارض برنده می‌شود. */
+.move-dot.leaving{
+  animation: dotout .15s cubic-bezier(.4,0,1,1) forwards;
+}
+@keyframes dotpop{ from{ transform: scale(.35); opacity:0;} to{ transform: scale(1); opacity:1;} }
+@keyframes dotcapturering{ 0%{ box-shadow: 0 0 0 0 var(--move-dot);} 100%{ box-shadow: 0 0 9px 3px transparent;} }
+@keyframes dotout{ from{ transform: scale(1); opacity:1;} to{ transform: scale(.4); opacity:0;} }
 
 .piece{
   width:92%; height:92%;
@@ -297,13 +320,23 @@ html,body{
   transition: transform .22s cubic-bezier(.34,1.56,.64,1), text-shadow .22s ease;
 }
 .piece.dragging{ transform: translateZ(0) scale(1.18); z-index:20; cursor:grabbing; text-shadow: 0 4px 6px rgba(0,0,0,.45); }
-.piece.moving{ z-index:15; will-change: transform; transform: translateZ(0); }
+.piece.moving{
+  z-index:15; will-change: transform; transform: translateZ(0);
+  /* یک سایه‌ی ملایمِ «بلندشدن از سطحِ تخته» حینِ سُرخوردن — دقیقاً همان
+     مقدارِ text-shadow که برای .dragging استفاده می‌شود (نه یک مقدارِ
+     جدید)، پس هزینه‌ی رندرِ اضافه‌ای ندارد: هر دو حالت همین الان یک
+     text-shadow دارند، فقط عددش عوض می‌شود؛ این با filter/drop-shadow
+     که در کامنتِ زیر رد شده فرق دارد چون لایه‌ی جدیدی برای compositing
+     نمی‌سازد. */
+  transition: text-shadow .12s ease;
+  text-shadow: 0 4px 6px rgba(0,0,0,.4);
+}
 /* توجه: عمداً هیچ filter/drop-shadow روی .moving گذاشته نشد. drop-shadow
    برخلاف box-shadow روی خیلی از WebViewهای موبایل (به‌خصوص اندرویدِ
    داخلِ تلگرام) قابلِ compositing ارزان نیست و باید هر فریم از نو
    محاسبه شود — درست همان چیزی که باعثِ افتِ نرخِ فریم و «سکته»ایِ شدنِ
-   انیمیشنِ حرکت شد. سایه‌ی زیرِ مهره در حینِ حرکت حذف شد تا حرکت به
-   روانیِ نسخه‌ی قبل (که این افکت را نداشت) برگردد. */
+   انیمیشنِ حرکت شد. به‌جایش همان مکانیزمِ ارزانِ text-shadow که .piece
+   همین الان هم دارد، فقط با مقدارِ بزرگ‌تر، استفاده شد. */
 
 .piece.captured-anim{
   animation: capturepop .22s cubic-bezier(.4,0,1,1) forwards;
