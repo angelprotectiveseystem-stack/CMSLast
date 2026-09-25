@@ -242,37 +242,29 @@ html,body{
 .move-dot{
   position:absolute; width:26%; height:26%; border-radius:50%;
   background: var(--move-dot); pointer-events:none;
-  /* قبلاً فقط scale(0)→scale(1) بود و چون هیچ حالتِ پایه‌ای برای opacity/transform
-     تعریف نشده بود، دات بینِ لحظه‌ی appendChild تا لحظه‌ی شروعِ واقعیِ انیمیشن
-     (به‌خصوص برای دات‌های دورتر که animation-delay بالاتری دارند) با اندازه‌ی
-     کامل و کاملاً واضح روی صفحه می‌نشست و بعد ناگهان "پاپ" می‌کرد؛ یعنی موجِ
-     پلکانی که در JS محاسبه می‌شد (paintHighlights) عملاً دیده نمی‌شد و کل مسیر
-     یک‌جا و بی‌انیمیشن ظاهر می‌شد. با تعریفِ صریحِ حالتِ پایه اینجا، دات تا لحظه‌ی
-     شروعِ انیمیشنِ خودش کاملاً نامرئی می‌ماند و موجِ واقعی از مهره به بیرون دیده می‌شود. */
-  opacity:0; transform: scale(.35);
-  animation: dotpop .22s cubic-bezier(.34,1.56,.64,1) forwards;
+  /* v2: دیگر هیچ CSS animation/animation-delay اینجا نیست. با یک
+     ساعتِ rAF متمرکز در app.js (tickDotAnims) جایگزین شده تا معماریِ
+     نمایشِ دات‌ها دقیقاً همان تکنیکِ موتورِ حرکتِ مهره را داشته باشد —
+     یعنی opacity/scale هر فریم دستی توسطِ جاوااسکریپت نوشته می‌شود، نه
+     این‌که به ساعتِ داخلیِ CSS animations (که وقتی چند ده المان با
+     animation-delay در یک حلقه‌ی همزمان append می‌شوند، روی بعضی
+     WebViewها یکدست شروع نمی‌کند) واگذار شود. مقدارِ اولیه‌ی opacity/
+     transform همین‌جا توسطِ popDot() در لحظه‌ی ساخته‌شدنِ هر دات ست
+     می‌شود، قبل از این‌که مرورگر فریمِ بعدی را رسم کند — پس هیچ فلشِ
+     دیدنِ حالتِ پایانی وجود ندارد. */
   will-change: transform, opacity;
 }
 .move-dot.capture{
   width:82%; height:82%; background:transparent;
   border: 4px solid var(--move-dot); border-radius:50%;
-  /* برای خانه‌های گرفتن، علاوه بر پاپِ معمولی، یک حلقه‌ی نرمِ یک‌بارمصرف هم
-     دورش باز می‌شود (نه پیوسته/بی‌نهایت — فقط یک "پینگ" کوتاه هنگامِ ظاهرشدن)
-     تا خانه‌های قابلِ گرفتن واضح‌تر از خانه‌های خالی به چشم بیایند. */
-  animation: dotpop .22s cubic-bezier(.34,1.56,.64,1) forwards, dotcapturering .5s ease-out forwards;
+  /* برای خانه‌های گرفتن، علاوه بر پاپِ اصلی (که JS کنترل می‌کند)، یک
+     حلقه‌ی نرمِ یک‌بارمصرف هم دورش باز می‌شود — این یک افکتِ کاملاً
+     مستقل و جانبی روی box-shadow است (نه transform/opacityِ خودِ دات)،
+     پس با موتورِ rAF بالا هیچ تداخلی ندارد و همچنان می‌تواند یک CSS
+     animationِ ساده و ارزان بماند. */
+  animation: dotcapturering .5s ease-out forwards;
 }
-/* حالتِ محوشدنِ دات‌های قبلی وقتی انتخاب عوض/لغو می‌شود — قبلاً این دات‌ها با
-   el.remove() فوری و بدونِ هیچ انیمیشنی از DOM حذف می‌شدند؛ همین "پریدنِ"
-   ناگهانی بود که حسِ لگی/بی‌انیمیشن می‌داد. حالا paintHighlights اول کلاسِ
-   leaving را اضافه می‌کند تا این انیمیشنِ محوشدن پخش شود، و remove واقعی بعد
-   از پایانِ آن (در JS) انجام می‌شود. specificity برابرِ .capture است، پس چون
-   این قانون در فایل بعد از آن آمده در تعارض برنده می‌شود. */
-.move-dot.leaving{
-  animation: dotout .15s cubic-bezier(.4,0,1,1) forwards;
-}
-@keyframes dotpop{ from{ transform: scale(.35); opacity:0;} to{ transform: scale(1); opacity:1;} }
 @keyframes dotcapturering{ 0%{ box-shadow: 0 0 0 0 var(--move-dot);} 100%{ box-shadow: 0 0 9px 3px transparent;} }
-@keyframes dotout{ from{ transform: scale(1); opacity:1;} to{ transform: scale(.4); opacity:0;} }
 
 .piece{
   width:92%; height:92%;

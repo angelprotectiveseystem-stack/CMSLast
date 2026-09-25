@@ -156,6 +156,8 @@ var state = {
   animating: false,
   activeAnims: [],
   pendingAnimFrame: null,
+  activeDotAnims: [],
+  pendingDotFrame: null,
   historyRenderedCount: 0,
   liveSocket: null
 };
@@ -498,6 +500,78 @@ function settleActiveAnimations(){
   state.animating = false;
 }
 
+// ─── Move-dot reveal engine (rAF-driven — همان معماریِ موتورِ مهره) ──────
+//
+// نسخه‌ی قبلی از CSS animation + animation-delay استفاده می‌کرد. مشکل:
+// وقتی روی یه مهره کلیک می‌شد (مثلاً وزیر با ۲۰+ خانه‌ی مجاز)، تا ۲۰+
+// المانِ move-dot تودرتو در یک حلقه‌ی کاملاً همزمانِ جاوااسکریپت append
+// می‌شدند، هرکدام با یک animation-delay متفاوت روی خودِ استایلِ inline.
+// روی خیلی از مرورگرها این مشکلی ندارد، اما روی WebViewِ تلگرام (به‌خصوص
+// اندروید)، وقتی این‌قدر المانِ جدید با انیمیشنِ CSS در یک تسکِ جاوااسکریپتی
+// append می‌شوند، ساعتِ داخلیِ CSS animations برای شروعِ دقیقِ هرکدام با
+// فریمِ رندرِ واقعی همگام نمی‌شود — بعضی دات‌ها یک یا دو فریم دیر/زود
+// شروع می‌کنند یا اصلاً delay‌شان نادیده گرفته می‌شود، و کل موجِ پلکانی
+// به‌جای یک حرکتِ نرم، تکه‌تکه و با سکته دیده می‌شود.
+//
+// راه‌حل: دقیقاً همان تکنیکِ tickPieceAnims — یک تیکِ rAF واحد و متمرکز
+// که opacity/scale هر دات را خودش، هر فریم، بر اساسِ زمانِ واقعیِ سپری‌شده
+// (performance.now()) دستی حساب و می‌نویسد. چون یک ساعتِ واحد برای همه‌ی
+// دات‌ها استفاده می‌شود (نه ساعتِ داخلیِ جداگانه‌ی هر CSS animation)، موجِ
+// پلکانی همیشه دقیقاً هماهنگ و یکدست است.
+function tickDotAnims(now){
+  state.pendingDotFrame = null;
+  var anims = state.activeDotAnims;
+  for(var i = anims.length - 1; i >= 0; i--){
+    var a = anims[i];
+    var elapsed = now - a.start;
+    if(elapsed < a.delay) continue; // هنوز نوبتش نرسیده — نامرئی می‌ماند
+    var t = Math.min(1, (elapsed - a.delay) / a.dur);
+    if(a.mode === "in"){
+      var e = easeSpring(t);
+      a.el.style.opacity = Math.min(1, t * 2.2).toFixed(3);
+      a.el.style.transform = "scale(" + (0.35 + 0.65 * e).toFixed(3) + ")";
+    } else { // "out": محوشدنِ دات‌های قبلی وقتی انتخاب عوض/لغو می‌شود —
+      // از opacity/scaleِ واقعیِ لحظه‌ی شروعِ فیدآوت (fromOpacity/fromScale)
+      // به سمتِ صفر/۴۵٪ می‌رود، نه از ۱، تا اگر دات هنوز در حالِ pop-in
+      // بود هیچ پرشِ بصری نداشته باشد.
+      a.el.style.opacity = (a.fromOpacity * (1 - t)).toFixed(3);
+      a.el.style.transform = "scale(" + (a.fromScale - (a.fromScale - 0.45) * t).toFixed(3) + ")";
+    }
+    if(t >= 1){
+      if(a.mode === "out" && a.el.parentNode) a.el.parentNode.removeChild(a.el);
+      anims.splice(i, 1);
+    }
+  }
+  if(anims.length) state.pendingDotFrame = requestAnimationFrame(tickDotAnims);
+}
+function popDot(el, delay){
+  el.style.opacity = "0";
+  el.style.transform = "scale(.35)";
+  state.activeDotAnims.push({ el: el, mode: "in", start: performance.now(), delay: delay, dur: 190 });
+  if(!state.pendingDotFrame) state.pendingDotFrame = requestAnimationFrame(tickDotAnims);
+}
+function fadeOutDot(el){
+  // اگر دات هنوز در حالِ pop-in یا حتی از قبل در حالِ محوشدن بود
+  // (کلیک‌های خیلی سریعِ پشتِ‌سرِهم می‌تونن paintHighlights رو چند بار
+  // پشتِ‌سرِهم صدا بزنن قبل از این‌که یه fade-out قبلی تموم بشه)، اول
+  // ورودیِ قبلی‌اش رو از لیست پاک کن؛ بعد فیدِ جدید از opacity/scaleِ
+  // *واقعیِ فعلیِ* المان شروع می‌شه (نه از ۱)، وگرنه یه پرشِ ناگهانی به
+  // opacity کامل و بعد دوباره محوشدن دیده می‌شد.
+  var anims = state.activeDotAnims;
+  for(var i = anims.length - 1; i >= 0; i--){
+    if(anims[i].el === el) anims.splice(i, 1);
+  }
+  var fromOpacity = parseFloat(el.style.opacity);
+  if(isNaN(fromOpacity)) fromOpacity = 1;
+  var m = /scale\(([\d.]+)\)/.exec(el.style.transform || "");
+  var fromScale = m ? parseFloat(m[1]) : 1;
+  state.activeDotAnims.push({
+    el: el, mode: "out", start: performance.now(), delay: 0, dur: 140,
+    fromOpacity: fromOpacity, fromScale: fromScale
+  });
+  if(!state.pendingDotFrame) state.pendingDotFrame = requestAnimationFrame(tickDotAnims);
+}
+
 function renderPieces(animateFrom, animateTo, silent){
   // هر رندر جدید، هر انیمیشن قبلی را فوراً (بدون پرش) می‌بندد؛ هرگز
   // به تعویق نمی‌افتد — این خودِ تضمینِ نبودِ سکته/هم‌پوشانی است.
@@ -709,18 +783,10 @@ function paintHighlights(){
   Object.keys(state.boardEls).forEach(function(sq){
     var el = state.boardEls[sq];
     el.classList.remove("selected","last-from","last-to","check");
-    // رفعِ «دات‌ها انیمیشن ندارن / لگی‌ان»: قبلاً اینجا با d.remove() فوری
-    // پاک می‌شدند — یعنی هر بار که انتخاب عوض/لغو می‌شد، دات‌های قبلی بدونِ
-    // هیچ گذاری ناپدید می‌شدند. حالا کلاسِ leaving اضافه می‌شود (که در CSS
-    // یک محوشدنِ کوتاه دارد) و remove واقعی بعد از پایانِ همان انیمیشن
-    // انجام می‌شود. دات‌هایی که همین الان دارند leave می‌کنند دوباره
-    // انتخاب نمی‌شوند (querySelectorAll فقط .move-dot:not(.leaving) را
-    // می‌گیرد) تا با فراخوانی‌های پی‌درپیِ paintHighlights تداخل نکنند.
-    var dots = el.querySelectorAll(".move-dot:not(.leaving)");
-    dots.forEach(function(d){
-      d.classList.add("leaving");
-      setTimeout(function(){ if(d.parentNode) d.parentNode.removeChild(d); }, 150);
-    });
+    // محوشدنِ دات‌های قبلی وقتی انتخاب عوض/لغو می‌شود — با همان موتورِ
+    // rAF بالا (fadeOutDot)، نه CSS class/animation.
+    var dots = el.querySelectorAll(".move-dot");
+    dots.forEach(function(d){ fadeOutDot(d); });
     // پیکِ انتخابِ خودِ مهره (نه فقط خانه) هم اینجا پاک می‌شود تا اگر
     // انتخاب عوض/لغو شد، مهره‌ی قبلی بزرگ‌شده نماند.
     var pieceEl = el.querySelector(".piece");
@@ -750,8 +816,11 @@ function paintHighlights(){
       var toFile = FILES.indexOf(m.to[0]);
       var toRank = parseInt(m.to[1], 10);
       var dist = Math.max(Math.abs(toFile - fromFile), Math.abs(toRank - fromRank));
-      dot.style.animationDelay = (dist * 18) + "ms";
       el.appendChild(dot);
+      // به‌جای animation-delayِ CSS (که روی WebView با append همزمانِ چند
+      // ده دات ناهماهنگ می‌شد)، تأخیرِ پلکانی به موتورِ rAFِ بالا
+      // (tickDotAnims) داده می‌شود تا با همون ساعتِ واحد همگام بماند.
+      popDot(dot, dist * 18);
     });
   }
   if(chess.in_check ? chess.in_check() : chess.inCheck()){
