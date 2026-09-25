@@ -193,22 +193,9 @@ html,body{
   border: 1px solid var(--border);
   box-shadow: 0 20px 60px rgba(0,0,0,.45);
   flex-shrink: 0;
+  position: relative; /* لازم برای این‌که .pieces-layer نسبت به کلِ تخته absolute شود */
 }
 
-/* contain:layout ‌paint هر خانه را برای مرورگر یک واحدِ جداگانه‌ی
-   لِی‌آوت/رسم اعلام می‌کند؛ یعنی وقتی مهره‌ای داخلِ یک خانه با transform
-   جابه‌جا می‌شود یا رنگِ هایلایتِ .selected/.check عوض می‌شود، مرورگر
-   لازم نیست ۶۳ خانه‌ی دیگر را هم برای احتمالِ تغییرِ لِی‌آوت بررسی کند —
-   این دقیقاً همان چیزی است که در طولِ انیمیشنِ حرکتِ مهره فریم‌ریت را
-   پایین می‌آورد، مخصوصاً روی WebViewِ ضعیف‌ترِ اندروید. */
-/* رفعِ ریشه‌ایِ «مهره حین حرکت دیده نمی‌شود / انیمیشن ندارد»: قبلاً اینجا
-   contain: layout paint بود. contain:paint محتوای هر خانه را به مرزهای
-   همان خانه کلیپ می‌کند؛ مهره‌ی در حالِ حرکت هم چون داخلِ خانه‌ی *مقصد*
-   قرار دارد و با transform از خانه‌ی مبدأ (بیرونِ مرزهای مقصد) شروع
-   می‌شود، تا لحظه‌ی رسیدن کاملاً کلیپ/نامرئی بود و فقط در آخر ناگهان
-   ظاهر می‌شد — یعنی عملاً هیچ انیمیشنی دیده نمی‌شد. contain همچنین برای
-   هر خانه یک stacking context می‌ساخت و z-index مهره را محدود به همان
-   خانه می‌کرد. با ۶۴ خانه‌ی ساده، هزینه‌ی این contain اصلاً ارزشش را نداشت. */
 .square{ position:relative; display:flex; align-items:center; justify-content:center; }
 .square.light{ background: var(--light-sq); }
 .square.dark{ background: var(--dark-sq); }
@@ -222,19 +209,10 @@ html,body{
   background: var(--hi-sq); opacity:1; transform: scale(1);
 }
 .square.last-from::before, .square.last-to::before{
-  /* قبلاً یه پرِ رنگِ توپر (amber fill) بود. طبق رفرنس (اسکرین‌رکوردِ
-     اپِ دیگه)، آخرین حرکت با یه خط‌چینِ نازک دورِ خانه نشون داده می‌شه،
-     نه یه پرِ رنگ. اینجا از همون ::beforeِ مشترک استفاده می‌کنیم ولی
-     background رو خالی می‌کنیم و به‌جاش یه border-dashed می‌ذاریم؛
-     box-sizing:border-box لازمه چون ::before با inset:0 دقیقاً هم‌اندازه‌ی
-     خانه‌ست و بدونِ border-box، border باعثِ بزرگ‌ترشدنِ جعبه و هم‌پوشانی
-     با خانه‌ی کناری می‌شد. */
   background: transparent; opacity:1; transform: scale(1);
   border: 3px dashed var(--accent); box-sizing: border-box;
 }
-/* هدف زیرِ انگشت/موس هنگامِ درگ‌کردنِ مهره (نه هنگامِ تپ‌کردن) —
-   جدا از .selected چون هردو می‌توانند هم‌زمان روی صفحه باشند (خانه‌ی
-   مبدأ انتخاب‌شده + خانه‌ی مقصدِ زیرِ انگشت). */
+/* هدف زیرِ انگشت/موس هنگامِ درگ‌کردنِ مهره (نه هنگامِ تپ‌کردن) */
 .square.drop-hover::before{
   background: transparent; opacity:1; transform: scale(1);
   box-shadow: inset 0 0 0 3px var(--accent);
@@ -247,33 +225,61 @@ html,body{
   0%,100%{ opacity:.55; }
   50%{ opacity:1; }
 }
+
+/* ─── Move-dot preview (v4) ──────────────────────────────────
+   نسخه‌های قبلی (CSS animation-delay، بعد یک ساعتِ rAF دستی) هر دو
+   نیازمندِ هماهنگ‌نگه‌داشتنِ ده‌ها المان با یک ساعتِ مشترک بودند و روی
+   WebViewِ ضعیف ناهماهنگ می‌شدند. اینجا از قدیمی‌ترین و پایدارترین
+   ابزارِ خودِ CSS استفاده شده: هر دات با opacity:0/scale(.4) ساخته
+   می‌شود؛ فقط با اضافه‌شدنِ کلاسِ .in (دو فریم بعد، تا مرورگر حالتِ
+   اولیه را واقعاً رسم کرده باشد) مرورگر خودش، روی ترد کامپوزیتور
+   (نه ترد جاوااسکریپت)، بینِ دو مقدار میان‌یابی می‌کند — هیچ نوشتنِ
+   دستیِ فریم‌به‌فریم از جاوااسکریپت لازم نیست. تاخیرِ پلکانی هم با
+   transition-delay خودِ CSS تنظیم می‌شود (نه محاسبه‌ی دستی در جاوااسکریپت). */
 .move-dot{
   position:absolute; width:26%; height:26%; border-radius:50%;
   background: var(--move-dot); pointer-events:none;
-  /* v2: دیگر هیچ CSS animation/animation-delay اینجا نیست. با یک
-     ساعتِ rAF متمرکز در app.js (tickDotAnims) جایگزین شده تا معماریِ
-     نمایشِ دات‌ها دقیقاً همان تکنیکِ موتورِ حرکتِ مهره را داشته باشد —
-     یعنی opacity/scale هر فریم دستی توسطِ جاوااسکریپت نوشته می‌شود، نه
-     این‌که به ساعتِ داخلیِ CSS animations (که وقتی چند ده المان با
-     animation-delay در یک حلقه‌ی همزمان append می‌شوند، روی بعضی
-     WebViewها یکدست شروع نمی‌کند) واگذار شود. مقدارِ اولیه‌ی opacity/
-     transform همین‌جا توسطِ popDot() در لحظه‌ی ساخته‌شدنِ هر دات ست
-     می‌شود، قبل از این‌که مرورگر فریمِ بعدی را رسم کند — پس هیچ فلشِ
-     دیدنِ حالتِ پایانی وجود ندارد. */
-  will-change: transform, opacity;
+  opacity:0; transform: scale(.4);
+  transition: opacity .16s ease, transform .16s cubic-bezier(.34,1.56,.64,1);
 }
+.move-dot.in{ opacity:1; transform: scale(1); }
 .move-dot.capture{
   width:82%; height:82%; background:transparent;
   border: 4px solid var(--move-dot); border-radius:50%;
-  /* برای خانه‌های گرفتن، علاوه بر پاپِ اصلی (که JS کنترل می‌کند)، یک
-     حلقه‌ی نرمِ یک‌بارمصرف هم دورش باز می‌شود — این یک افکتِ کاملاً
-     مستقل و جانبی روی box-shadow است (نه transform/opacityِ خودِ دات)،
-     پس با موتورِ rAF بالا هیچ تداخلی ندارد و همچنان می‌تواند یک CSS
-     animationِ ساده و ارزان بماند. */
-  animation: dotcapturering .5s ease-out forwards;
 }
+.move-dot.capture.in{ animation: dotcapturering .5s ease-out forwards; }
 @keyframes dotcapturering{ 0%{ box-shadow: 0 0 0 0 var(--move-dot);} 100%{ box-shadow: 0 0 9px 3px transparent;} }
 
+/* ─── Piece layer (v4 — کاملاً بازطراحی‌شده) ──────────────────
+   نسخه‌های قبلی (v1..v3) مهره را داخلِ خانه‌اش جابه‌جا می‌کردند: هر
+   حرکت یعنی appendChild به خانه‌ی مقصد + محاسبه‌ی مسافتِ فیزیکی با
+   getBoundingClientRect + یک ترفندِ FLIP (نوشتنِ معکوس/reflow اجباری/
+   rAF) برای این‌که حرکت از نقطه‌ی درست شروع شود. همین معماری منبعِ
+   تکرارشونده‌ی سکته بود: هر رندرِ جدید باید انیمیشنِ قبلی را دستی
+   می‌بست، هر تغییرِ سایزِ صفحه باید مهره‌ها را دوباره اندازه می‌گرفت، و
+   هر بار که ترفندِ reflow درست اجرا نمی‌شد یک تاخیر/جهشِ قابل‌حس پیش
+   می‌آمد.
+
+   v4 این‌ها را کنار می‌گذارد: مهره‌ها دیگر داخلِ خانه‌شان نیستند، بلکه
+   در یک لایه‌ی مستقلِ absolute (.pieces-layer) روی کلِ تخته می‌نشینند
+   و موقعیتِ هرکدام صرفاً از رویِ اندیسِ ستون/ردیفِ منطقی‌اش (نه رندرِ
+   واقعیِ صفحه) محاسبه می‌شود — مستقل از rtl/ltr و چرخشِ تخته، پس اصلاً
+   امکانِ «مسیرِ برعکس» وجود ندارد. transition روی transform همیشه و
+   برای همیشه فعال است؛ یعنی برای حرکت‌دادن یک مهره فقط کافی‌ست
+   transform جدیدش نوشته شود — نه FLIP، نه اندازه‌گیریِ rect، نه reflow
+   اجباری، نه صبرکردن برای فریمِ دوم. مرورگر خودش، از همان مقدارِ
+   *واقعیِ فعلی*‌اش (حتی اگر وسطِ یک انیمیشنِ قبلی باشد) به مقدارِ جدید
+   میان‌یابی می‌کند — این دقیقاً همان چیزی است که یک انیمیشنِ جدید را
+   بدونِ جهش/سکته با انیمیشنِ قبلی «ادغام» می‌کند، بدونِ نیاز به کدی که
+   دستی انیمیشنِ قبلی را ببندد. */
+.pieces-layer{
+  position:absolute; inset:0; z-index:5; pointer-events:none;
+}
+.piece-slot{
+  position:absolute; left:0; top:0; width:12.5%; height:12.5%;
+  transition: transform .18s cubic-bezier(.22,.61,.36,1);
+  will-change: transform;
+}
 .piece{
   width:92%; height:92%;
   display:flex; align-items:center; justify-content:center;
@@ -283,37 +289,16 @@ html,body{
   position:absolute; inset:0; margin:auto; z-index:2;
   transition: text-shadow .2s ease;
   text-shadow: 0 2px 3px rgba(0,0,0,.5);
-  /* لایه‌ی ترکیبِ خودش را از قبل (نه فقط در لحظه‌ی شروعِ انیمیشن) دارد،
-     چون هر مهره ممکن است هر لحظه انتخاب/جابه‌جا شود؛ promote دیرهنگامِ
-     لایه (که فقط با will-change روی .moving/.piece-selected اتفاق
-     می‌افتد) خودش یک فریمِ افتاده تولید می‌کند. */
   transform: translateZ(0);
   backface-visibility: hidden;
+  pointer-events: auto; /* .pieces-layer خودش pointer-events:none است؛ فقط خودِ مهره کلیک/درگ می‌گیرد */
   /* بدونِ این، قانونِ سراسریِ `* { touch-action: manipulation }` روی
-     خودِ مهره هم اثر می‌کند. manipulation یعنی مرورگر همچنان اجازه‌ی
-     پن/اسکرول را برای خودش نگه می‌دارد؛ همین باعث می‌شود در نیمه‌راهِ
-     pointermove (به‌خصوص در WebViewِ تلگرام) مرورگر ژست را «اسکرول»
-     تشخیص بدهد و با یک pointercancel درگِ ما را قطع کند — دقیقاً همان
-     چیزی که باعث می‌شد شبح اصلاً دنبالِ انگشت نرود یا نیمه‌کاره بماند.
-     touch-action:none این تصمیم‌گیریِ مرورگر را کاملاً از مهره حذف
-     می‌کند و pointerdown/move/up را صددرصد دستِ جاوااسکریپت می‌گذارد. */
+     خودِ مهره هم اثر می‌کند و مرورگر ژست را وسطِ pointermove «اسکرول»
+     تشخیص می‌دهد. touch-action:none این را کاملاً دستِ جاوااسکریپت می‌گذارد. */
   touch-action: none;
 }
 .piece.white-p{ color: var(--piece-white); -webkit-text-stroke: .5px var(--piece-white-stroke); }
 .piece.black-p{ color: var(--piece-black); -webkit-text-stroke: .5px var(--piece-black-stroke); }
-/* پیکِ نرمِ خودِ مهره در لحظه‌ی انتخاب — علاوه بر هایلایتِ زیرِ خانه
-   (square.selected)، خودِ مهره هم کمی بزرگ‌تر و با یک سایه‌ی درخشانِ ملایم
-   نشان داده می‌شود تا واضح باشد این مهره همان چیزی است که برای حرکت
-   انتخاب شده، نه فقط خانه‌اش. selected فقط زمانی ست می‌شود که هیچ
-   انیمیشنِ حرکتی در جریان نیست (paintHighlights بعد از پایانِ moving صدا
-   زده می‌شود)، پس این افکت و انیمیشنِ جابه‌جاییِ transform هرگز هم‌زمان
-   روی یک مهره فعال نیستند. */
-/* رفعِ افتِ فریم‌ریت: drop-shadow روی هر فریمِ انیمیشن باید از نو
-   محاسبه شود (مثلِ همان مشکلی که در .moving مستند شده) و روی
-   WebViewهای موبایل مخصوصاً وقتی هم‌زمان با انیمیشنِ حرکتِ مهره یا
-   move-dotها اجرا می‌شود، فریم افت می‌کند. text-shadow (که خودِ .piece
-   همین الان هم دارد) بدونِ نیاز به لایه‌ی جداگانه compositable است، پس
-   به‌جای filter از یک text-shadow قوی‌تر برای حسِ درخشش استفاده شده. */
 .piece.piece-selected{
   transform: translateZ(0) scale(1.1);
   text-shadow: 0 0 6px var(--accent), 0 0 12px var(--accent), 0 2px 3px rgba(0,0,0,.5);
@@ -321,46 +306,18 @@ html,body{
 }
 .piece.dragging{ transform: translateZ(0) scale(1.18); z-index:20; cursor:grabbing; text-shadow: 0 4px 6px rgba(0,0,0,.45); }
 .piece.moving{
-  z-index:15; will-change: transform; transform: translateZ(0);
-  /* یک سایه‌ی ملایمِ «بلندشدن از سطحِ تخته» حینِ سُرخوردن — دقیقاً همان
-     مقدارِ text-shadow که برای .dragging استفاده می‌شود (نه یک مقدارِ
-     جدید)، پس هزینه‌ی رندرِ اضافه‌ای ندارد: هر دو حالت همین الان یک
-     text-shadow دارند، فقط عددش عوض می‌شود؛ این با filter/drop-shadow
-     که در کامنتِ زیر رد شده فرق دارد چون لایه‌ی جدیدی برای compositing
-     نمی‌سازد. */
+  z-index:15;
   transition: text-shadow .12s ease;
   text-shadow: 0 4px 6px rgba(0,0,0,.4);
 }
-/* توجه: عمداً هیچ filter/drop-shadow روی .moving گذاشته نشد. drop-shadow
-   برخلاف box-shadow روی خیلی از WebViewهای موبایل (به‌خصوص اندرویدِ
-   داخلِ تلگرام) قابلِ compositing ارزان نیست و باید هر فریم از نو
-   محاسبه شود — درست همان چیزی که باعثِ افتِ نرخِ فریم و «سکته»ایِ شدنِ
-   انیمیشنِ حرکت شد. به‌جایش همان مکانیزمِ ارزانِ text-shadow که .piece
-   همین الان هم دارد، فقط با مقدارِ بزرگ‌تر، استفاده شد. */
-
 .piece.captured-anim{
   animation: capturepop .22s cubic-bezier(.4,0,1,1) forwards;
-  z-index: 1; /* زیر مهره‌ی مهاجمی که دارد وارد همان خانه می‌شود می‌ماند */
+  z-index: 1;
 }
 @keyframes capturepop{ to{ transform: scale(.35); opacity:0; } }
-/* مدت‌زمان این افکت عمداً کوتاه‌تر از قبل شد (بود ۰٫۳۲s) تا محوشدنِ
-   مهره‌ی گرفته‌شده تقریباً هم‌زمان با رسیدنِ مهره‌ی مهاجم به همان خانه
-   تمام شود — دقیقاً شبیه chess.com، نه اینکه مهاجم برسد و مهره‌ی گرفته‌شده
-   هنوز چند فریمِ دیگر روی صفحه بماند. */
 
 .piece.landed{ animation: land .28s cubic-bezier(.34,1.56,.64,1); }
 @keyframes land{ 0%{ transform: scale(1.22);} 60%{ transform: scale(.96);} 100%{ transform: scale(1);} }
-
-/* .piece.just-arrived عمداً دیگر هیچ انیمیشنی ندارد. قبلاً اینجا یک
-   پالسِ کوچکِ scale (به اسم settle) بعد از نشستنِ مهره روی خانه‌ی
-   مقصد اجرا می‌شد؛ همانِ همین انیمیشنِ بعد-از-فرود، هرچند خیلی کوچک،
-   دقیقاً همان تکونی بود که حسِ «سکته» می‌داد. چون خودِ انیمیشنِ اومدن
-   (سُرخوردنِ translate) مشکلی نداشت و فقط انیمیشنِ *بعد از* رسیدن
-   مزاحم بود، ساده‌ترین و مطمئن‌ترین رفع، خاموش‌کردنِ کاملِ آن است.
-   کلاسِ just-arrived در app.js دیگر اصلاً اضافه نمی‌شود؛ این قانونِ
-   خالی هم برای مستندسازی نگه داشته شده که اگر جایی هنوز به این کلاس
-   رجوع شود، عمداً بدون افکت بماند. */
-.piece.just-arrived{ animation: none; }
 
 .piece.mated-king{ animation: kingfall .6s cubic-bezier(.55,0,.55,1) .15s forwards; transform-origin: 50% 85%; }
 @keyframes kingfall{

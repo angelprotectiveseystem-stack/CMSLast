@@ -154,10 +154,8 @@ var state = {
   drawOfferBy: null,
   drawModalShown: false,
   animating: false,
-  activeAnims: [],
-  pendingAnimFrame: null,
-  activeDotAnims: [],
-  pendingDotFrame: null,
+  squareSize: 0,   // پیکسل — اندازه‌ی یک خانه، فقط در sizeBoard() به‌روزرسانی می‌شود
+  pieceEls: {},    // sq -> عنصرِ .piece-slot (منبعِ اصلیِ موقعیتِ هر مهره)
   historyRenderedCount: 0,
   liveSocket: null
 };
@@ -202,6 +200,8 @@ function sizeBoard(){
       // نوسان‌های زیرپیکسلی حین ری‌فلوهای موقتی جلوگیری شود.
       if(Math.abs(currentPx - size) >= 1){
         document.documentElement.style.setProperty("--board-size", size + "px");
+        state.squareSize = size / 8;
+        repositionAllPiecesInstant();
       }
     }
   });
@@ -269,11 +269,58 @@ function setAvatar(el, name, url){
   el.appendChild(img);
 }
 
+// ─── هندسه‌ی تخته (محاسبه‌ی اندیسی — بدونِ نیاز به اندازه‌گیریِ DOM) ──
+// v4: موقعیتِ هر خانه/مهره صرفاً از رویِ اندیسِ منطقیِ ستون/ردیف (با درنظرِ
+// چرخشِ تخته) و اندازه‌ی شناخته‌شده‌ی هر خانه (state.squareSize، فقط در
+// sizeBoard به‌روزرسانی می‌شود) محاسبه می‌شود — نه از رویِ
+// getBoundingClientRect خودِ عنصر. این یعنی هیچ‌وقت لازم نیست حینِ
+// انیمیشن/کلیک/درگ یک لِی‌آوتِ همزمان (forced synchronous layout) از
+// مرورگر خواسته شود، و چون مبنا اندیسِ منطقی است (نه ترتیبِ واقعیِ DOM یا
+// جهتِ rtl/ltr)، اصلاً امکانِ «مسیرِ برعکس» وجود ندارد.
+function squareColRow(sq){
+  var file = FILES.indexOf(sq[0]);
+  var rank = parseInt(sq[1], 10);
+  var flip = state.myColor === "b";
+  return {
+    col: flip ? 7 - file : file,
+    row: flip ? rank - 1 : 8 - rank
+  };
+}
+function squarePixel(sq){
+  var cr = squareColRow(sq);
+  var size = state.squareSize || 0;
+  return { x: cr.col * size, y: cr.row * size };
+}
+// معادلِ همان محاسبه، اما برعکس: از رویِ مختصاتِ صفحه (clientX/clientY) به
+// نامِ خانه می‌رسد. به‌جای document.elementFromPoint (که چون مهره‌ها دیگر
+// داخلِ خانه‌شان نیستند، ممکن است یک مهره‌ی *دیگر* را برگرداند، نه خانه‌ی
+// زیرش)، مستقیماً از رویِ rect خودِ تخته و همان اندیسِ منطقی محاسبه
+// می‌شود — قابل‌اعتماد صرف‌نظر از این‌که چه چیزی زیرِ انگشت رندر شده.
+function squareFromPoint(clientX, clientY){
+  var boardEl = $("board");
+  var rect = boardEl.getBoundingClientRect();
+  if(!rect.width || !rect.height) return null;
+  var relX = clientX - rect.left, relY = clientY - rect.top;
+  if(relX < 0 || relY < 0 || relX >= rect.width || relY >= rect.height) return null;
+  var col = Math.min(7, Math.max(0, Math.floor(relX / (rect.width / 8))));
+  var row = Math.min(7, Math.max(0, Math.floor(relY / (rect.height / 8))));
+  var flip = state.myColor === "b";
+  var file = flip ? 7 - col : col;
+  var rank = flip ? row + 1 : 8 - row;
+  return FILES[file] + rank;
+}
+
 // ─── Board build ────────────────────────────────────────────
+// خانه‌ها (.square) فقط برای پس‌زمینه/هایلایت/دات‌های پیش‌نمایش می‌مانند.
+// خودِ مهره‌ها دیگر داخلِ خانه‌شان appendChild نمی‌شوند؛ همه در یک لایه‌ی
+// مستقلِ .pieces-layer (پایین‌تر از همین تابع ساخته می‌شود) با موقعیتِ
+// absolute نگه‌داری می‌شوند — دلیلش در توضیحِ بالای «Piece movement engine»
+// آمده.
 function buildBoard(){
   var board = $("board");
   board.innerHTML = "";
   state.boardEls = {};
+  state.pieceEls = {};
   var flip = state.myColor === "b";
   for(var r=0;r<8;r++){
     for(var c=0;c<8;c++){
@@ -283,33 +330,48 @@ function buildBoard(){
       var el = document.createElement("div");
       el.className = "square " + (((r+c)%2===0) ? "light" : "dark");
       el.dataset.square = sq;
-      el.addEventListener("click", function(){ onSquareClick(this.dataset.square); });
       board.appendChild(el);
       state.boardEls[sq] = el;
     }
   }
+  var layer = document.createElement("div");
+  layer.className = "pieces-layer";
+  layer.id = "pieces-layer";
+  board.appendChild(layer);
+  // اندازه‌ی خانه را همین‌جا هم (نه فقط در رویدادِ resize) به‌روزرسانی
+  // می‌کنیم، چون buildBoard معمولاً پیش از اولین sizeBoard صدا زده می‌شود
+  // (مثلاً هنگامِ ورودِ اولیه به بازی) و مهره‌های اولیه باید از همان لحظه‌ی
+  // ساخته‌شدن در مختصاتِ درست بنشینند.
+  var boardRect = board.getBoundingClientRect();
+  if(boardRect.width > 0) state.squareSize = boardRect.width / 8;
+}
+
+// همه‌ی مهره‌های موجود را فوراً (بدونِ انیمیشن) در موقعیتِ درستِ جدید
+// می‌نشاند — فقط بعد از تغییرِ واقعیِ اندازه‌ی تخته (sizeBoard) لازم است،
+// نه در هر حرکت. چون transform همیشه transition دارد، برای این‌که این
+// جابه‌جایی پرش نکند، transition موقتاً خاموش می‌شود؛ یک reflowِ مشترک
+// (نه یکی به‌ازای هر مهره) این حالت را قفل می‌کند و بعد transition دوباره
+// روشن می‌شود.
+function repositionAllPiecesInstant(){
+  var sqs = Object.keys(state.pieceEls);
+  if(!sqs.length) return;
+  sqs.forEach(function(sq){
+    var slot = state.pieceEls[sq];
+    var p = squarePixel(sq);
+    slot.style.transition = "none";
+    slot.style.transform = "translate3d(" + p.x + "px," + p.y + "px,0)";
+  });
+  void state.pieceEls[sqs[0]].offsetWidth; // یک reflowِ مشترک برای کلِ دسته
+  sqs.forEach(function(sq){ state.pieceEls[sq].style.transition = ""; });
 }
 
 // ─── گرفتن و کشیدنِ مهره‌ها (Drag & Drop) ───────────────────
-// قبلاً فقط تپ‌کردن (انتخاب خانه → انتخاب مقصد) کار می‌کرد؛ کلاسِ
-// .piece.dragging در CSS از قبل تعریف شده بود ولی هیچ‌جای app.js
-// اضافه نمی‌شد — یعنی مهره اصلاً «بلند» نمی‌شد و کشیدنش برای حرکت‌دادن
-// ممکن نبود. اینجا با pointerdown/move/up یک «شبح» از مهره ساخته
-// می‌شود که با انگشت/موس دنبال می‌کند؛ خودِ مهره‌ی اصلی تا لحظه‌ی رهاشدن
-// در خانه‌اش می‌ماند — چون .square دارای contain:paint است و اگر خودِ
-// مهره را با transform به بیرون از خانه‌اش می‌بردیم، همان‌جا بریده/محو
-// می‌شد. اگر رهاکردن روی یک مقصدِ مجاز باشد، همان doMove موجود صدا زده
-// می‌شود، پس تمامِ موتورِ انیمیشن/صدا/هماهنگی‌باسرور که برای تپ نوشته
-// شده، بدونِ تکرار، برای درگ هم استفاده می‌شود.
+// همان معماریِ قبلی (شبح دنبالِ انگشت، مهره‌ی اصلی تا لحظه‌ی رهاشدن سرِ
+// جایش می‌ماند)، فقط sq از dataset.square خودِ .piece-slot خوانده می‌شود
+// (نه از .closest(".square")، چون مهره دیگر داخلِ خانه نیست).
 (function initPieceDrag(){
   var DRAG_THRESHOLD = 6; // پیکسل — کمتر از این یعنی تپِ ساده، نه درگ
   var drag = null; // { fromSq, pieceEl, ghost, startX, startY, rect, pointerId, moved }
-
-  function squareFromPoint(x, y){
-    var el = document.elementFromPoint(x, y);
-    var sqEl = el && el.closest ? el.closest(".square") : null;
-    return sqEl ? sqEl.dataset.square : null;
-  }
 
   function makeGhost(pieceEl, rect){
     var g = pieceEl.cloneNode(true);
@@ -339,20 +401,15 @@ function buildBoard(){
     if(drag) return;
     var pieceEl = e.target.closest ? e.target.closest(".piece") : null;
     if(!pieceEl) return;
-    var sqEl = pieceEl.closest(".square");
-    if(!sqEl) return;
-    var sq = sqEl.dataset.square;
+    var slot = pieceEl.closest(".piece-slot");
+    if(!slot) return;
+    var sq = slot.dataset.square;
     if(state.isSpectator || !myTurn()) return;
     var piece = chess.get(sq);
     if(!piece || piece.color !== state.myColor) return;
 
-    // جلوگیریِ دفاعیِ اضافه از دست‌درازیِ مرورگر (اسکرول/زوم) روی این
-    // ژست، مکمّلِ touch-action:none در CSS — بعضی WebViewهای قدیمی‌تر
-    // فقط با preventDefault هم قانع می‌شوند، نه فقط با CSS.
     if(e.cancelable) e.preventDefault();
 
-    // همان انتخابِ حالتِ تپ: خانه انتخاب و نقطه‌های مقصد نشان داده
-    // می‌شوند، حتی پیش از این‌که معلوم شود کاربر واقعاً می‌خواهد درگ کند.
     state.selected = sq;
     state.legalTargets = chess.moves({ square: sq, verbose:true });
     paintHighlights();
@@ -364,15 +421,6 @@ function buildBoard(){
     };
   });
 
-  // نکته‌ی کارایی: pointermove روی موبایل می‌تواند ده‌ها بار در ثانیه
-  // (بدون هیچ همگام‌سازی با فریمِ رندر) شلیک شود. قبلاً این هندلر به
-  // ازای *هر* رویداد بلافاصله روی هر ۶۴ خانه‌ی تخته classList.toggle
-  // صدا می‌زد (۶۴ نوشتنِ DOM در هر رویداد pointermove) — همین باعثِ
-  // لگِ محسوس هنگام نگه‌داشتن/کشیدنِ مهره می‌شد، دقیقاً همان الگویی که
-  // در initPullRefresh (پایینِ فایل) با یک rAF حل شده. اینجا هم با
-  // همان الگو: رویدادهای پیاپی در یک متغیر ذخیره و فقط یک‌بار در هر
-  // فریم پردازش می‌شوند؛ و به‌جای لوپِ کاملِ ۶۴ خانه، فقط خانه‌ی قبلی و
-  // خانه‌ی جدیدِ زیرِ انگشت (حداکثر ۲ نوشتنِ DOM) دست می‌خورند.
   var lastHoverSq = null;
   var moveRaf = null, pendingMoveEvent = null;
 
@@ -384,9 +432,6 @@ function buildBoard(){
       drag.pieceEl.style.opacity = "0"; // مهره‌ی واقعی موقتاً مخفی؛ شبح جایش دنبالِ انگشت می‌رود
       drag.ghost = makeGhost(drag.pieceEl, drag.rect);
     }
-    // scale(1.18) اینجا هم باید تکرار شود، وگرنه این style اینلاین
-    // (که همیشه از کلاسِ .dragging جلوتر می‌ایستد) آن را از بین می‌برد
-    // و مهره‌ی درگ‌شونده بدونِ حسِ «بلندشدن» صرفاً جابه‌جا به‌نظر می‌رسد.
     drag.ghost.style.transform = "translate(" + dx + "px," + dy + "px) scale(1.18)";
     var overSq = squareFromPoint(e.clientX, e.clientY);
     var hoverSq = (overSq && overSq !== drag.fromSq) ? overSq : null;
@@ -430,9 +475,6 @@ function buildBoard(){
         doMove(d.fromSq, dropSq);
       }
     } else {
-      // رهاکردن روی خانه‌ی نامعتبر (یا بیرونِ تخته): چون مهره‌ی واقعی
-      // اصلاً جابه‌جا نشده بود (فقط شبح مخفی/حذف شد)، خودش سرِ جایش
-      // می‌ماند؛ فقط انتخاب پاک می‌شود.
       state.selected = null;
       state.legalTargets = [];
       paintHighlights();
@@ -442,145 +484,61 @@ function buildBoard(){
   document.addEventListener("pointercancel", endDrag);
 })();
 
-// ─── Piece movement / animation engine (v3 — full rAF-driven rebuild) ────
-//
-// نسخه‌ی قبلی (v2) با یک CSS transition دو-نقطه‌ای + یک ترفندِ
-// «reflow اجباری + دو requestAnimationFrame تودرتو» کار می‌کرد تا مرورگر
-// را مجبور کند نقطه‌ی شروع را واقعاً رسم کند، بعد transition را وصل کند.
-// خودِ همین ترفند، ریشه‌ی سکته‌ای بود که باز هم گزارش شد: بینِ appendChild
-// و لحظه‌ای که transition واقعاً وصل می‌شد، مهره حداقل دو فریمِ کامل
-// (نزدیکِ ۳۰-۴۰ms روی گوشیِ متوسط، بیشتر روی گوشیِ ضعیف) کاملاً بی‌حرکت
-// روی خانه‌ی مقصد می‌نشست و بعد یک‌دفعه شروع به حرکت می‌کرد — یعنی یک
-// «تعلیقِ» کوتاهِ قابلِ‌حس قبلِ شروعِ هر حرکت، که دقیقاً همان سکته‌ای است
-// که حس می‌شود. علاوه‌براین، همان reflow اجباری (خواندنِ offsetWidth) یک
-// لِی‌آوتِ سنگرونِ کاملِ صفحه را دقیقاً همان لحظه‌ای اجرا می‌کرد که
-// paintHighlights (چند خط پایین‌تر) دارد دات‌های مسیر را می‌سازد — همان
-// هم‌زمانی، سکته‌ی دات‌ها را هم توضیح می‌دهد.
-//
-// v3 کاملاً این معماری را کنار می‌گذارد: هیچ CSS transition، هیچ
-// transitionend، هیچ reflowِ اجباری، و هیچ انتظاری برای فریمِ دوم وجود
-// ندارد. به‌جایش یک تیکِ rAF ساده و متمرکز (tickPieceAnims) خودش هر فریم
-// دستی transform را بر اساسِ زمانِ سپری‌شده محاسبه و می‌نویسد — یعنی
-// جابه‌جایی از همان اولین فریم شروع می‌شود، چون خودِ نوشتنِ transform
-// همزمان با appendChild اتفاق می‌افتد، نه با یک تاخیرِ دو-فریمی بعدش.
-// این دقیقاً همان تکنیکِ استانداردِ FLIP-با-rAF است که کتابخانه‌هایی مثل
-// Framer Motion/GSAP هم استفاده می‌کنند، و چون هیچ اتکایی به تفسیرِ
-// transition/keyframe توسطِ موتورِ مرورگر ندارد، حتی روی قدیمی‌ترین
-// WebViewها هم رفتارش یکنواخت و قابل‌پیش‌بینی است.
-function easeOutSmooth(t){
-  // طبقِ رفرنس (اسکرین‌رکوردِ اپِ دیگر)، حرکتِ مهره هیچ فنر/overshootی
-  // نداره — یه شتاب‌گیریِ کاملاً نرم و یکنواخته که دقیقاً در t=1 (بدون
-  // هیچ برگشت یا لرزش) متوقف می‌شه. قبلاً اینجا یه easeSpring با کمی
-  // overshoot بود (معادلِ cubic-bezier(.22,1.15,.36,1))؛ چون خودِ رفرنس
-  // خطی/decelerate ساده بود، به easeOutCubic استاندارد تغییر کرد —
-  // ساده‌ترین و «تمیزترین» منحنیِ ease-out که در هیچ نقطه‌ای از h(t)
-  // مشتقش منفی نمی‌شه (یعنی مهره هرگز حتی یک پیکسل به‌عقب برنمی‌گرده،
-  // نه در جهتِ حرکت و نه در اسکیل)، پس مطلقاً هیچ لرزش/سکته‌ای در
-  // نمی‌آد.
-  var p = 1 - t;
-  return 1 - p * p * p;
-}
-function tickPieceAnims(now){
-  state.pendingAnimFrame = null;
-  var anims = state.activeAnims.slice();
-  anims.forEach(function(a){
-    var t = (now - a.start) / a.dur;
-    if(t >= 1){ a.finish(); return; }
-    var e = easeOutSmooth(t);
-    var x = a.dx * (1 - e), y = a.dy * (1 - e);
-    a.el.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
-  });
-  if(state.activeAnims.length) state.pendingAnimFrame = requestAnimationFrame(tickPieceAnims);
-}
-function settleActiveAnimations(){
-  if(state.pendingAnimFrame){
-    cancelAnimationFrame(state.pendingAnimFrame);
-    state.pendingAnimFrame = null;
-  }
-  var anims = state.activeAnims;
-  state.activeAnims = [];
-  anims.forEach(function(a){
-    try{ a.finish(); }catch(e){}
-  });
-  state.animating = false;
+// یک کلیکِ واحد و delegated روی کلِ تخته به‌جای یک listener جداگانه روی
+// هر ۶۴ خانه — چون مهره‌ها دیگر داخلِ خانه‌شان نیستند (بلکه در لایه‌ی
+// جداگانه‌ی .pieces-layer روی همه‌شان قرار دارند)، کلیک روی یک خانه‌ی
+// دارایِ مهره اول به خودِ .piece برخورد می‌کند، نه به .square زیرش؛
+// squareFromPoint (محاسبه‌ی هندسی، نه DOM) هر دو حالت را یکسان پوشش
+// می‌دهد.
+$("board").addEventListener("click", function(e){
+  if(state.suppressNextClick){ state.suppressNextClick = false; return; }
+  var sq = squareFromPoint(e.clientX, e.clientY);
+  if(sq) onSquareClick(sq);
+});
+
+function createPieceSlot(sq, type, color){
+  var slot = document.createElement("div");
+  slot.className = "piece-slot";
+  slot.dataset.square = sq;
+  slot.dataset.ptype = type;
+  slot.dataset.pcolor = color;
+  var inner = document.createElement("div");
+  inner.className = "piece " + (color === "w" ? "white-p" : "black-p");
+  inner.textContent = PIECE_GLYPH[type];
+  slot.appendChild(inner);
+  var p = squarePixel(sq);
+  // نوشتنِ موقعیتِ نهایی همین‌جا، پیش از appendChild به صفحه: چون این
+  // عنصر تا این لحظه اصلاً رندر نشده، مرورگر هیچ «مقدارِ قبلی»ای برای
+  // transition ندارد که از آن فاصله بگیرد — یعنی هیچ‌وقت این مقدارِ
+  // اولیه انیمیت نمی‌شود (مهره‌ی تازه هیچ‌وقت از گوشه‌ی تخته «سُر
+  // نمی‌خورد»، دقیقاً سرِ خانه‌ی درستش ظاهر می‌شود).
+  slot.style.transform = "translate3d(" + p.x + "px," + p.y + "px,0)";
+  return slot;
 }
 
-// ─── Move-dot reveal engine (rAF-driven — همان معماریِ موتورِ مهره) ──────
+// ─── Piece movement / animation engine (v4 — بازطراحیِ کامل) ─────────
 //
-// نسخه‌ی قبلی از CSS animation + animation-delay استفاده می‌کرد. مشکل:
-// وقتی روی یه مهره کلیک می‌شد (مثلاً وزیر با ۲۰+ خانه‌ی مجاز)، تا ۲۰+
-// المانِ move-dot تودرتو در یک حلقه‌ی کاملاً همزمانِ جاوااسکریپت append
-// می‌شدند، هرکدام با یک animation-delay متفاوت روی خودِ استایلِ inline.
-// روی خیلی از مرورگرها این مشکلی ندارد، اما روی WebViewِ تلگرام (به‌خصوص
-// اندروید)، وقتی این‌قدر المانِ جدید با انیمیشنِ CSS در یک تسکِ جاوااسکریپتی
-// append می‌شوند، ساعتِ داخلیِ CSS animations برای شروعِ دقیقِ هرکدام با
-// فریمِ رندرِ واقعی همگام نمی‌شود — بعضی دات‌ها یک یا دو فریم دیر/زود
-// شروع می‌کنند یا اصلاً delay‌شان نادیده گرفته می‌شود، و کل موجِ پلکانی
-// به‌جای یک حرکتِ نرم، تکه‌تکه و با سکته دیده می‌شود.
+// نسخه‌های قبلی (v1: CSS animation ساده؛ v2: CSS transition + ترفندِ
+// FLIP با reflow اجباری؛ v3: کاملاً دستی با یک تیکِ rAF که هر فریم خودش
+// transform را حساب و می‌نوشت) هرکدام یک مشکلِ ریشه‌ای مشترک داشتند:
+// موقعیتِ هر مهره از رویِ اندازه‌گیریِ واقعیِ صفحه (getBoundingClientRect)
+// و/یا جابه‌جاییِ فیزیکیِ خودِ عنصر بینِ خانه‌ها محاسبه می‌شد. این یعنی هر
+// حرکت به یک لِی‌آوتِ همزمان (برای خواندنِ rect) و در v3 حتی به نوشتنِ
+// دستیِ transform در هر فریم (روی ترد جاوااسکریپت، نه کامپوزیتور) وابسته
+// بود — دقیقاً همان‌جایی که روی WebViewِ ضعیف (مخصوصاً وقتی هم‌زمان چتِ
+// polling/تایمرِ ساعت هم در جریان است) فریم افت می‌کند و سکته حس می‌شود.
 //
-// راه‌حل: دقیقاً همان تکنیکِ tickPieceAnims — یک تیکِ rAF واحد و متمرکز
-// که opacity/scale هر دات را خودش، هر فریم، بر اساسِ زمانِ واقعیِ سپری‌شده
-// (performance.now()) دستی حساب و می‌نویسد. چون یک ساعتِ واحد برای همه‌ی
-// دات‌ها استفاده می‌شود (نه ساعتِ داخلیِ جداگانه‌ی هر CSS animation)، موجِ
-// پلکانی همیشه دقیقاً هماهنگ و یکدست است.
-function tickDotAnims(now){
-  state.pendingDotFrame = null;
-  var anims = state.activeDotAnims;
-  for(var i = anims.length - 1; i >= 0; i--){
-    var a = anims[i];
-    var elapsed = now - a.start;
-    if(elapsed < a.delay) continue; // هنوز نوبتش نرسیده — نامرئی می‌ماند
-    var t = Math.min(1, (elapsed - a.delay) / a.dur);
-    if(a.mode === "in"){
-      var e = easeOutSmooth(t);
-      a.el.style.opacity = Math.min(1, t * 2.2).toFixed(3);
-      a.el.style.transform = "scale(" + (0.35 + 0.65 * e).toFixed(3) + ")";
-    } else { // "out": محوشدنِ دات‌های قبلی وقتی انتخاب عوض/لغو می‌شود —
-      // از opacity/scaleِ واقعیِ لحظه‌ی شروعِ فیدآوت (fromOpacity/fromScale)
-      // به سمتِ صفر/۴۵٪ می‌رود، نه از ۱، تا اگر دات هنوز در حالِ pop-in
-      // بود هیچ پرشِ بصری نداشته باشد.
-      a.el.style.opacity = (a.fromOpacity * (1 - t)).toFixed(3);
-      a.el.style.transform = "scale(" + (a.fromScale - (a.fromScale - 0.45) * t).toFixed(3) + ")";
-    }
-    if(t >= 1){
-      if(a.mode === "out" && a.el.parentNode) a.el.parentNode.removeChild(a.el);
-      anims.splice(i, 1);
-    }
-  }
-  if(anims.length) state.pendingDotFrame = requestAnimationFrame(tickDotAnims);
-}
-function popDot(el, delay){
-  el.style.opacity = "0";
-  el.style.transform = "scale(.35)";
-  state.activeDotAnims.push({ el: el, mode: "in", start: performance.now(), delay: delay, dur: 190 });
-  if(!state.pendingDotFrame) state.pendingDotFrame = requestAnimationFrame(tickDotAnims);
-}
-function fadeOutDot(el){
-  // اگر دات هنوز در حالِ pop-in یا حتی از قبل در حالِ محوشدن بود
-  // (کلیک‌های خیلی سریعِ پشتِ‌سرِهم می‌تونن paintHighlights رو چند بار
-  // پشتِ‌سرِهم صدا بزنن قبل از این‌که یه fade-out قبلی تموم بشه)، اول
-  // ورودیِ قبلی‌اش رو از لیست پاک کن؛ بعد فیدِ جدید از opacity/scaleِ
-  // *واقعیِ فعلیِ* المان شروع می‌شه (نه از ۱)، وگرنه یه پرشِ ناگهانی به
-  // opacity کامل و بعد دوباره محوشدن دیده می‌شد.
-  var anims = state.activeDotAnims;
-  for(var i = anims.length - 1; i >= 0; i--){
-    if(anims[i].el === el) anims.splice(i, 1);
-  }
-  var fromOpacity = parseFloat(el.style.opacity);
-  if(isNaN(fromOpacity)) fromOpacity = 1;
-  var m = /scale\(([\d.]+)\)/.exec(el.style.transform || "");
-  var fromScale = m ? parseFloat(m[1]) : 1;
-  state.activeDotAnims.push({
-    el: el, mode: "out", start: performance.now(), delay: 0, dur: 140,
-    fromOpacity: fromOpacity, fromScale: fromScale
-  });
-  if(!state.pendingDotFrame) state.pendingDotFrame = requestAnimationFrame(tickDotAnims);
-}
+// v4 هیچ‌کدام از این‌ها را ندارد: موقعیتِ مقصد صرفاً از رویِ اندیسِ منطقیِ
+// خانه محاسبه می‌شود (squarePixel، بدونِ هیچ اندازه‌گیری‌ای)، و چون
+// .piece-slot همیشه و برای همیشه یک transition روی transform دارد (در
+// CSS، نه جاوااسکریپت)، تنها کاری که این تابع لازم است انجام دهد نوشتنِ
+// همان یک مقدارِ transform جدید است — خودِ مرورگر، روی ترد کامپوزیتور،
+// از موقعیتِ *واقعیِ فعلی* (حتی وسطِ یک انیمیشنِ قبلیِ ناتمام) به مقصدِ
+// جدید میان‌یابی می‌کند. نه FLIP، نه reflow، نه تیکِ دستی، نه نیاز به
+// «بستنِ» انیمیشنِ قبلی قبل از شروعِ بعدی.
+var pieceAnimGen = 0; // برای نادیده‌گرفتنِ callbackِ یک انیمیشنِ منسوخ‌شده (وقتی رندرِ جدید زودتر از پایانِ قبلی می‌رسد)
 
 function renderPieces(animateFrom, animateTo, silent){
-  // هر رندر جدید، هر انیمیشن قبلی را فوراً (بدون پرش) می‌بندد؛ هرگز
-  // به تعویق نمی‌افتد — این خودِ تضمینِ نبودِ سکته/هم‌پوشانی است.
-  settleActiveAnimations();
   var boardState = chess.board();
   var desired = {};
   for(var r=0;r<8;r++){
@@ -589,33 +547,25 @@ function renderPieces(animateFrom, animateTo, silent){
       if(p) desired[FILES[c] + (8-r)] = p;
     }
   }
-  var current = {};
-  Object.keys(state.boardEls).forEach(function(sq){
-    var el = state.boardEls[sq].querySelector(".piece");
-    if(el) current[sq] = { type: el.dataset.ptype, color: el.dataset.pcolor, el: el };
-  });
+  var current = state.pieceEls;
 
   var vacated = [];
   var arrived = [];
   Object.keys(current).forEach(function(sq){
-    var c = current[sq], d = desired[sq];
-    if(!d || d.type !== c.type || d.color !== c.color){
-      vacated.push({ sq: sq, type: c.type, color: c.color, el: c.el });
+    var slot = current[sq];
+    var d = desired[sq];
+    if(!d || d.type !== slot.dataset.ptype || d.color !== slot.dataset.pcolor){
+      vacated.push({ sq: sq, type: slot.dataset.ptype, color: slot.dataset.pcolor, el: slot });
     }
   });
   Object.keys(desired).forEach(function(sq){
-    var d = desired[sq], c = current[sq];
-    if(!c || c.type !== d.type || c.color !== d.color){
+    var d = desired[sq], slot = current[sq];
+    if(!slot || slot.dataset.ptype !== d.type || slot.dataset.pcolor !== d.color){
       arrived.push({ sq: sq, type: d.type, color: d.color });
     }
   });
 
   if(!vacated.length && !arrived.length){ paintHighlights(); return; }
-
-  // موقعیت واقعی پیکسلی (getBoundingClientRect) هر مهره‌ی جابه‌جاشونده
-  // را قبل از هر تغییری در DOM ثبت می‌کنیم — این مقدار فیزیکی صفحه
-  // است، مستقل از rtl/ltr و چرخش تخته.
-  vacated.forEach(function(v){ v.rect = v.el.getBoundingClientRect(); });
 
   function takeVacated(sq){
     for(var i=0;i<vacated.length;i++) if(vacated[i].sq === sq) return vacated.splice(i,1)[0];
@@ -636,152 +586,101 @@ function renderPieces(animateFrom, animateTo, silent){
     var v0 = takeVacated(animateFrom);
     if(v0){
       var a0 = takeArrived(animateTo);
-      if(a0) moves.push({ el: v0.el, toSq: a0.sq, toType: a0.type, fromRect: v0.rect });
-      else vacated.push(v0); // مقصد تغییر نکرده؛ احتمالاً همگام‌سازی عجیب — بگذار به مرحله‌ی بعد برود
+      if(a0) moves.push({ el: v0.el, fromSq: v0.sq, toSq: a0.sq, toType: a0.type });
+      else vacated.push(v0);
     }
   }
-  // ۲) بقیه‌ی مهره‌های جابه‌جا‌شده بر اساس نوع+رنگ یکسان جفت می‌شوند
-  // (مثل رخ در قلعه، یا چند حرکت که با هم از سرور رسیده‌اند)
+  // ۲) بقیه‌ی مهره‌های جابه‌جا‌شده بر اساس نوع+رنگ یکسان جفت می‌شوند (قلعه، یا چند حرکتِ هم‌زمانِ سرور)
   vacated.slice().forEach(function(v){
     var a = takeArrivedByType(v.type, v.color);
     if(a){
       takeVacated(v.sq);
-      moves.push({ el: v.el, toSq: a.sq, toType: a.type, fromRect: v.rect });
+      moves.push({ el: v.el, fromSq: v.sq, toSq: a.sq, toType: a.type });
     }
   });
 
-  // LAST — همان المان مهره را فیزیکی به خانه‌ی مقصد منتقل می‌کنیم
   var didPromote = false;
   moves.forEach(function(m){
-    state.boardEls[m.toSq].appendChild(m.el);
+    delete state.pieceEls[m.fromSq];
+    state.pieceEls[m.toSq] = m.el;
+    m.el.dataset.square = m.toSq;
+    var inner = m.el.querySelector(".piece");
     if(m.el.dataset.ptype !== m.toType){ // ترفیع: نوع مهره عوض شده
-      m.el.textContent = PIECE_GLYPH[m.toType];
+      inner.textContent = PIECE_GLYPH[m.toType];
       m.el.dataset.ptype = m.toType;
       didPromote = true;
     }
   });
 
-  // باقی‌مانده‌ی vacated یعنی واقعاً «گرفته‌شده‌اند». برخلاف قبل، محوشدن
-  // این مهره فوری شروع نمی‌شود — باید تقریباً هم‌زمان با لحظه‌ای اتفاق
-  // بیفتد که مهره‌ی مهاجم واقعاً به همان خانه می‌رسد (دقیقاً مثل
-  // chess.com: مهاجم می‌رسد و در همان لحظه مهره‌ی گرفته‌شده ناپدید
-  // می‌شود، نه این‌که قبل از رسیدنِ مهاجم محو شود). چون مدت‌زمانِ
-  // واقعیِ حرکتِ مهاجم (dur) کمی پایین‌تر، داخل همین moves.forEach محاسبه
-  // می‌شود، اینجا فقط یک تابعِ کمکی می‌سازیم که آن حلقه صدایش بزند —
-  // با مسافتی که خودِ مهاجم طی می‌کند هماهنگ است، نه یک عددِ ثابتِ حدسی.
+  // باقی‌مانده‌ی vacated یعنی واقعاً «گرفته‌شده‌اند» — محوشدنشان با لحظه‌ی
+  // واقعیِ رسیدنِ مهاجم هماهنگ می‌شود (دقیقاً مثل chess.com)، نه فوری.
   var didCapture = vacated.length > 0;
   var captureFinishers = vacated.map(function(v){
     var removed = false;
     return function(){
       if(removed) return;
       removed = true;
-      v.el.classList.add("captured-anim");
-      setTimeout(function(){ if(v.el.parentNode) v.el.remove(); }, 220);
+      var inner = v.el.querySelector(".piece");
+      inner.classList.add("captured-anim");
+      setTimeout(function(){ if(v.el.parentNode) v.el.parentNode.removeChild(v.el); }, 220);
     };
   });
-  // اگر به هر دلیلی هیچ moves‌ای برای هم‌زمان‌سازی وجود نداشت (نادر —
-  // مثلاً یک سینک عجیب از سرور)، فوراً محو می‌شوند تا مهره‌ی گرفته‌شده
-  // برای همیشه روی صفحه گیر نکند.
   if(!moves.length) captureFinishers.forEach(function(fn){ fn(); });
-  // نگاشتِ خانه‌ی مقصد → توابعِ محوکردنِ مهره‌ی گرفته‌شده در همان خانه؛
-  // moves.forEach پایین‌تر با toSq این نگاشت را چک می‌کند تا محوشدن را
-  // دقیقاً هم‌زمان با رسیدنِ مهاجم به آن خانه صدا بزند.
   var captureFinishersBySquare = {};
   vacated.forEach(function(v, i){
     if(!captureFinishersBySquare[v.sq]) captureFinishersBySquare[v.sq] = [];
     captureFinishersBySquare[v.sq].push(captureFinishers[i]);
   });
-  // قلعه: دو مهره با هم جابه‌جا شدند (شاه + رخ) بدون گرفته‌شدنِ هیچ‌کدام
   var didCastle = !didCapture && moves.length === 2;
+
+  var layer = $("pieces-layer");
   // باقی‌مانده‌ی arrived یعنی مهره‌ی کاملاً تازه (بار اول لود صفحه، یا
-  // ترفیعی که جفتش پیدا نشد) — با یک پاپ کوچک ظاهر می‌شود
+  // ترفیعی که جفتش پیدا نشد) — با یک پاپ کوچک ظاهر می‌شود.
   arrived.forEach(function(a){
-    var span = document.createElement("div");
-    span.className = "piece " + (a.color==="w" ? "white-p" : "black-p");
-    span.textContent = PIECE_GLYPH[a.type];
-    span.dataset.ptype = a.type;
-    span.dataset.pcolor = a.color;
-    span.classList.add("landed");
-    state.boardEls[a.sq].appendChild(span);
+    var slot = createPieceSlot(a.sq, a.type, a.color);
+    slot.querySelector(".piece").classList.add("landed");
+    layer.appendChild(slot);
+    state.pieceEls[a.sq] = slot;
   });
 
-  // PLAY — مسافت جابه‌جایی از روی مختصات واقعیِ پیکسلی صفحه محاسبه
-  // می‌شود (rect مبدا که پیش از جابه‌جایی گرفتیم، در برابر rect مقصد که
-  // همین الان بعد از appendChild گرفته می‌شود) — فیزیکی و مستقل از
-  // rtl/ltr و چرخشِ تخته، پس امکانِ «برعکس رفتن» وجود ندارد. برخلافِ
-  // نسخه‌ی قبلی، اینجا دیگر transition/reflowِ اجباری/فریمِ دوم وجود
-  // ندارد: transform شروع همین‌جا و به‌صورتِ همزمان با appendChild
-  // نوشته می‌شود، و بعد یک تیکِ rAF متمرکز (tickPieceAnims، تعریف‌شده
-  // در بالای این فایل) هر فریم مقدارِ بعدی را دستی حساب و می‌نویسد.
   if(moves.length){
+    pieceAnimGen++;
+    var myGen = pieceAnimGen;
     state.animating = true;
-    var toRects = moves.map(function(m){ return m.el.getBoundingClientRect(); });
-    var now = performance.now();
-    moves.forEach(function(m, i){
-      var toRect = toRects[i];
-      if(!m.fromRect) return;
-      var dx = m.fromRect.left - toRect.left;
-      var dy = m.fromRect.top - toRect.top;
-      if(!dx && !dy) return;
-      var dist = Math.sqrt(dx*dx + dy*dy);
-      // مدت‌زمانِ حرکت بر اساسِ تعدادِ خانه‌ها محاسبه می‌شود، نه فاصله‌ی
-      // خامِ پیکسلی — با تقسیمِ فاصله بر اندازه‌ی خودِ خانه (toRect.width)،
-      // این عدد مستقل از اندازه‌ی صفحه/تراکمِ پیکسلیِ گوشی می‌شود، یعنی
-      // یک حرکتِ «۲ خانه‌ای» روی هر گوشی‌ای دقیقاً همون مدت‌زمانِ حسی را
-      // دارد. طبق اندازه‌گیریِ دقیقِ رفرنس (اسکرین‌رکوردِ اپِ دیگر،
-      // حرکتِ اسب از g8 به f6 که فاصله‌اش تقریباً ۲.۲ خانه است)، آن حرکت
-      // حدودِ ۳۵۰ میلی‌ثانیه طول کشید؛ ضرایبِ زیر دقیقاً برای رسیدن به
-      // همون عدد روی یک حرکتِ هم‌فاصله تنظیم شده‌اند.
-      var squareSize = toRect.width || toRect.height || 40;
-      var squareDist = dist / squareSize;
-      var dur = Math.max(220, Math.min(520, 190 + squareDist * 70));
-      var el = m.el;
-      el.classList.add("moving");
-      var entry = { el: el, dx: dx, dy: dy, dur: dur, start: now, toSq: m.toSq, done: false };
-      entry.finish = function(){
-        if(entry.done) return;
-        entry.done = true;
-        el.style.transform = "";
-        el.classList.remove("moving");
-        // اگر این خانه محلِ گرفتنِ یک مهره بود، همین الان (لحظه‌ی واقعیِ
-        // رسیدنِ مهاجم) مهره‌ی گرفته‌شده را محو کن — نه زودتر.
-        var capFns = captureFinishersBySquare[entry.toSq];
+    var maxDur = 0;
+    moves.forEach(function(m){
+      var fromCR = squareColRow(m.fromSq), toCR = squareColRow(m.toSq);
+      var squareDist = Math.sqrt(Math.pow(toCR.col - fromCR.col, 2) + Math.pow(toCR.row - fromCR.row, 2));
+      // مدت‌زمانِ حرکت بر اساسِ تعدادِ خانه‌ها (نه فاصله‌ی خامِ پیکسلی)، پس
+      // مستقل از اندازه‌ی صفحه/تراکمِ پیکسلیِ گوشی همیشه یک حسِ یکسان دارد.
+      var dur = Math.max(160, Math.min(420, 150 + squareDist * 55));
+      maxDur = Math.max(maxDur, dur);
+      var inner = m.el.querySelector(".piece");
+      var p = squarePixel(m.toSq);
+      inner.classList.add("moving");
+      m.el.style.transitionDuration = dur + "ms";
+      // فقط همین یک نوشتن لازم است — transition (همیشه‌فعال، در CSS)
+      // بقیه‌ی کار را روی ترد کامپوزیتور انجام می‌دهد.
+      m.el.style.transform = "translate3d(" + p.x + "px," + p.y + "px,0)";
+      m.el._animGen = (m.el._animGen || 0) + 1;
+      var gen = m.el._animGen;
+      setTimeout(function(){
+        if(m.el._animGen !== gen) return; // یک حرکتِ جدیدتر این مهره را قبل از پایان جایگزین کرده
+        inner.classList.remove("moving");
+        var capFns = captureFinishersBySquare[m.toSq];
         if(capFns) capFns.forEach(function(fn){ fn(); });
-        var i2 = state.activeAnims.indexOf(entry);
-        if(i2 >= 0) state.activeAnims.splice(i2, 1);
-        if(!state.activeAnims.length){
-          state.animating = false;
-          // با کمی تأخیر تا هم‌زمانی با لحظه‌ی حساسِ برداشتنِ moving حسِ
-          // تکون ندهد؛ اگر حرکتِ دیگری تا آن موقع شروع شده sizeBoard
-          // خودش کاری نمی‌کند.
-          setTimeout(sizeBoard, 220);
-        }
-      };
-      // نوشتنِ فوری و همزمانِ نقطه‌ی شروع — همان فریمی که appendChild
-      // اتفاق افتاده، پس هیچ تاخیر/تعلیقِ قابل‌حسی قبلِ شروعِ حرکت نیست.
-      el.style.transform = "translate3d(" + dx + "px," + dy + "px,0)";
-      state.activeAnims.push(entry);
+      }, dur);
     });
-    if(state.activeAnims.length && !state.pendingAnimFrame){
-      state.pendingAnimFrame = requestAnimationFrame(tickPieceAnims);
-    } else if(!state.activeAnims.length){
-      state.animating = false;
-    }
-    // شبکه‌ی ایمنیِ نهایی: هر مهره‌ی گرفته‌شده‌ای که هنوز محو نشده
-    // (مثلاً en passant) با تأخیرِ کوتاهی محو می‌شود تا هیچ‌وقت روی
-    // صفحه گیر نکند.
     setTimeout(function(){
-      captureFinishers.forEach(function(fn){ fn(); });
-    }, 260);
+      if(pieceAnimGen === myGen){ state.animating = false; sizeBoard(); }
+    }, maxDur + 20);
+    // شبکه‌ی ایمنیِ نهایی: هر مهره‌ی گرفته‌شده‌ای که هنوز محو نشده (مثلاً
+    // en passant) با تأخیرِ کوتاهی محو می‌شود تا هیچ‌وقت روی صفحه گیر نکند.
+    setTimeout(function(){ captureFinishers.forEach(function(fn){ fn(); }); }, maxDur + 60);
   }
 
   paintHighlights();
 
-  // افکت صوتی/هپتیکِ خودِ حرکت — بر اساس دیفِ واقعی صفحه تعیین می‌شود
-  // (didCapture/didCastle/didPromote)، نه بر اساس san یا flags، چون این
-  // دیف هم برای حرکات محلی و هم حرکات هم‌گام‌سازی‌شده از سرور یکسان و
-  // قابل‌اعتماد است. کیش با اولویتِ بالاتر از حرکت/گرفتنِ ساده پخش
-  // می‌شود چون معنادارتر است.
   if(!silent){
     var isCheckNow = chess.in_check ? chess.in_check() : chess.inCheck();
     if(didPromote){ Sound.promote(); Haptics.medium(); }
@@ -796,14 +695,11 @@ function paintHighlights(){
   Object.keys(state.boardEls).forEach(function(sq){
     var el = state.boardEls[sq];
     el.classList.remove("selected","last-from","last-to","check");
-    // محوشدنِ دات‌های قبلی وقتی انتخاب عوض/لغو می‌شود — با همان موتورِ
-    // rAF بالا (fadeOutDot)، نه CSS class/animation.
     var dots = el.querySelectorAll(".move-dot");
-    dots.forEach(function(d){ fadeOutDot(d); });
-    // پیکِ انتخابِ خودِ مهره (نه فقط خانه) هم اینجا پاک می‌شود تا اگر
-    // انتخاب عوض/لغو شد، مهره‌ی قبلی بزرگ‌شده نماند.
-    var pieceEl = el.querySelector(".piece");
-    if(pieceEl) pieceEl.classList.remove("piece-selected");
+    dots.forEach(function(d){ d.remove(); });
+  });
+  Object.keys(state.pieceEls).forEach(function(sq){
+    state.pieceEls[sq].querySelector(".piece").classList.remove("piece-selected");
   });
   if(state.lastMove){
     if(state.boardEls[state.lastMove.from]) state.boardEls[state.lastMove.from].classList.add("last-from");
@@ -812,28 +708,28 @@ function paintHighlights(){
   if(state.selected){
     var selEl = state.boardEls[state.selected];
     selEl.classList.add("selected");
-    var selPiece = selEl.querySelector(".piece");
-    if(selPiece) selPiece.classList.add("piece-selected");
-    // یک تاخیرِ خیلی کوچک و پلکانی (بر اساسِ فاصله‌ی هر مقصد تا خانه‌ی
-    // انتخاب‌شده) باعث می‌شود نقطه‌ها به‌جای این‌که همه یک‌دفعه با هم
-    // ظاهر شوند، مثلِ یک موجِ نرم از مهره به بیرون پخش شوند — حسِ
-    // «آماده‌سازیِ اهداف» را زنده‌تر می‌کند بدونِ این‌که کندی محسوسی
-    // اضافه کند (حداکثر تاخیر برای دورترین خانه چند ده میلی‌ثانیه است).
-    var fromFile = FILES.indexOf(state.selected[0]);
-    var fromRank = parseInt(state.selected[1], 10);
+    var selSlot = state.pieceEls[state.selected];
+    if(selSlot) selSlot.querySelector(".piece").classList.add("piece-selected");
+    var fromCR = squareColRow(state.selected);
     state.legalTargets.forEach(function(m){
       var el = state.boardEls[m.to];
       if(!el) return;
       var dot = document.createElement("div");
       dot.className = "move-dot" + (m.captured || m.flags.indexOf("e")>=0 ? " capture" : "");
-      var toFile = FILES.indexOf(m.to[0]);
-      var toRank = parseInt(m.to[1], 10);
-      var dist = Math.max(Math.abs(toFile - fromFile), Math.abs(toRank - fromRank));
+      var toCR = squareColRow(m.to);
+      var dist = Math.max(Math.abs(toCR.col - fromCR.col), Math.abs(toCR.row - fromCR.row));
+      var dotDelay = (dist * 18) + "ms";
+      dot.style.transitionDelay = dotDelay;
+      dot.style.animationDelay = dotDelay; // با تاخیرِ خودِ دات هماهنگ می‌ماند (حلقه‌ی captureِ آن)
       el.appendChild(dot);
-      // به‌جای animation-delayِ CSS (که روی WebView با append همزمانِ چند
-      // ده دات ناهماهنگ می‌شد)، تأخیرِ پلکانی به موتورِ rAFِ بالا
-      // (tickDotAnims) داده می‌شود تا با همون ساعتِ واحد همگام بماند.
-      popDot(dot, dist * 18);
+      // دو rAFِ تودرتو — نه برای اندازه‌گیری/reflow (که اینجا اصلاً لازم
+      // نیست)، فقط برای این‌که مرورگر مطمئن یک فریم با opacity:0/scale(.4)
+      // را واقعاً رسم کرده باشد پیش از افزودنِ کلاسِ .in؛ وگرنه بعضی
+      // موتورها هر دو تغییر را در یک فریم ادغام می‌کنند و transition اصلاً
+      // اجرا نمی‌شود.
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){ dot.classList.add("in"); });
+      });
     });
   }
   if(chess.in_check ? chess.in_check() : chess.inCheck()){
@@ -854,9 +750,6 @@ function myTurn(){
 }
 
 function onSquareClick(sq){
-  // بعد از یک درگِ واقعی (نه یک تپِ ساده)، خودِ pointerup حرکت را انجام
-  // داده؛ کلیکِ سنتتیکی که مرورگر بعدش می‌فرستد نباید دوباره پردازش شود
-  // (وگرنه انتخاب/حرکت دوبار اجرا می‌شد).
   if(state.suppressNextClick){ state.suppressNextClick = false; return; }
   if(state.isSpectator) return;
   if(!myTurn()) return;
@@ -1364,7 +1257,8 @@ function showGameOver(status, winnerId, whiteEloChange, blackEloChange){
       var p = boardState[r][c];
       if(p && p.type==="k" && p.color===losingColor){
         var sq = FILES[c] + (8-r);
-        var kingEl = state.boardEls[sq] && state.boardEls[sq].querySelector(".piece");
+        var kingSlot = state.pieceEls[sq];
+        var kingEl = kingSlot && kingSlot.querySelector(".piece");
         if(kingEl){ kingEl.classList.add("mated-king"); mateDelay = 550; }
       }
     }
