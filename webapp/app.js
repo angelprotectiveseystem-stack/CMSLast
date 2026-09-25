@@ -658,6 +658,7 @@ function renderPieces(animateFrom, animateTo, silent){
       var inner = m.el.querySelector(".piece");
       var p = squarePixel(m.toSq);
       inner.classList.add("moving");
+      m.el.style.willChange = "transform"; // فقط برای طولِ همین حرکت (به‌خاطرِ بندِ بالا)
       m.el.style.transitionDuration = dur + "ms";
       // فقط همین یک نوشتن لازم است — transition (همیشه‌فعال، در CSS)
       // بقیه‌ی کار را روی ترد کامپوزیتور انجام می‌دهد.
@@ -667,6 +668,7 @@ function renderPieces(animateFrom, animateTo, silent){
       setTimeout(function(){
         if(m.el._animGen !== gen) return; // یک حرکتِ جدیدتر این مهره را قبل از پایان جایگزین کرده
         inner.classList.remove("moving");
+        m.el.style.willChange = "";
         var capFns = captureFinishersBySquare[m.toSq];
         if(capFns) capFns.forEach(function(fn){ fn(); });
       }, dur);

@@ -279,7 +279,10 @@ html,body{
 .piece-slot{
   position:absolute; left:0; top:0; width:12.5%; height:12.5%;
   transition: transform .18s cubic-bezier(.22,.61,.36,1);
-  will-change: transform;
+  /* will-change اینجا دیگر همیشه‌فعال نیست — رویِ وب‌ویوِ ضعیف (تلگرام)
+     نگه‌داشتنِ ۳۲ لایه‌ی GPU هم‌زمان، حتی وقتی هیچ مهره‌ای حرکت نمی‌کند،
+     کلِ صفحه را سنگین می‌کرد. حالا فقط دقیقاً پیش از شروعِ هر حرکت/درگ
+     در جاوااسکریپت اضافه و بلافاصله بعد از پایانش حذف می‌شود. */
 }
 .piece{
   width:92%; height:92%;
@@ -475,7 +478,10 @@ html,body{
   position:absolute; inset:0; background: rgba(10,13,26,.82);
   z-index:50; display:flex; align-items:center; justify-content:center;
   animation: fadein .32s cubic-bezier(.4,0,.2,1);
-  backdrop-filter: blur(2px);
+  /* backdrop-filter حذف شد: روی وب‌ویوِ اندرویدِ تلگرام معمولاً
+     نرم‌افزاری (نه GPU) محاسبه می‌شود و سنگین است؛ چون پس‌زمینه‌ی
+     خودش هم به‌اندازه‌ی کافی تیره/مات هست (۸۲٪)، از نظرِ بصری تفاوتِ
+     محسوسی ایجاد نمی‌کند. */
 }
 .modal-overlay.hidden{ display:none; }
 .modal-card{
@@ -543,14 +549,24 @@ html,body{
 #modal-close:active{ transform: scale(.94); box-shadow:none; }
 .analyze-btn{
   background: linear-gradient(135deg, #26c2c2, #5b7cfa);
-  border:none; color:#fff;
+  border:none; color:#fff; position:relative;
   box-shadow: 0 10px 26px rgba(38,194,194,.4), inset 0 1px 0 rgba(255,255,255,.25);
-  animation: analyzeGlow 2.4s ease-in-out infinite;
 }
 .analyze-btn:active{ transform: scale(.94); box-shadow: 0 4px 14px rgba(38,194,194,.32); }
+/* گلوِ ضربان‌دار قبلاً با انیمیشن‌کردنِ خودِ box-shadow ساخته می‌شد که
+   یعنی ری‌پینتِ کامل در هر فریم، تا وقتی این دکمه روی صفحه بود (روی
+   وب‌ویوِ ضعیف بخشِ بزرگی از کندیِ کلِ صفحه از همین‌جا بود). حالا یک
+   لایه‌ی جدا با box-shadowِ ثابت (پینت‌شده فقط یک‌بار) رویِ هم قرار
+   می‌گیرد و فقط opacity‌اش پالس می‌زند — که کاملاً روی ترد کامپوزیتور
+   انجام می‌شود، نه ترد رندر/پینت. */
+.analyze-btn::after{
+  content:''; position:absolute; inset:0; border-radius:inherit;
+  box-shadow: 0 10px 34px rgba(91,124,250,.55), inset 0 1px 0 rgba(255,255,255,.3);
+  opacity:0; animation: analyzeGlow 2.4s ease-in-out infinite; pointer-events:none;
+}
 @keyframes analyzeGlow{
-  0%,100%{ box-shadow: 0 10px 26px rgba(38,194,194,.4), inset 0 1px 0 rgba(255,255,255,.25); }
-  50%{ box-shadow: 0 10px 34px rgba(91,124,250,.55), inset 0 1px 0 rgba(255,255,255,.3); }
+  0%,100%{ opacity:0; }
+  50%{ opacity:1; }
 }
 
 /* ══════════════════════ صفحه‌ی تحلیلِ مسابقه ══════════════════════ */
