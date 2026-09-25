@@ -1,0 +1,1239 @@
+/* ────────────────────────────────────────────────────────────
+   پنل مدیریت مسابقات شطرنج — تم تخته و ساعت شطرنج
+   ──────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-Regular.woff2") format("woff2");
+  font-weight: 400; font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-Medium.woff2") format("woff2");
+  font-weight: 500; font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-SemiBold.woff2") format("woff2");
+  font-weight: 600; font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-Bold.woff2") format("woff2");
+  font-weight: 700; font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/webfonts/Vazirmatn-ExtraBold.woff2") format("woff2");
+  font-weight: 800; font-display: swap;
+}
+
+:root {
+  --ink:        #0f1712;   /* پس‌زمینه اصلی، سبز-مشکیِ خانه‌ی تیره‌ی تخته */
+  --panel:      #17211b;   /* پنل‌ها روی ink */
+  --panel-2:    #1e2a22;   /* پنل روشن‌تر / hover */
+  --walnut:     #2c2018;   /* قهوه‌ی گردویی — خط‌ها و مرزها */
+  --line:       #3a3126;   /* خطوط ظریف */
+  --ivory:      #ece3d2;   /* متن اصلی، رنگ خانه‌ی روشن تخته */
+  --ivory-dim:  #b9b0a0;   /* متن ثانویه */
+  --amber:      #c99a46;   /* برنجِ ساعت شطرنج — تاکید اصلی */
+  --amber-dim:  #8a6b34;
+  --sage:       #7a9b72;   /* سبز نمدِ روی میز — برد/آنلاین/مثبت */
+  --brick:      #b2534a;   /* آجریِ کم‌رنگ — باخت/هشدار/در انتظار */
+  --radius: 6px;
+  --font: "Vazirmatn", Tahoma, sans-serif;
+  --bottom-nav-h: 60px;
+  --shadow-soft: 0 10px 28px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.28);
+  color-scheme: dark;
+}
+
+/* ── پوسته‌ی روشن — همون هویتِ ساعت‌شطرنجی، با زمینه‌ی روشن ─────
+   تمِ روشن رو با override کردنِ همون متغیرهای رنگی می‌سازیم؛ چون کل
+   رابط از این متغیرها استفاده می‌کنه، هیچ‌جای دیگه‌ای نیاز به تغییر
+   نداره. برنج/سبز/آجری کمی تیره‌تر شدن تا روی زمینه‌ی روشن هم کنتراست
+   کافی داشته باشن. */
+html[data-theme="light"] {
+  --ink:        #f3ede0;
+  --panel:      #fffdf8;
+  --panel-2:    #ece3d0;
+  --walnut:     #d8cbb0;
+  --line:       #ddd2ba;
+  --ivory:      #241d12;
+  --ivory-dim:  #6b6151;
+  --amber:      #a9761f;
+  --amber-dim:  #8a6b34;
+  --sage:       #4d7a46;
+  --brick:      #9c4038;
+  --shadow-soft: 0 10px 24px rgba(90,70,30,.14), 0 2px 8px rgba(90,70,30,.10);
+  color-scheme: light;
+}
+html[data-theme="light"] body {
+  background-image:
+    linear-gradient(45deg, rgba(36,29,18,0.03) 25%, transparent 25%, transparent 75%, rgba(36,29,18,0.03) 75%),
+    linear-gradient(45deg, rgba(36,29,18,0.03) 25%, transparent 25%, transparent 75%, rgba(36,29,18,0.03) 75%);
+}
+html[data-theme="light"] .bottom-nav { background: rgba(255,253,248,0.88); border-color: rgba(36,29,18,0.08); }
+html[data-theme="light"] .nav-item.active .nav-coord,
+html[data-theme="light"] .bn-item.active,
+html[data-theme="light"] .tab-btn.active { color: #fffaf0; }
+html[data-theme="light"] .more-backdrop { background: rgba(90,80,60,.25); }
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--ink);
+  color: var(--ivory);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  /* هیچ عنصری (مثل کشوی موبایل که خارج از صفحه‌ست) حق نداره اسکرول
+     افقی کل صفحه رو باز کنه — همون چیزی که کل چیدمان رو کوچک/زوم‌اوت
+     نشون می‌داد. */
+  overflow-x: hidden;
+  width: 100%;
+}
+
+body {
+  /* بافت خیلی کم‌رنگِ خانه‌های شطرنج در زمینه‌ی کل برنامه */
+  background-image:
+    linear-gradient(45deg, rgba(236,227,210,0.025) 25%, transparent 25%, transparent 75%, rgba(236,227,210,0.025) 75%),
+    linear-gradient(45deg, rgba(236,227,210,0.025) 25%, transparent 25%, transparent 75%, rgba(236,227,210,0.025) 75%);
+  background-size: 64px 64px;
+  background-position: 0 0, 32px 32px;
+}
+
+button, input { font-family: var(--font); }
+
+.hidden { display: none !important; }
+
+a { color: var(--amber); }
+
+::selection { background: var(--amber); color: var(--ink); }
+
+/* نوار اسکرول در همه‌جا حذف شده (اسکرول همچنان کار می‌کند).
+   قبلاً یک اسکرول‌بارِ سفارشیِ ضخیم (کپسولِ گردِ ۱۰px) نمایش داده می‌شد که
+   فضای عرضی رزرو می‌کرد؛ چون این فضا بسته به اینکه صفحه نیاز به اسکرول
+   داشت یا نه ظاهر/محو می‌شد، کل پنل هر بار چند پیکسل به کنار پرت می‌شد.
+   با حذفِ کامل، هم آن کپسول از بین می‌رود و هم آن جابه‌جاییِ افقی. */
+html { scrollbar-width: none; -ms-overflow-style: none; }
+* { scrollbar-width: none; }
+::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* ── صفحه ورود ─────────────────────────────────────────── */
+#login-screen {
+  min-height: 100vh; min-height: 100dvh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.login-card {
+  width: 100%; max-width: 360px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 36px 30px;
+  text-align: center;
+  animation: card-pop .5s cubic-bezier(.2,.8,.2,1) backwards;
+  animation-delay: .06s;
+}
+@keyframes card-pop {
+  from { opacity: 0; transform: translateY(14px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.login-mark {
+  width: 64px; height: 64px; margin: 0 auto 18px;
+  display: flex; align-items: center; justify-content: center;
+  filter: drop-shadow(0 6px 16px rgba(138,15,15,.35));
+  animation: mark-in .5s cubic-bezier(.2,.8,.2,1);
+}
+.login-mark .brand-svg, .brand-mark .brand-svg { border-radius: 22%; display: block; }
+@keyframes mark-in {
+  from { opacity: 0; transform: translateY(-6px) scale(.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.login-card h1 {
+  font-size: 19px; font-weight: 700; margin: 0 0 8px;
+}
+.login-sub {
+  color: var(--ivory-dim); font-size: 13.5px; margin: 0 0 22px;
+}
+#login-password {
+  width: 100%; padding: 13px 14px;
+  background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--ivory); font-size: 16px; margin-bottom: 12px;
+  outline: none; transition: border-color .15s, box-shadow .15s;
+  -webkit-appearance: none;
+}
+#login-password:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(201,154,70,.15); }
+#login-btn {
+  width: 100%; padding: 13px 14px;
+  background: var(--amber); color: #201607;
+  border: none; border-radius: var(--radius);
+  font-size: 14.5px; font-weight: 700; cursor: pointer;
+  transition: filter .15s, transform .1s;
+}
+#login-btn:hover { filter: brightness(1.08); }
+#login-btn:active { transform: scale(.98); }
+#login-btn:focus-visible, .nav-item:focus-visible, .tab-btn:focus-visible, .bn-item:focus-visible {
+  outline: 2px solid var(--amber); outline-offset: 2px;
+}
+.login-error { color: var(--brick); font-size: 13px; margin-top: 12px; min-height: 1em; }
+
+/* ── بنر خوش‌آمدگویی ───────────────────────────────────── */
+.welcome-banner {
+  background: linear-gradient(135deg, rgba(201,154,70,.14), rgba(122,155,114,.08));
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  display: flex; align-items: center; gap: 14px;
+  animation: welcome-in .45s cubic-bezier(.2,.8,.2,1) backwards;
+  animation-delay: .04s;
+  position: relative;
+  overflow: hidden;
+}
+.welcome-banner::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 100% 0%, rgba(201,154,70,.12), transparent 60%);
+  pointer-events: none;
+}
+@keyframes welcome-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.welcome-emoji {
+  font-size: 30px; flex-shrink: 0;
+  animation: welcome-wave 1.6s ease-in-out .5s 1;
+  transform-origin: 70% 70%;
+}
+@keyframes welcome-wave {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(16deg); }
+  30% { transform: rotate(-8deg); }
+  45% { transform: rotate(14deg); }
+  60% { transform: rotate(-4deg); }
+}
+.welcome-text { min-width: 0; }
+.welcome-text h3 { margin: 0 0 3px; font-size: 15.5px; font-weight: 700; color: var(--ivory); }
+.welcome-text p { margin: 0; font-size: 12.5px; color: var(--ivory-dim); line-height: 1.6; }
+
+/* ── چیدمان اصلی ───────────────────────────────────────── */
+#app { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 232px; flex-shrink: 0;
+  background: var(--panel);
+  border-inline-start: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh;
+  transition: width .26s cubic-bezier(.2,.8,.2,1);
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.brand-mark { display: flex; flex-shrink: 0; }
+.brand-text { font-size: 14.5px; font-weight: 700; letter-spacing: .2px; flex: 1; white-space: nowrap; overflow: hidden; }
+.sidebar-collapse-btn {
+  flex-shrink: 0; width: 26px; height: 26px; border-radius: 7px;
+  background: transparent; border: 1px solid var(--line); color: var(--ivory-dim);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.sidebar-collapse-btn:hover { background: var(--panel-2); color: var(--ivory); }
+.sidebar-collapse-btn svg { width: 15px; height: 15px; }
+.collapse-ic-arrow { transition: transform .26s cubic-bezier(.2,.8,.2,1); transform-origin: center; }
+
+/* ── حالت جمع‌شده‌ی منوی اول: فقط آیکون، با تولتیپ روی هاور ───── */
+.sidebar.collapsed { width: 68px; }
+.sidebar.collapsed .brand { padding-inline: 12px; }
+.sidebar.collapsed .brand-text,
+.sidebar.collapsed .nav-search-wrap,
+.sidebar.collapsed .nav-group-label,
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .nav-coord,
+.sidebar.collapsed .nav-badge,
+.sidebar.collapsed #conn-status,
+.sidebar.collapsed .sidebar-foot-tools {
+  display: none;
+}
+.sidebar.collapsed .collapse-ic-arrow { transform: rotate(180deg); }
+.sidebar.collapsed .nav-item { justify-content: center; padding: 12px 0; }
+.sidebar.collapsed .nav-ic { font-size: 18px; }
+.sidebar.collapsed .nav-indicator { inset-inline-start: 8px; width: calc(100% - 16px); }
+.sidebar.collapsed .sidebar-foot { justify-content: center; }
+@media (max-width: 860px) { .sidebar.collapsed { width: 0; } } /* روی موبایل بی‌اثر باشه */
+
+#nav {
+  position: relative;
+  flex: 1; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 10px 10px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.nav-group-label {
+  display: block;
+  font-size: 11px; font-weight: 700; color: var(--amber-dim);
+  text-transform: uppercase; letter-spacing: .4px;
+  padding: 14px 12px 6px;
+}
+.nav-group-label:first-child { padding-top: 6px; }
+.nav-item {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; text-align: right;
+  background: transparent; border: none; border-inline-start: 2px solid transparent; border-radius: var(--radius);
+  color: var(--ivory-dim);
+  padding: 10px 12px;
+  font-size: 13.8px; cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease;
+}
+@media (hover: hover) {
+  .nav-item:hover { background: var(--panel-2); color: var(--ivory); transform: translateX(-2px); }
+  html[dir="rtl"] .nav-item:hover { transform: translateX(2px); }
+}
+.nav-item.active { color: var(--ivory); border-inline-start-color: var(--amber); }
+.nav-item.active .nav-coord { color: var(--ink); background: var(--amber); }
+
+/* ── نوار جستجوی سریع بخش‌ها ─────────────────────────────── */
+.nav-search-wrap {
+  position: relative; margin: 12px 14px 4px;
+  display: flex; align-items: center;
+}
+.nav-search-ic {
+  position: absolute; inset-inline-start: 11px;
+  width: 15px; height: 15px; color: var(--ivory-dim);
+  pointer-events: none; transition: color .15s ease;
+}
+.nav-search {
+  width: 100%; box-sizing: border-box;
+  background: var(--ink); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--ivory); font-family: inherit; font-size: 12.8px;
+  padding: 8px 34px 8px 30px;
+  outline: none; transition: border-color .15s ease, box-shadow .15s ease;
+}
+.nav-search::placeholder { color: var(--ivory-dim); }
+.nav-search:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(201,154,70,.14); }
+.nav-search:focus + .nav-search-ic, .nav-search-wrap:has(.nav-search:focus) .nav-search-ic { color: var(--amber); }
+.nav-search-kbd {
+  position: absolute; inset-inline-end: 9px;
+  font-family: var(--font); font-size: 10px; color: var(--ivory-dim);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px;
+  padding: 1px 6px; pointer-events: none;
+}
+.nav-search:focus ~ .nav-search-kbd { opacity: 0; }
+.nav-empty {
+  text-align: center; color: var(--ivory-dim); font-size: 12.5px;
+  padding: 22px 10px;
+}
+
+/* ── نشانگر لغزان آیتم فعال در منوی اول ──────────────────── */
+.nav-indicator {
+  position: absolute; inset-inline-start: 10px;
+  width: calc(100% - 20px); height: 0; border-radius: var(--radius);
+  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 0 var(--amber);
+  opacity: 0; z-index: 0;
+  transition: transform .32s cubic-bezier(.2,.8,.2,1), height .32s cubic-bezier(.2,.8,.2,1), opacity .2s ease;
+  pointer-events: none;
+  will-change: transform;
+}
+.nav-indicator.ready { opacity: 1; }
+html[dir="rtl"] .nav-indicator { box-shadow: inset -2px 0 0 0 var(--amber); }
+#nav.filtering .nav-indicator { opacity: 0; }
+
+/* ── نشان تعداد (بج) کنار آیتم‌های منو ────────────────────── */
+.nav-badge {
+  margin-inline-start: auto; flex-shrink: 0;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 700; font-family: monospace;
+  background: var(--sage); color: #0c150f; border-radius: 999px;
+  transition: transform .25s cubic-bezier(.4,1.6,.5,1);
+  animation: badge-pop .3s cubic-bezier(.4,1.6,.5,1);
+}
+@keyframes badge-pop {
+  from { transform: scale(.4); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.nav-coord {
+  font-family: monospace; font-size: 10.5px; font-weight: 700;
+  color: var(--amber-dim);
+  background: var(--ink);
+  border-radius: 3px; padding: 2px 5px;
+  min-width: 24px; text-align: center;
+  flex-shrink: 0;
+  transition: background .15s ease, color .15s ease;
+}
+.nav-ic { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+.nav-label { flex: 1; }
+
+.sidebar-foot {
+  padding: 14px 20px; border-top: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--ivory-dim);
+}
+.sidebar-foot-tools { margin-inline-start: auto; display: flex; gap: 4px; flex-shrink: 0; }
+.icon-toggle-btn {
+  width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+  background: transparent; border: 1px solid var(--line); color: var(--ivory-dim);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.icon-toggle-btn:hover { background: var(--panel-2); color: var(--amber); }
+.icon-toggle-btn svg { width: 14px; height: 14px; }
+.icon-toggle-btn .ic-sound-off, .icon-toggle-btn .ic-theme-light { display: none; }
+.icon-toggle-btn.is-off .ic-sound-on { display: none; }
+.icon-toggle-btn.is-off .ic-sound-off { display: block; }
+html[data-theme="light"] #theme-toggle-btn .ic-theme-dark { display: none; }
+html[data-theme="light"] #theme-toggle-btn .ic-theme-light { display: block; }
+.live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--sage); flex-shrink: 0;
+  box-shadow: 0 0 0 3px rgba(122,155,114,0.18);
+}
+.live-dot.off { background: var(--brick); box-shadow: 0 0 0 3px rgba(178,83,74,0.18); }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--ink); z-index: 5;
+}
+.topbar h2 { font-size: 18px; font-weight: 700; margin: 0; }
+.topbar-clock {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px; color: var(--amber);
+  letter-spacing: .5px;
+}
+
+.view-body { padding: 24px 28px 60px; }
+.view-body.fade-in { animation: view-in .22s cubic-bezier(.2,.8,.2,1); will-change: transform, opacity; }
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.loading-state, .empty-state {
+  color: var(--ivory-dim); font-size: 13.5px;
+  padding: 28px 10px; text-align: center;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+.empty-state { display: block; }
+.spinner {
+  width: 16px; height: 16px; flex-shrink: 0;
+  border: 2px solid var(--line); border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── کارت‌های آماری خانه ───────────────────────────────── */
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px; margin-bottom: 24px;
+}
+.stat-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 16px 18px;
+  border-inline-start: 3px solid var(--amber-dim);
+  animation: card-in .32s cubic-bezier(.2,.8,.2,1) backwards;
+}
+.grid .stat-card:nth-child(1) { animation-delay: .02s; }
+.grid .stat-card:nth-child(2) { animation-delay: .06s; }
+.grid .stat-card:nth-child(3) { animation-delay: .10s; }
+.grid .stat-card:nth-child(4) { animation-delay: .14s; }
+.grid .stat-card:nth-child(5) { animation-delay: .18s; }
+.grid .stat-card:nth-child(6) { animation-delay: .22s; }
+.grid .stat-card:nth-child(7) { animation-delay: .26s; }
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.stat-card.accent-sage { border-inline-start-color: var(--sage); }
+.stat-card.accent-rust { border-inline-start-color: var(--brick); }
+.stat-label { font-size: 12.5px; color: var(--ivory-dim); margin-bottom: 8px; }
+.stat-value {
+  font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums;
+  letter-spacing: .5px;
+}
+
+/* ── بخش‌ها ────────────────────────────────────────────── */
+.section {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px 20px; margin-bottom: 18px;
+  max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.section-head h3 { font-size: 15px; font-weight: 700; margin: 0; }
+.count { font-size: 12px; color: var(--amber); font-variant-numeric: tabular-nums; }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+
+/* ── تب‌ها (فیلتر مسابقات) ─────────────────────────────── */
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+.tab-btn {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ivory-dim);
+  border-radius: 999px; padding: 6px 16px; font-size: 12.8px; cursor: pointer;
+  /* «transition: all» باعث می‌شد مرورگر روی هر ویژگیِ قابل‌انیمیشن (حتی
+     آن‌هایی که تغییر نمی‌کنند) گوش بدهد؛ روی گوشیِ ضعیف با چند ده دکمهٔ
+     تب در صفحه، همین باعثِ لَگِ محسوس روی لمس می‌شد. */
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.tab-btn:hover { color: var(--ivory); }
+.tab-btn.active { background: var(--amber); border-color: var(--amber); color: #201607; font-weight: 700; }
+
+/* ── جدول‌ها ────────────────────────────────────────────── */
+/* ستون خلاصه‌ی مخصوص کارت موبایل — در دسکتاپ (جدول واقعی) نمایش داده نمی‌شود */
+td.cell-primary { display: none; }
+table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 13.3px; }
+thead th {
+  text-align: right; color: var(--ivory-dim); font-weight: 600; font-size: 12px;
+  padding: 8px 10px; border-bottom: 1px solid var(--amber-dim);
+}
+tbody td { padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tbody tr:hover td { background: var(--panel-2); }
+tbody tr:last-child td { border-bottom: none; }
+
+.player-name-cell { line-height: 1.5; }
+.class-tag {
+  display: inline-block; font-size: 11px; color: var(--ivory-dim);
+  background: var(--ink); border: 1px solid var(--line);
+  border-radius: 3px; padding: 1px 6px; margin-top: 3px;
+}
+.rating-cell { font-weight: 700; color: var(--amber); font-variant-numeric: tabular-nums; }
+
+.progress-mini {
+  display: inline-block; width: 60px; height: 5px; border-radius: 3px;
+  background: var(--ink); margin-inline-start: 8px; overflow: hidden; vertical-align: middle;
+}
+.progress-mini-fill { display: block; height: 100%; background: var(--sage); }
+
+.pin-tag { margin-inline-end: 4px; }
+
+/* ── نشان‌ها (Badges) ──────────────────────────────────── */
+.badge {
+  display: inline-block; font-size: 11.5px; font-weight: 600;
+  border-radius: 999px; padding: 3px 10px;
+  border: 1px solid transparent;
+}
+.badge.win, .badge.online { background: rgba(122,155,114,0.15); color: var(--sage); border-color: rgba(122,155,114,0.35); }
+.badge.loss { background: rgba(178,83,74,0.15); color: var(--brick); border-color: rgba(178,83,74,0.35); }
+.badge.draw { background: rgba(201,154,70,0.15); color: var(--amber); border-color: rgba(201,154,70,0.35); }
+.badge.pending { background: rgba(236,227,210,0.08); color: var(--ivory-dim); border-color: var(--line); }
+
+/* ── پیام‌ها / فعالیت‌ها ────────────────────────────────── */
+.msg-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.msg-item:last-child { border-bottom: none; }
+.msg-text { font-size: 13.6px; line-height: 1.7; }
+.msg-meta { font-size: 11.5px; color: var(--ivory-dim); margin-top: 5px; }
+
+/* ── نمودارها ──────────────────────────────────────────── */
+.chart-wrap { padding-top: 4px; }
+.bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.bar-label {
+  width: 140px; flex-shrink: 0; font-size: 12.5px; color: var(--ivory-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bar-track { flex: 1; height: 10px; background: var(--ink); border-radius: 5px; overflow: hidden; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, var(--amber-dim), var(--amber)); border-radius: 5px; }
+.bar-value { width: 34px; text-align: left; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ivory); }
+
+.sparkline { width: 100%; height: 130px; display: block; }
+
+/* ── دکمه‌ی همبرگری «بیشتر» (توسط app.js اضافه می‌شود) ──── */
+.mobile-toggle {
+  display: none;
+  position: fixed; top: 14px; inset-inline-end: 16px; z-index: 20;
+  width: 38px; height: 38px; border-radius: var(--radius);
+  background: var(--panel); border: 1px solid var(--line); color: var(--ivory);
+  font-size: 18px; cursor: pointer;
+}
+
+/* ── واکنش‌گرا / موبایل ─────────────────────────────────── */
+.sidebar-backdrop {
+  display: none;
+  position: fixed; inset: 0; z-index: 24;
+  background: rgba(4,7,5,.6);
+  opacity: 0; transition: opacity .2s ease;
+  will-change: opacity;
+}
+
+/* وقتی منوی موبایل بازه، پس‌زمینه اسکرول نخوره تا حس نپریدن صفحه حفظ بشه */
+body.no-scroll { overflow: hidden; }
+
+/* ── ناوبری پایین صفحه (فقط موبایل) — قاب بیضی شناور مدرن ── */
+.bottom-nav {
+  display: none;
+  position: fixed; left: 12px; right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  justify-content: space-around; align-items: center;
+  /* قبلاً blur(18px)+saturate بود؛ چون این نوار ثابت روی صفحه می‌ماند و
+     زیرش دائم در حالِ اسکرول/تغییر است، مرورگر مجبور بود هر فریم دوباره
+     بلور را حساب کند — دقیقاً همان‌جایی که لمسِ دکمه‌ها کند حس می‌شد.
+     با کدورتِ بیشتر و بدون blur، همان ظاهر را با هزینهٔ GPU خیلی کمتر می‌دهد. */
+  background: rgba(23,33,27,0.94);
+  border: 1px solid rgba(236,227,210,0.08);
+  border-radius: 999px;
+  padding: 7px 8px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.28),
+              inset 0 1px 0 rgba(255,255,255,.03);
+}
+/* پیل کهربایی که زیر آیتم فعال می‌لغزد؛ موقعیت/عرضش را app.js با
+   transform تنظیم می‌کند تا انیمیشن روی GPU و روان باشد. */
+.bn-indicator {
+  position: absolute; top: 7px; bottom: 7px; left: 0;
+  width: 0; border-radius: 999px;
+  background: var(--amber);
+  box-shadow: 0 3px 10px rgba(201,154,70,.35);
+  transform: translateX(0);
+  transition: transform .38s cubic-bezier(.34,1.35,.4,1), width .3s cubic-bezier(.2,.8,.2,1), opacity .2s ease;
+  opacity: 0;
+  pointer-events: none; z-index: 0;
+}
+.bn-indicator.ready { opacity: 1; }
+.bn-item {
+  position: relative; z-index: 1;
+  background: none; border: none; color: var(--ivory-dim);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 7px 8px; border-radius: 999px; flex: 1; min-width: 0;
+  transition: color .18s ease, transform .18s cubic-bezier(.34,1.35,.4,1);
+}
+.bn-ic {
+  width: 20px; height: 20px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .22s cubic-bezier(.4,1.6,.5,1);
+}
+.bn-ic svg { width: 100%; height: 100%; }
+.bn-label {
+  font-size: 9.5px; white-space: nowrap; font-weight: 500;
+  max-width: 0; opacity: 0; overflow: hidden;
+  transition: max-width .22s ease, opacity .18s ease, margin-top .22s ease;
+}
+.bn-item.active { color: var(--ink); }
+.bn-item.active .bn-ic { transform: scale(1.08) translateY(-1px); }
+.bn-item.active .bn-label { max-width: 60px; opacity: 1; margin-top: 1px; }
+.bn-item:active { transform: scale(.9); }
+.bn-item.bn-more.menu-open { color: var(--amber); }
+.bn-item.bn-more.menu-open .bn-ic { transform: rotate(135deg); }
+
+@media (max-width: 860px) {
+  .sidebar {
+    position: fixed; inset-inline-start: 0; top: 0; height: 100vh; height: 100dvh;
+    width: 82%; max-width: 300px;
+    background: var(--panel);
+    transform: translateX(100%);
+    transition: transform .26s cubic-bezier(.2,.8,.2,1); z-index: 25;
+    box-shadow: -8px 0 24px rgba(0,0,0,.45);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    will-change: transform;
+    backface-visibility: hidden;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-backdrop { display: block; }
+  .sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
+  .sidebar-backdrop:not(.show) { pointer-events: none; }
+  .mobile-toggle { display: none; } /* جایگزین شده با دکمه «بیشتر» در نوار پایین */
+  .nav-coord { display: none; } /* روی موبایل به‌جای مختصات شطرنجی از آیکون واقعی استفاده می‌شود */
+
+  .topbar { padding: 16px 16px 10px; }
+  .topbar h2 { font-size: 17px; }
+  .view-body { padding: 4px 14px 22px; }
+  .view-body.fade-in { animation: view-in-mobile .32s cubic-bezier(.2,.8,.2,1); }
+  @keyframes view-in-mobile {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .main { padding-bottom: calc(var(--bottom-nav-h) + 22px + env(safe-area-inset-bottom, 0px)); }
+  .bottom-nav { display: flex; }
+
+  .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px; border-radius: 12px; }
+  .stat-value { font-size: 22px; }
+  .stat-label { font-size: 12px; margin-bottom: 6px; }
+
+  .section { padding: 14px 14px; border-radius: 12px; }
+  .section-head h3 { font-size: 14px; }
+
+  .bar-label { width: 90px; }
+
+  /* ── جدول‌ها روی موبایل به کارت تبدیل می‌شوند ─────────── */
+  .section.table-as-cards { overflow-x: visible; }
+  .table-as-cards table { min-width: 0; }
+  .table-as-cards thead { display: none; }
+  .table-as-cards tbody, .table-as-cards tr { display: block; width: 100%; }
+  .table-as-cards tr {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    animation: card-in .3s cubic-bezier(.2,.8,.2,1) backwards;
+  }
+  .table-as-cards tr:last-child { margin-bottom: 0; }
+  .table-as-cards td {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--line);
+    text-align: left;
+  }
+  .table-as-cards td:last-child { border-bottom: none; }
+  .table-as-cards td::before {
+    content: attr(data-label);
+    font-size: 11.5px; color: var(--ivory-dim); font-weight: 600;
+    flex-shrink: 0;
+  }
+  .table-as-cards td.cell-primary {
+    display: block !important; text-align: right;
+    font-weight: 700; font-size: 14.5px; color: var(--ivory);
+    border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 4px;
+  }
+  .table-as-cards td.cell-primary::before { content: none; }
+}
+
+@media (min-width: 861px) {
+  .bottom-nav { display: none !important; }
+}
+
+/* ── نشانگر موس سفارشی ──────────────────────────────────
+   فقط وقتی فعال می‌شه که app.js تشخیص بده دستگاه موس واقعی
+   داره (pointer: fine و hover: hover) — روی گوشی/تبلت هیچ
+   اثری نداره و کلاس‌ها اصلاً اضافه نمی‌شن.
+   دو تکه: یه نقطه‌ی کوچیک که دقیقاً روی موسه، و یه حلقه که
+   با یه تاخیر نرم (lerp در app.js) دنبالش میاد. روی دکمه/لینک
+   حلقه بزرگ و پر می‌شه، روی ورودی متن به یه خط باریک شبیه
+   مکان‌نما تبدیل می‌شه. */
+html.custom-cursor,
+html.custom-cursor * {
+  cursor: none !important;
+}
+.cursor-dot, .cursor-ring {
+  position: fixed; top: 0; left: 0;
+  pointer-events: none; z-index: 9999;
+  border-radius: 50%;
+  transform: translate(-100px, -100px);
+}
+.cursor-dot {
+  width: 7px; height: 7px;
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(201,154,70,.7);
+  opacity: 0;
+  transition: opacity .15s ease, transform .12s cubic-bezier(.2,.8,.2,1);
+}
+.cursor-ring {
+  width: 34px; height: 34px;
+  border: 1.5px solid var(--amber);
+  opacity: 0;
+  transition: width .18s cubic-bezier(.2,.8,.2,1), height .18s cubic-bezier(.2,.8,.2,1),
+              opacity .18s ease, background-color .18s ease, border-color .18s ease,
+              border-radius .18s ease;
+}
+html.custom-cursor .cursor-dot,
+html.custom-cursor .cursor-ring { opacity: .6; }
+html.custom-cursor .cursor-dot { opacity: 1; }
+
+html.custom-cursor.cursor-hidden .cursor-dot,
+html.custom-cursor.cursor-hidden .cursor-ring { opacity: 0 !important; }
+
+/* روی دکمه، لینک، آیتم‌های ناوبری… */
+html.custom-cursor.cursor-pointer .cursor-ring {
+  width: 52px; height: 52px;
+  background: rgba(201,154,70,.12);
+  opacity: 1;
+}
+html.custom-cursor.cursor-pointer .cursor-dot { opacity: 0; }
+
+/* روی ورودی متن / textarea */
+html.custom-cursor.cursor-text .cursor-ring {
+  width: 2px; height: 22px; border-radius: 2px;
+  border-color: transparent; background: var(--amber); opacity: .8;
+}
+html.custom-cursor.cursor-text .cursor-dot { opacity: 0; }
+
+/* لحظه‌ی کلیک: فشردگی کوچیک حلقه — با app.js روی transform اعمال می‌شه
+   (نه اینجا)، چون موقعیت حلقه هم با transform تنظیم می‌شه و نباید
+   رونویسی بشه. */
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+  .cursor-dot, .cursor-ring { display: none !important; }
+}
+
+/* ── نفراتِ برتر: انتخابِ دستی (منتقل‌شده از پنل مدیر مدرسه) ───────── */
+.section-title {
+  font-size: 13px; color: var(--ivory-dim); margin: 18px 2px 8px;
+  display: flex; align-items: center; gap: 6px;
+}
+
+.card-list { display: flex; flex-direction: column; gap: 8px; }
+.row-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.row-card .main-txt { font-weight: 600; font-size: 14.5px; color: var(--ivory); }
+.row-card .sub-txt { font-size: 12px; color: var(--ivory-dim); margin-top: 2px; }
+.row-card .badge-group { display: flex; gap: 6px; flex-shrink: 0; }
+
+.search-box { position: relative; margin-bottom: 12px; }
+.search-box input {
+  width: 100%; box-sizing: border-box; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 10px 40px 10px 14px; font-size: 14px; color: var(--ivory);
+  font-family: inherit; outline: none;
+}
+.search-box input::placeholder { color: var(--ivory-dim); }
+.search-box input:focus { border-color: var(--amber); }
+.search-box .search-ic {
+  position: absolute; right: 13px; top: 50%; transform: translateY(-50%);
+  font-size: 15px; color: var(--ivory-dim); pointer-events: none;
+}
+
+.top-rank {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 13px; background: var(--panel-2); color: var(--ivory-dim);
+}
+.top-info { flex: 1; min-width: 0; }
+
+.settings-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 6px 14px; margin-bottom: 18px;
+}
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--line);
+}
+.settings-row:last-child { border-bottom: none; }
+.settings-row-txt { flex: 1; min-width: 0; }
+.settings-row-txt .sub-txt { margin-top: 4px; line-height: 1.6; }
+
+.manual-note {
+  background: var(--panel); border: 1px solid var(--amber-dim); color: var(--amber);
+  border-radius: var(--radius); padding: 10px 14px; font-size: 12.5px; margin-bottom: 14px;
+  line-height: 1.8;
+}
+
+.big-btn {
+  width: 100%; background: var(--amber); color: var(--ink); border: none;
+  border-radius: var(--radius); padding: 13px; font-size: 14.5px; font-weight: 700;
+  margin-bottom: 4px;
+}
+.big-btn:active { opacity: .85; }
+
+.back-btn {
+  background: none; border: none; color: var(--ivory-dim); font-size: 13px;
+  padding: 6px 2px 14px; text-align: right;
+}
+.back-btn:hover { color: var(--amber); }
+
+/* پنج نفر برتر فعلی (اسلات‌ها) */
+.slot-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 14px; display: flex; align-items: center; gap: 12px;
+}
+.slot-card.empty { color: var(--ivory-dim); font-size: 13px; justify-content: center; padding: 16px; }
+.slot-card.filled .top-info { flex: 1; min-width: 0; }
+.slot-remove {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--brick);
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; font-size: 13px;
+}
+
+/* فهرست نامزدها + انتخاب‌گر رتبه */
+.rank-badge {
+  display: inline-block; font-size: 10.5px; font-weight: 700; color: var(--ink);
+  background: var(--amber); border-radius: 10px; padding: 1px 8px; margin-right: 4px;
+}
+.candidate-row { cursor: pointer; }
+.rank-picker {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px; margin: -2px 0 8px; display: flex; flex-direction: column; gap: 8px;
+}
+.rank-picker-lbl { font-size: 12.5px; color: var(--ivory-dim); }
+.rank-picker-btns { display: flex; gap: 8px; }
+.rank-num-btn {
+  flex: 1; background: var(--panel); border: 1px solid var(--line); color: var(--ivory);
+  padding: 8px 0; border-radius: 8px; font-weight: 700; font-size: 14px;
+}
+.rank-num-btn.active { background: var(--amber); color: var(--ink); border-color: var(--amber); }
+
+/* ── دستیار: فهرست گفتگوها + نمای گفتگو (فقط‌خواندنی) ─────────────── */
+.chat-row { cursor: pointer; transition: border-color .12s, background .12s; }
+.chat-row:hover { border-color: var(--amber-dim); background: var(--panel-2); }
+.chat-row-main { flex: 1; min-width: 0; }
+.chat-row-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.chat-head { padding: 12px 14px; }
+.chat-head .sub-txt { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+
+.chat-thread { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
+.chat-msg { display: flex; flex-direction: column; max-width: 86%; }
+.chat-bubble-txt {
+  padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.85;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+}
+.chat-time { font-size: 11px; color: var(--ivory-dim); margin-top: 4px; padding: 0 6px; }
+
+/* سؤالِ مدیر: سمتِ شروع (راست در RTL)، با تاکیدِ کهربایی */
+.chat-user { align-self: flex-start; align-items: flex-start; }
+.chat-user .chat-bubble-txt {
+  background: rgba(201,154,70,0.16); border: 1px solid var(--amber-dim);
+  border-top-right-radius: 4px; color: var(--ivory);
+}
+/* پاسخ دستیار: سمتِ مقابل */
+.chat-ai { align-self: flex-end; align-items: flex-end; }
+.chat-ai .chat-bubble-txt {
+  background: var(--panel); border: 1px solid var(--line);
+  border-top-left-radius: 4px; color: var(--ivory);
+}
+/* پیام خطا/سیستم */
+.chat-system { align-self: center; align-items: center; max-width: 92%; }
+.chat-system .chat-bubble-txt {
+  background: rgba(178,83,74,0.12); border: 1px solid rgba(178,83,74,0.35);
+  color: var(--brick); font-size: 12.5px; text-align: center;
+}
+/* فراخوانیِ ابزار: کم‌رنگ و جمع‌شونده تا خواندنِ گفتگو رو شلوغ نکنه */
+.chat-tool { align-self: flex-end; align-items: flex-end; max-width: 92%; }
+.chat-tool details {
+  background: var(--panel-2); border: 1px dashed var(--line); border-radius: 10px;
+  padding: 6px 12px; font-size: 12px; color: var(--ivory-dim); max-width: 100%;
+}
+.chat-tool summary { cursor: pointer; overflow-wrap: anywhere; }
+.chat-tool-body {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line);
+  white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; direction: rtl;
+}
+.chat-refresh { margin-top: 10px; }
+
+@media (max-width: 860px) { .chat-msg { max-width: 94%; } }
+
+/* ── دستگاه‌های پنل مدیر مدرسه (لاگ ورود + بلاک/آنبلاک/حذف) ────── */
+.device-card { flex-direction: column; align-items: stretch; gap: 6px; }
+.device-card.device-blocked { border-color: var(--brick); }
+.device-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.device-block-reason { color: var(--brick); }
+.device-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.device-actions .tab-btn { padding: 6px 12px; }
+.device-btn-block { color: var(--brick); border-color: rgba(178,83,74,0.4); }
+.device-btn-unblock { color: var(--sage); border-color: rgba(122,155,114,0.4); }
+.device-btn-delete { color: var(--ivory-dim); }
+.device-detail { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.device-detail table { min-width: 0; }
+
+/* ── منوی «بیشتر» — شیت پایین با گروه‌بندی و ورود پلکانی ─────────────
+   ساختار: پس‌زمینه‌ی محو (more-backdrop) + شیت (more-sheet) که از پایین
+   با یک فنر ملایم بالا می‌آید. کاشی‌های داخل شیت با تاخیرِ پلکانی
+   (nth-child) یکی‌یکی ظاهر می‌شوند تا حس زنده و لذت‌بخشی داشته باشد. */
+.more-backdrop {
+  position: fixed; inset: 0; z-index: 29;
+  background: rgba(4,7,5,.55);
+  backdrop-filter: blur(2px);
+  opacity: 0; visibility: hidden;
+  transition: opacity .28s ease, visibility 0s linear .28s;
+}
+.more-backdrop.show {
+  opacity: 1; visibility: visible;
+  transition: opacity .28s ease, visibility 0s linear 0s;
+}
+.more-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  max-height: min(78vh, 640px);
+  background: var(--panel);
+  border: 1px solid var(--line); border-bottom: none;
+  border-radius: 22px 22px 0 0;
+  padding: 10px 8px calc(14px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -18px 40px rgba(0,0,0,.45);
+  transform: translateY(102%);
+  transition: transform .38s cubic-bezier(.19,1.02,.32,1);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.more-sheet.show { transform: translateY(0); }
+.more-sheet-handle {
+  width: 38px; height: 4px; border-radius: 3px;
+  background: var(--line); margin: 2px auto 8px;
+}
+.more-sheet-head { padding: 0 14px 8px; }
+.more-sheet-title { font-size: 13.5px; font-weight: 700; color: var(--ivory-dim); }
+.more-sheet-body {
+  overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding: 2px 12px 4px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.more-group-label {
+  display: block; font-size: 11px; font-weight: 700; color: var(--amber-dim);
+  text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px;
+}
+.more-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.more-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.more-tile {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px;
+  padding: 14px 6px 10px; min-height: 78px;
+  color: var(--ivory-dim); font-family: inherit;
+  opacity: 0; transform: translateY(10px) scale(.94);
+}
+.more-sheet.show .more-tile {
+  animation: tile-in .38s cubic-bezier(.2,.8,.2,1) forwards;
+}
+@keyframes tile-in {
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* تاخیرِ پلکانی: هر کاشی کمی دیرتر از قبلی می‌رسد */
+.more-group:nth-of-type(1) .more-tile:nth-child(1) { animation-delay: .05s; }
+.more-group:nth-of-type(1) .more-tile:nth-child(2) { animation-delay: .09s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(1) { animation-delay: .13s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(2) { animation-delay: .17s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(3) { animation-delay: .21s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(4) { animation-delay: .25s; }
+.more-group:nth-of-type(2) .more-tile:nth-child(5) { animation-delay: .29s; }
+.more-group:nth-of-type(3) .more-tile:nth-child(1) { animation-delay: .33s; }
+.more-group:nth-of-type(3) .more-tile:nth-child(2) { animation-delay: .37s; }
+.more-group:nth-of-type(3) .more-tile:nth-child(3) { animation-delay: .41s; }
+.more-group:nth-of-type(3) .more-tile:nth-child(4) { animation-delay: .45s; }
+.more-tile-ic { font-size: 22px; line-height: 1; transition: transform .2s cubic-bezier(.4,1.6,.5,1); }
+.more-tile-label { font-size: 11px; font-weight: 600; color: var(--ivory-dim); text-align: center; line-height: 1.35; }
+.more-tile:active { background: var(--panel); transform: scale(.95) !important; }
+.more-tile:active .more-tile-ic { transform: scale(.88); }
+@media (hover: hover) {
+  .more-tile:hover { border-color: var(--amber-dim); }
+  .more-tile:hover .more-tile-label { color: var(--ivory); }
+}
+.more-tile-badge {
+  position: absolute; top: 8px; inset-inline-end: 8px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 700; font-family: monospace;
+  background: var(--sage); color: #0c150f; border-radius: 999px;
+}
+
+@media (min-width: 861px) {
+  .more-backdrop, .more-sheet { display: none !important; }
+}
+
+/* ── نوتیف‌های لحظه‌ای (Toast) ────────────────────────────────
+   یک ستونِ ثابت بالای صفحه؛ هر پیام با یک ورودِ فنری میاد و بعد از
+   چند ثانیه با محو شدن به سمتِ بالا خارج می‌شه. */
+.toast-stack {
+  position: fixed; top: 14px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex; flex-direction: column; gap: 8px;
+  align-items: center;
+  pointer-events: none;
+  width: min(92vw, 360px);
+}
+.toast {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--amber);
+  border-radius: 10px; padding: 10px 14px;
+  box-shadow: var(--shadow-soft);
+  font-size: 12.8px; color: var(--ivory);
+  width: 100%;
+  animation: toast-in .32s cubic-bezier(.2,.8,.2,1);
+  pointer-events: auto;
+}
+.toast.toast-leaving { animation: toast-out .22s ease forwards; }
+.toast.toast-sage { border-inline-start-color: var(--sage); }
+.toast.toast-brick { border-inline-start-color: var(--brick); }
+.toast-ic { font-size: 15px; flex-shrink: 0; }
+.toast-txt { flex: 1; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-14px) scale(.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0) scale(1); max-height: 60px; margin-bottom: 0; }
+  to   { opacity: 0; transform: translateY(-10px) scale(.96); max-height: 0; }
+}
+
+/* ── اسکلتون لودینگ — به‌جای اسپینر ساده، شکلِ محتوای واقعی رو
+   با بلوک‌های تپنده نشون می‌ده تا حسِ سریع‌تر بارگذاری بده ────── */
+.skeleton-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.skeleton-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 16px 18px; border-inline-start: 3px solid var(--line);
+}
+.skeleton-block, .skeleton-line {
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--panel-2) 25%, var(--line) 37%, var(--panel-2) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+.skeleton-card .skeleton-line { height: 11px; width: 55%; margin-bottom: 12px; }
+.skeleton-card .skeleton-block { height: 22px; width: 40%; }
+.skeleton-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 4px; border-bottom: 1px solid var(--line);
+}
+.skeleton-row:last-child { border-bottom: none; }
+.skeleton-row .skeleton-avatar { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; }
+.skeleton-row .skeleton-lines { flex: 1; }
+.skeleton-row .skeleton-line:first-child { width: 45%; height: 12px; margin-bottom: 8px; }
+.skeleton-row .skeleton-line:last-child { width: 70%; height: 9px; margin-bottom: 0; }
+.skeleton-section {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 6px 16px; margin-bottom: 18px;
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block, .skeleton-line { animation: none; background: var(--panel-2); }
+}
+
+/* ── ریز-نمودارِ روند (Sparkline) داخل کارت‌های آماری ─────────
+   یه خطِ خیلی کوچیک زیرِ عدد که روند چند دقیقه‌ی اخیر رو نشون می‌ده؛
+   داده‌ش از نمونه‌برداریِ محلیِ پولینگ میاد (session-only). */
+.stat-spark { margin-top: 8px; height: 22px; opacity: .85; }
+.stat-spark svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.stat-spark path.spark-line { fill: none; stroke-width: 1.6; stroke: var(--amber-dim); }
+.stat-spark path.spark-fill { fill: var(--amber); opacity: .08; stroke: none; }
+.stat-card.accent-sage .stat-spark path.spark-line { stroke: var(--sage); }
+.stat-card.accent-sage .stat-spark path.spark-fill { fill: var(--sage); }
+.stat-card.accent-rust .stat-spark path.spark-line { stroke: var(--brick); }
+.stat-card.accent-rust .stat-spark path.spark-fill { fill: var(--brick); }
+
+/* ── انیمیشنِ ورودِ نمودارها (صفحه‌ی «نمودارها») ─────────────── */
+.chart-wrap .bar-fill { transition: width .7s cubic-bezier(.16,.86,.28,1); }
+.chart-wrap .sparkline path:first-of-type { transition: stroke-dashoffset 1.1s cubic-bezier(.16,.86,.28,1); }
+.chart-wrap .sparkline circle {
+  opacity: 0; transform: scale(0); transform-origin: center;
+  transition: opacity .3s ease, transform .3s cubic-bezier(.4,1.6,.5,1);
+  transition-delay: .9s;
+}
+.chart-wrap.charts-animate .sparkline circle { opacity: 1; transform: scale(1); }
+@media (prefers-reduced-motion: reduce) {
+  .chart-wrap .bar-fill, .chart-wrap .sparkline path:first-of-type, .chart-wrap .sparkline circle {
+    transition: none !important; opacity: 1 !important; transform: none !important;
+  }
+}
+
+/* ── دکمه‌ی شناور رهگشا + پنل کناری سریع ──────────────────────
+   از هر صفحه‌ای در دسترسه؛ یه نگاهِ سریع به گفتگوهای اخیرِ رهگشا
+   بدونِ نیاز به ترکِ صفحه‌ی فعلی. */
+.assistant-fab {
+  position: fixed; z-index: 25;
+  inset-inline-end: 22px; bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  width: 52px; height: 52px; border-radius: 50%;
+  background: var(--amber); color: #201607; border: none;
+  font-size: 22px; cursor: pointer;
+  box-shadow: 0 8px 20px rgba(201,154,70,.4), 0 2px 8px rgba(0,0,0,.3);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .22s cubic-bezier(.4,1.6,.5,1), box-shadow .2s ease, opacity .2s ease, visibility 0s linear 0s;
+}
+.assistant-fab:hover { transform: scale(1.07); }
+.assistant-fab:active { transform: scale(.92); }
+.assistant-fab.hidden-fab { opacity: 0; visibility: hidden; transform: scale(.7); transition: transform .2s ease, opacity .2s ease, visibility 0s linear .2s; }
+@media (max-width: 860px) {
+  .assistant-fab { inset-inline-end: 16px; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); width: 48px; height: 48px; font-size: 20px; }
+}
+
+.assistant-panel-backdrop {
+  position: fixed; inset: 0; z-index: 39;
+  background: rgba(4,7,5,.5);
+  opacity: 0; visibility: hidden;
+  transition: opacity .25s ease, visibility 0s linear .25s;
+}
+.assistant-panel-backdrop.show { opacity: 1; visibility: visible; transition: opacity .25s ease, visibility 0s linear 0s; }
+.assistant-panel {
+  position: fixed; z-index: 40; top: 0; bottom: 0;
+  inset-inline-end: 0;
+  width: min(400px, 100vw);
+  background: var(--panel); border-inline-start: 1px solid var(--line);
+  box-shadow: -18px 0 40px rgba(0,0,0,.35);
+  display: flex; flex-direction: column;
+  transform: translateX(100%);
+  transition: transform .34s cubic-bezier(.19,1.02,.32,1);
+}
+html[dir="rtl"] .assistant-panel:not(.show) { transform: translateX(-100%); }
+.assistant-panel.show { transform: translateX(0); }
+.assistant-panel-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 16px 16px; border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.assistant-panel-title { flex: 1; font-size: 14px; font-weight: 700; }
+.assistant-panel-close, .assistant-panel-back {
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  background: transparent; border: 1px solid var(--line); color: var(--ivory-dim);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px;
+  transition: background .15s ease, color .15s ease;
+}
+.assistant-panel-close:hover, .assistant-panel-back:hover { background: var(--panel-2); color: var(--ivory); }
+.assistant-panel-back svg { width: 15px; height: 15px; }
+.assistant-panel-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 14px 14px; }
+.assistant-panel-foot { padding: 10px 14px; border-top: 1px solid var(--line); flex-shrink: 0; }
+.assistant-panel-full-btn {
+  width: 100%; background: var(--panel-2); border: 1px solid var(--line); color: var(--amber);
+  border-radius: var(--radius); padding: 9px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  transition: background .15s ease;
+}
+.assistant-panel-full-btn:hover { background: var(--line); }
+.assistant-panel-item {
+  display: block; width: 100%; text-align: start;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 11px 13px; margin-bottom: 8px; cursor: pointer;
+  animation: card-in .25s cubic-bezier(.2,.8,.2,1) backwards;
+}
+.assistant-panel-body .assistant-panel-item:nth-child(1) { animation-delay: .02s; }
+.assistant-panel-body .assistant-panel-item:nth-child(2) { animation-delay: .05s; }
+.assistant-panel-body .assistant-panel-item:nth-child(3) { animation-delay: .08s; }
+.assistant-panel-body .assistant-panel-item:nth-child(4) { animation-delay: .11s; }
+.assistant-panel-body .assistant-panel-item:nth-child(5) { animation-delay: .14s; }
+.assistant-panel-item-title { font-size: 13px; font-weight: 700; color: var(--ivory); margin-bottom: 4px; }
+.assistant-panel-item-meta { font-size: 11.5px; color: var(--ivory-dim); }
+.assistant-panel-body .chat-msg { margin-bottom: 10px; }
+
+/* ── راهنمای میانبرهای کیبورد (وقتی g فشرده می‌شه) ─────────── */
+.kbd-hint {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  z-index: 60;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 14px; box-shadow: var(--shadow-soft);
+  font-size: 12px; color: var(--ivory-dim);
+  display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;
+  animation: toast-in .2s ease;
+}
+.kbd-hint kbd {
+  font-family: monospace; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 4px; padding: 1px 6px; color: var(--amber); margin-inline-end: 4px;
+}
+
+/* ── ارسال اعلان (پنل ادمین ← پنل مدیر مدرسه) ────────────────── */
+.notif-form { display: grid; gap: 14px; }
+.notif-field { display: grid; gap: 6px; font-size: 13px; color: var(--ivory-dim); }
+.notif-field input, .notif-field textarea {
+  width: 100%; padding: 12px 14px; background: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--radius); color: var(--ivory); font-size: 14.5px; font-family: inherit;
+  outline: none; resize: vertical; transition: border-color .15s, box-shadow .15s;
+}
+.notif-field input:focus, .notif-field textarea:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(201,154,70,.15); }
+.notif-error { font-size: 13px; color: var(--brick); }
+.notif-form-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.notif-form-actions button[type="submit"] {
+  padding: 11px 22px; background: var(--amber); color: #201607; border: none; border-radius: var(--radius);
+  font-size: 14px; font-weight: 700; cursor: pointer; transition: filter .15s, transform .1s;
+}
+.notif-form-actions button[type="submit"]:hover { filter: brightness(1.08); }
+.notif-form-actions button[type="submit"]:disabled { opacity: .6; cursor: default; }
+.notif-form-actions button[type="button"] {
+  padding: 11px 18px; background: var(--panel-2); color: var(--ivory-dim); border: 1px solid var(--line);
+  border-radius: var(--radius); font-size: 13.5px; cursor: pointer;
+}
+.notif-push-note { margin-top: -2px; }
+.notif-card { align-items: flex-start; flex-direction: column; gap: 8px; }
+.notif-card .chat-row-main { width: 100%; }
