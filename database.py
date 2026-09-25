@@ -1877,10 +1877,19 @@ _PISHVA_PROFILE_KEYS = {
     "pishva_bio": "",
     "pishva_details": "[]",
 }
-# اسمِ تلگرامی که آخرین بار هم‌گام شده — فقط برای تشخیصِ «آیا مدیر ارشد
-# اسمِ نمایشی‌ش رو دستی عوض کرده یا نه» (دقیقاً همون منطقِ full_name/
-# display_name جدولِ admins، اینجا چون پیشوا ردیفی در آن جدول ندارد).
+# اسمِ تلگرامی که آخرین بار هم‌گام شده — فقط برای هم‌گام نگه‌داشتنِ
+# pishva_tg_full_name (دقیقاً همون منطقِ full_name/display_name جدولِ
+# admins، اینجا چون پیشوا ردیفی در آن جدول ندارد).
 _PISHVA_TG_NAME_KEY = "pishva_tg_full_name"
+# فلگِ صریح: آیا مدیر ارشد تا حالا از توی وب‌اپ اسمِ نمایشی‌ش رو دستی
+# ست کرده؟ قبلاً این با مقایسه‌ی current_display با مقدارِ پیش‌فرضِ
+# ثابتِ "مدیر ارشد" تشخیص داده می‌شد؛ باگ: اگه پیشوا خودش عمداً اسمش رو
+# دقیقاً به همون رشته‌ی "مدیر ارشد" ست می‌کرد (یا این کلید هنوز هیچ‌وقت
+# نوشته نشده بود، مثلاً روی دیتای قدیمی)، sync_pishva_identity فکر
+# می‌کرد هنوز sync نشده و هر بار (از جمله همون لحظه‌ای که پیشوا داشت
+# یک فیلدِ دیگه رو ذخیره می‌کرد، چون _require_admin قبل از نوشتنِ
+# پروفایل صدا زده می‌شه) اسمِ دستی رو با اسمِ تلگرام رونویسی می‌کرد.
+_PISHVA_NAME_CUSTOMIZED_KEY = "pishva_name_customized"
 
 
 async def get_pishva_profile_fields() -> dict:
@@ -1906,6 +1915,10 @@ async def update_pishva_profile(display_name: str, title: str, city: str, bio: s
     display_name, title, city, bio, clean_details = _clean_profile_fields(display_name, title, city, bio, details)
     if display_name:
         await set_setting("pishva_display_name", display_name)
+        # از این به بعد این یک اسمِ دستیِ صریح است؛ sync_pishva_identity
+        # دیگر هیچ‌وقت نباید بی‌صدا رونویسی‌اش کند، حتی اگر کاربر عمداً
+        # همان رشته‌ی پیش‌فرض «مدیر ارشد» را انتخاب کرده باشد.
+        await set_setting(_PISHVA_NAME_CUSTOMIZED_KEY, "1")
     await set_setting("pishva_title", title)
     await set_setting("pishva_city", city)
     await set_setting("pishva_bio", bio)
@@ -1919,17 +1932,18 @@ async def update_pishva_profile(display_name: str, title: str, city: str, bio: s
 async def sync_pishva_identity(full_name: str):
     """اسمِ تلگرامِ مدیر ارشد رو با پروفایلش هم‌گام می‌کنه — دقیقاً معادلِ
     sync_admin_identity ولی برای پیشوا (که ردیفی در admins ندارد). فقط
-    وقتی اسمِ نمایشیِ فعلی همون اسمِ قدیمیِ تلگرام (یا مقدارِ پیش‌فرض/خالی)
-    بوده باشه عوض می‌شه؛ اگه دستی از توی وب‌اپ یه اسمِ دیگه گذاشته، دست
-    نمی‌خوره."""
+    وقتی مدیر ارشد هیچ‌وقت از توی وب‌اپ اسمِ نمایشی‌ش رو دستی ست نکرده
+    باشه عوض می‌شه (فلگِ صریحِ pishva_name_customized)؛ اگه حتی یک‌بار
+    دستی ذخیره کرده — حتی اگه دقیقاً همون رشته‌ی پیش‌فرض «مدیر ارشد» رو
+    انتخاب کرده باشه — دیگه هیچ‌وقت بی‌صدا رونویسی نمی‌شه."""
     full_name = (full_name or "").strip()
     if not full_name:
         return
     old_tg_name = (await get_setting(_PISHVA_TG_NAME_KEY, "")).strip()
     if old_tg_name == full_name:
         return
-    current_display = (await get_setting("pishva_display_name", "مدیر ارشد")).strip()
-    if not current_display or current_display in (old_tg_name, "مدیر ارشد"):
+    customized = (await get_setting(_PISHVA_NAME_CUSTOMIZED_KEY, "")).strip() == "1"
+    if not customized:
         await set_setting("pishva_display_name", full_name)
     await set_setting(_PISHVA_TG_NAME_KEY, full_name)
 
