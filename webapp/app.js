@@ -710,27 +710,7 @@ function paintHighlights(){
     selEl.classList.add("selected");
     var selSlot = state.pieceEls[state.selected];
     if(selSlot) selSlot.querySelector(".piece").classList.add("piece-selected");
-    var fromCR = squareColRow(state.selected);
-    state.legalTargets.forEach(function(m){
-      var el = state.boardEls[m.to];
-      if(!el) return;
-      var dot = document.createElement("div");
-      dot.className = "move-dot" + (m.captured || m.flags.indexOf("e")>=0 ? " capture" : "");
-      var toCR = squareColRow(m.to);
-      var dist = Math.max(Math.abs(toCR.col - fromCR.col), Math.abs(toCR.row - fromCR.row));
-      var dotDelay = (dist * 18) + "ms";
-      dot.style.transitionDelay = dotDelay;
-      dot.style.animationDelay = dotDelay; // با تاخیرِ خودِ دات هماهنگ می‌ماند (حلقه‌ی captureِ آن)
-      el.appendChild(dot);
-      // دو rAFِ تودرتو — نه برای اندازه‌گیری/reflow (که اینجا اصلاً لازم
-      // نیست)، فقط برای این‌که مرورگر مطمئن یک فریم با opacity:0/scale(.4)
-      // را واقعاً رسم کرده باشد پیش از افزودنِ کلاسِ .in؛ وگرنه بعضی
-      // موتورها هر دو تغییر را در یک فریم ادغام می‌کنند و transition اصلاً
-      // اجرا نمی‌شود.
-      requestAnimationFrame(function(){
-        requestAnimationFrame(function(){ dot.classList.add("in"); });
-      });
-    });
+    // پیش‌نمایش حرکات (دات‌ها) عمداً حذف شده و نباید دوباره اضافه شود.
   }
   if(chess.in_check ? chess.in_check() : chess.inCheck()){
     var kingColor = chess.turn();
