@@ -34,6 +34,7 @@ from aiohttp import web
 
 import database as db
 import elo
+import hub_caps
 from config import (BOT_TOKEN, PISHVA_ID, ROLE_TOURNAMENT_MANAGER,
                     ROLE_SECURITY_MANAGER)
 
@@ -80,9 +81,20 @@ def _verify_init_data(init_data: str):
         return None
 
 
-def _err(status_cls, code):
-    return status_cls(text=json.dumps({"ok": False, "error": code}, ensure_ascii=False),
+def _err(status_cls, code, **extra):
+    payload = {"ok": False, "error": code}
+    payload.update(extra)
+    return status_cls(text=json.dumps(payload, ensure_ascii=False),
                        content_type="application/json")
+
+
+async def _gate_or_raise():
+    """اگر یکی از حالت‌های قفل (تعمیر/آپدیت/خطرناک/APS/خاموشیِ ربات/ساعتِ کاری)
+    فعال باشد، مدیرِ غیرِ ارشد ۴۰۳ با دلیلِ دقیق می‌گیرد؛ مدیر ارشد هرگز."""
+    reason = await hub_caps.gate_reason()
+    if reason:
+        title, text = hub_caps.GATE_MESSAGES[reason]
+        raise _err(web.HTTPForbidden, "locked", reason=reason, title=title, message=text)
 
 
 async def _identify(request):
@@ -126,6 +138,7 @@ async def _require_admin(request):
         raise _err(web.HTTPForbidden, "forbidden")
     if not await db.can_use_hub(uid):
         raise _err(web.HTTPForbidden, "forbidden")
+    await _gate_or_raise()
     # اسمِ تلگرامِ مدیر ممکنه بعد از ثبت‌نام عوض شده باشه؛ همین‌جا هم‌گامش کن.
     try:
         tg_name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x)
@@ -134,6 +147,16 @@ async def _require_admin(request):
     except Exception:
         logger.exception("hub: sync_admin_identity failed for %s", uid)
     return False, admin, user
+
+
+async def _require_cap(request, *anyof):
+    """مثلِ _require_admin ولی علاوه بر آن، حداقل یکی از قابلیت‌های anyof را می‌خواهد
+    (۴۰۳ با error=no_cap در غیرِ این صورت). خروجی: (is_pishva, admin, user, caps, feats)."""
+    is_pishva, admin, user = await _require_admin(request)
+    caps, feats = await hub_caps.compute_caps(is_pishva, admin)
+    if anyof and not any(c in caps for c in anyof):
+        raise _err(web.HTTPForbidden, "no_cap", message="این قابلیت برای شما فعال نیست.")
+    return is_pishva, admin, user, caps, feats
 
 
 def _json(data):
@@ -219,7 +242,7 @@ async def _pishva_teammate_public():
 # ─── بوت‌استرپ (خانه، آیکونِ تبِ پروفایل، تیمِ مدیران) ────────────────
 @routes.get("/hub/api/bootstrap")
 async def hub_bootstrap(request):
-    is_pishva, admin, user = await _require_admin(request)
+    is_pishva, admin, user, caps, feats = await _require_cap(request)
     now_iso = datetime.now().isoformat()
 
     all_players = await db.get_all_players()
@@ -233,7 +256,12 @@ async def hub_bootstrap(request):
     m_summary = await db.get_hub_matches_summary()
     trend = await db.get_hub_trend(7)
 
-    top = await _top_players(active_players)
+    top = await _top_players(active_players) if "elo" in caps else []
+    has_match_caps = any(c in caps for c in ("match_create", "match_edit", "match_delete", "predictions"))
+    if not has_match_caps:
+        tours, active_tours = [], 0
+        m_summary = {"pending": 0, "oldest_pending_days": 0, "done_today": 0}
+        trend = {"days": [], "mix": {"white": 0, "black": 0, "draw": 0}}
 
     me = await _me_public(is_pishva, admin)
 
@@ -246,8 +274,17 @@ async def hub_bootstrap(request):
         if is_pishva or a["telegram_id"] != admin["telegram_id"]:
             team.append(_teammate_public(a))
 
+    system = None
+    if is_pishva:
+        system = {"status": await db.get_setting("system_status", "normal"),
+                  "repair": await db.get_setting("repair_mode", "0") == "1",
+                  "update": await db.get_setting("bot_update_mode", "0") == "1"}
+
     return _json({
         "now": now_iso,
+        "caps": sorted(caps),
+        "features": feats,
+        "system": system,
         "me": me,
         "team": team,
         "summary": {
@@ -264,6 +301,7 @@ async def hub_bootstrap(request):
 async def _top_players(active_players, limit=5):
     """چند نفرِ برتر بر اساسِ Elo، برای کارتِ «برترین‌ها»ی خانه‌ی هاب.
     یک کوئریِ واحد برای Elo همه‌ی بازیکنان (نه N تا کوئریِ جدا)."""
+    await elo.ensure_elo_table()
     elo_map = await db.get_all_player_elo()
     ranked = []
     for p in active_players:
@@ -283,17 +321,19 @@ async def _top_players(active_players, limit=5):
 # ─── بازیکنان ────────────────────────────────────────────────────
 @routes.get("/hub/api/players")
 async def hub_players(request):
-    await _require_admin(request)
+    _p, _a, _u, caps, _f = await _require_cap(request, "players_view", "match_create", "match_edit", "player_register")
     all_players = await db.get_all_players()
+    await elo.ensure_elo_table()
     elo_map = await db.get_all_player_elo()
     cols = ["id", "name", "cls", "elo", "w", "d", "l", "warn", "elite", "special", "status", "games"]
+    show_elo = "elo" in caps
     rows = []
     for p in all_players:
         e = elo_map.get(p["id"])
-        rating = e["rating"] if e else elo.ELO_DEFAULT
+        rating = (e["rating"] if e else elo.ELO_DEFAULT) if show_elo else None
         w, d, l = p["wins"] or 0, p["draws"] or 0, p["losses"] or 0
         rows.append([
-            p["id"], p["full_name"], p["class_name"] or "", round(rating),
+            p["id"], p["full_name"], p["class_name"] or "", round(rating) if rating is not None else None,
             w, d, l, p["warnings"] or 0,
             1 if p["is_elite"] else 0, 1 if p["is_special"] else 0,
             p["status"] or "active", w + d + l,
@@ -303,7 +343,7 @@ async def hub_players(request):
 
 @routes.get("/hub/api/player/{id}")
 async def hub_player_detail(request):
-    await _require_admin(request)
+    await _require_cap(request, "players_view")
     try:
         pid = int(request.match_info["id"])
     except (TypeError, ValueError):
@@ -327,7 +367,7 @@ async def hub_player_detail(request):
 # ─── مسابقات ─────────────────────────────────────────────────────
 @routes.get("/hub/api/tournament/{id}")
 async def hub_tournament_detail(request):
-    await _require_admin(request)
+    await _require_cap(request, "match_create", "match_edit", "match_delete", "predictions")
     try:
         tid = int(request.match_info["id"])
     except (TypeError, ValueError):
@@ -340,6 +380,7 @@ async def hub_tournament_detail(request):
         })
     rows = await db.get_tournament_matches_named(tid)
     matches = [{
+        "id": r["id"], "wid": r["white_player_id"], "bid": r["black_player_id"],
         "w": r["white_name"] or "؟", "b": r["black_name"] or "؟",
         "res": r["result"], "date": (r["match_date"] or "")[:10],
     } for r in rows]
@@ -466,11 +507,27 @@ async def sync_menu_buttons_job(context):
 # عیناً هم‌الگوی static_files در game_server.py برای /webapp — کشِ طولانی‌
 # مدت فقط برای درخواست‌های نسخه‌دار (?v=...)، محافظت در برابرِ path
 # traversal، و fallback به index.html برای مسیرِ ریشه.
+def _asset_version() -> str:
+    """نسخه‌ی فایل‌های هاب = بزرگ‌ترین زمانِ تغییرِ آن‌ها. قبلاً placeholderِ __V__
+    هرگز جایگزین نمی‌شد، پس کشِ «immutable»ِ فایل‌های ?v=... برای همیشه روی یک نسخه
+    می‌ماند و بعد از هر آپدیت گوشی‌ها فایلِ قدیمی را می‌گرفتند."""
+    latest = 0
+    try:
+        for fn in os.listdir(HUB_DIR):
+            if fn.endswith((".js", ".css", ".html")):
+                latest = max(latest, int(os.path.getmtime(os.path.join(HUB_DIR, fn))))
+    except OSError:
+        pass
+    return str(latest or 1)
+
+
 def _hub_index_response():
     path = os.path.join(HUB_DIR, "index.html")
     if not os.path.isfile(path):
         raise web.HTTPNotFound()
-    resp = web.FileResponse(path)
+    with open(path, "r", encoding="utf-8") as f:
+        page = f.read().replace("__V__", _asset_version())
+    resp = web.Response(text=page, content_type="text/html", charset="utf-8")
     resp.headers["Cache-Control"] = "no-cache, must-revalidate"
     return resp
 
@@ -504,5 +561,12 @@ async def hub_static_files(request):
 
 # ─── ثبتِ مسیرها روی اپِ اصلی ───────────────────────────────────────
 def register_hub_routes(app: web.Application):
+    # مسیرهای مدیریتیِ نقش‌محور (hub_api) باید *قبل* از مسیرِ کاچ‌آلِ
+    # /hub/{tail:.*} ثبت شوند، وگرنه aiohttp آن‌ها را به فایل‌های استاتیک می‌فرستد.
+    try:
+        import hub_api
+        app.add_routes(hub_api.routes)
+    except Exception:
+        logger.exception("hub_api routes could not be registered")
     app.add_routes(routes)
     logger.info("Hub (پنل من) routes registered.")

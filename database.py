@@ -4090,3 +4090,84 @@ async def get_chess_chat_messages(token: str, after_id: int = 0):
             (token, after_id)
         ) as cur:
             return await cur.fetchall()
+
+
+# ─── «پنل من» — افزودنی‌های مدیریتی (hub_api.py) ─────────────────────
+async def get_warnings_log(target_type: str, target_id: int, limit: int = 30):
+    """سابقه‌ی اخطارهای یک بازیکن/مدیر/تیم، تازه‌ترین اول، همراه با نامِ صادرکننده."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT w.id, w.reason, w.issued_by, w.issued_at,
+                      COALESCE(a.display_name, a.full_name) AS issuer_name
+               FROM warnings_log w
+               LEFT JOIN admins a ON a.telegram_id = w.issued_by
+               WHERE w.target_type=? AND w.target_id=?
+               ORDER BY w.issued_at DESC LIMIT ?""",
+            (target_type, target_id, limit)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def get_hub_matches(scope: str = "pending", limit: int = 60, q: str = "",
+                          tournament_id: int = None):
+    """فهرستِ مسابقه‌ها با نامِ بازیکنان برای ویرایش/حذف در هاب.
+    scope: pending (بدون نتیجه) | done (دارای نتیجه) | all"""
+    conds, params = [], []
+    if scope == "pending":
+        conds.append("m.result IS NULL")
+    elif scope == "done":
+        conds.append("m.result IS NOT NULL")
+    if tournament_id:
+        conds.append("m.tournament_id=?")
+        params.append(tournament_id)
+    if q:
+        conds.append("(wp.full_name LIKE ? OR bp.full_name LIKE ?)")
+        params += [f"%{q}%", f"%{q}%"]
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    params.append(max(1, min(int(limit), 200)))
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            f"""SELECT m.*, wp.full_name AS white_name, bp.full_name AS black_name,
+                       t.name AS t_name
+                FROM matches m
+                LEFT JOIN players wp ON m.white_player_id=wp.id
+                LEFT JOIN players bp ON m.black_player_id=bp.id
+                LEFT JOIN tournaments t ON m.tournament_id=t.id
+                {where} ORDER BY m.created_at DESC, m.id DESC LIMIT ?""",
+            params
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def get_calendar_range(start_j: str, end_j: str):
+    """ردیف‌های calendar_days بین دو تاریخِ شمسی 'YYYY/MM/DD' (شاملِ هر دو سر)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT jdate, day_type, title FROM calendar_days WHERE jdate>=? AND jdate<=? ORDER BY jdate",
+            (start_j, end_j)
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def get_pending_kick_request_for_player(player_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM kick_requests WHERE player_id=? AND status='pending' ORDER BY requested_at DESC LIMIT 1",
+            (player_id,)
+        ) as cur:
+            return await cur.fetchone()
+
+
+async def get_player_teams(player_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT t.id, t.name FROM team_members tm JOIN teams t ON tm.team_id=t.id
+               WHERE tm.player_id=? AND t.status='active'""",
+            (player_id,)
+        ) as cur:
+            return await cur.fetchall()
