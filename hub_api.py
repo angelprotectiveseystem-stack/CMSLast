@@ -141,6 +141,24 @@ async def _destructive(uid, action):
         logger.warning("hub_api: record_destructive_action failed", exc_info=True)
 
 
+_bg = set()
+
+
+def _spawn(coro):
+    """اجرای کار در پس‌زمینه بدونِ معطل‌کردنِ پاسخِ API (رفرنس نگه داشته می‌شود تا GC نکُشدش)."""
+    t = asyncio.create_task(coro)
+    _bg.add(t)
+    t.add_done_callback(_bg.discard)
+    return t
+
+
+async def _resync_menu_buttons():
+    try:
+        await hub.sync_menu_buttons(_bot())
+    except Exception:
+        logger.exception("hub menu-button resync failed")
+
+
 async def _broadcast(text, parse_mode="Markdown"):
     bot = _bot()
     if bot is None:
@@ -150,6 +168,11 @@ async def _broadcast(text, parse_mode="Markdown"):
         await broadcast_to_admins(bot, text, parse_mode=parse_mode)
     except Exception:
         logger.warning("hub_api: broadcast failed", exc_info=True)
+
+
+def _broadcast_bg(text, parse_mode="Markdown"):
+    """ارسالِ اعلان به همه‌ی مدیران در پس‌زمینه — جوابِ دکمه منتظرِ ارسالِ N پیام نمی‌ماند."""
+    _spawn(_broadcast(text, parse_mode=parse_mode))
 
 
 async def _recalc_elo():
@@ -1277,24 +1300,30 @@ STATUS_LABELS = {"normal": "🟢 نرمال", "bad": "🟡 بد", "danger": "�
 
 
 async def _settings_payload():
-    keys = [k for k, *_ in SETTING_DEFS] + ["top_players_mode"]
-    vals = {}
-    for k, _l, _g, dflt in SETTING_DEFS:
-        vals[k] = await db.get_setting(k, dflt)
+    # همه‌ی کلیدها با یک رفت‌وبرگشتِ شبکه (قبلاً ~۲۷ خوانش پشتِ‌سرِهم)
+    defaults = {k: d for k, _l, _g, d in SETTING_DEFS}
+    defaults.update({
+        "top_players_mode": "auto",
+        "announcement_group_id": "", "announcement_channel_id": "",
+        "hijri_offset": "0", "repair_reason": "",
+        "system_status": "normal", "repair_mode": "0", "bot_update_mode": "0",
+        "working_hours_system_enabled": "0", "working_hours_active": "0",
+    })
+    v = await db.get_settings_with_defaults(defaults)
     return {
-        "items": [{"key": k, "label": l, "group": g, "on": vals[k] == "1"} for k, l, g, _d in SETTING_DEFS],
-        "top_players_mode": await db.get_setting("top_players_mode", "auto"),
+        "items": [{"key": k, "label": l, "group": g, "on": v[k] == "1"} for k, l, g, _d in SETTING_DEFS],
+        "top_players_mode": v["top_players_mode"],
         "texts": {
-            "announcement_group_id": await db.get_setting("announcement_group_id", ""),
-            "announcement_channel_id": await db.get_setting("announcement_channel_id", ""),
-            "hijri_offset": await db.get_setting("hijri_offset", "0"),
-            "repair_reason": await db.get_setting("repair_reason", ""),
+            "announcement_group_id": v["announcement_group_id"],
+            "announcement_channel_id": v["announcement_channel_id"],
+            "hijri_offset": v["hijri_offset"],
+            "repair_reason": v["repair_reason"],
         },
-        "status": await db.get_setting("system_status", "normal"),
-        "repair": (await db.get_setting("repair_mode", "0")) == "1",
-        "update": (await db.get_setting("bot_update_mode", "0")) == "1",
-        "hours": {"system": (await db.get_setting("working_hours_system_enabled", "0")) == "1",
-                  "active": (await db.get_setting("working_hours_active", "0")) == "1"},
+        "status": v["system_status"],
+        "repair": v["repair_mode"] == "1",
+        "update": v["bot_update_mode"] == "1",
+        "hours": {"system": v["working_hours_system_enabled"] == "1",
+                  "active": v["working_hours_active"] == "1"},
     }
 
 
@@ -1320,10 +1349,8 @@ async def api_settings_toggle(request):
     await db.set_setting(key, new)
     await db.log_action(c.uid, "toggle_setting", f"{key} -> {new}")
     if key == "hub_enabled":
-        try:
-            await hub.sync_menu_buttons(_bot())
-        except Exception:
-            logger.exception("hub menu-button resync failed")
+        # چندین فراخوانیِ پشتِ‌سرِهمِ تلگرام (یکی برای هر مدیر) — نباید جوابِ دکمه را معطل کند
+        _spawn(_resync_menu_buttons())
     return hub._json(await _settings_payload())
 
 
@@ -1359,12 +1386,12 @@ async def api_system_status(request):
     ts = now_shamsi()
     pname = await db.get_setting("pishva_display_name", "مدیر ارشد")
     if new == "danger":
-        await _broadcast(f"{box('🔴 هشدار — وضعیت بحرانی')}\n\n⚠️ سیستم وارد وضعیت خطرناک شد.\n🛡️ پروتکل امنیتی فعال است.\n"
+        _broadcast_bg(f"{box('🔴 هشدار — وضعیت بحرانی')}\n\n⚠️ سیستم وارد وضعیت خطرناک شد.\n🛡️ پروتکل امنیتی فعال است.\n"
                          f"🔒 دسترسی شما موقتاً معلق شد.\n⏱️ `{ts}`\n\nمنتظر دستور {pname} باشید.")
     elif new == "aps":
-        await _broadcast(f"{box('🪽 حالت امنیتی APS')}\n\n🔐 امنیت به سیستم APS واگذار شده.\n🔒 دسترسی همه قطع شده است.\n⏱️ `{ts}`")
+        _broadcast_bg(f"{box('🪽 حالت امنیتی APS')}\n\n🔐 امنیت به سیستم APS واگذار شده.\n🔒 دسترسی همه قطع شده است.\n⏱️ `{ts}`")
     elif new == "normal":
-        await _broadcast(f"🟢 سیستم به وضعیت نرمال بازگشت.\n✅ دسترسی شما فعال است.\n⏱️ `{ts}`")
+        _broadcast_bg(f"🟢 سیستم به وضعیت نرمال بازگشت.\n✅ دسترسی شما فعال است.\n⏱️ `{ts}`")
     return hub._json(await _settings_payload())
 
 
@@ -1380,12 +1407,12 @@ async def api_system_repair(request):
             await db.set_setting("repair_reason", str(b.get("reason") or "").strip()[:200])
         await asyncio.gather(db.set_setting("repair_mode", "1"), db.set_setting("bot_update_mode", "1"))
         reason = await db.get_setting("repair_reason", "")
-        await _broadcast(f"{box('🔧 حالت تعمیر فعال شد')}\n\n🛠️ ربات در حال تعمیر و بروزرسانی است.\n⏱️ `{ts}`\n"
+        _broadcast_bg(f"{box('🔧 حالت تعمیر فعال شد')}\n\n🛠️ ربات در حال تعمیر و بروزرسانی است.\n⏱️ `{ts}`\n"
                          f"{'📝 دلیل: ' + _md(reason) if reason else ''}\n\nلطفاً منتظر بمانید.")
         await db.log_action(c.uid, "repair_on", "فعال‌سازی حالت تعمیر")
     else:
         await asyncio.gather(db.set_setting("repair_mode", "0"), db.set_setting("bot_update_mode", "0"))
-        await _broadcast(f"✅ تعمیر پایان یافت. ربات آماده استفاده است.\n⏱️ `{ts}`")
+        _broadcast_bg(f"✅ تعمیر پایان یافت. ربات آماده استفاده است.\n⏱️ `{ts}`")
         await db.log_action(c.uid, "repair_off", "غیرفعال‌سازی حالت تعمیر")
     return hub._json(await _settings_payload())
 
@@ -1396,7 +1423,7 @@ async def api_system_update(request):
     on = bool((await _body(request)).get("on"))
     await db.set_setting("bot_update_mode", "1" if on else "0")
     if on:
-        await _broadcast(f"🔄 ربات در حال آپدیت است. لطفاً منتظر بمانید.\n⏱️ `{now_shamsi()}`")
+        _broadcast_bg(f"🔄 ربات در حال آپدیت است. لطفاً منتظر بمانید.\n⏱️ `{now_shamsi()}`")
     await db.log_action(c.uid, "toggle_setting", f"bot_update_mode -> {'1' if on else '0'}")
     return hub._json(await _settings_payload())
 

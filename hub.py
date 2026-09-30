@@ -244,41 +244,59 @@ async def _pishva_teammate_public():
 async def hub_bootstrap(request):
     is_pishva, admin, user, caps, feats = await _require_cap(request)
     now_iso = datetime.now().isoformat()
+    has_match_caps = any(c in caps for c in ("match_create", "match_edit", "match_delete", "predictions"))
+    want_top = "elo" in caps
 
-    all_players = await db.get_all_players()
+    async def _none():
+        return None
+
+    async def _elo_map():
+        await elo.ensure_elo_table()
+        return await db.get_all_player_elo()
+
+    # همه‌ی خوانش‌های مستقل «هم‌زمان» (قبلاً ~۱۰ خوانشِ پشتِ‌سرِهم؛ با تأخیرِ
+    # شبکه‌ی Turso هر کدام چند ده تا چند صد میلی‌ثانیه بود).
+    (all_players, tours, m_summary, trend, me, active_admins,
+     elo_map, pishva_mate, sys_vals) = await asyncio.gather(
+        db.get_all_players(),
+        db.get_tournaments_with_counts() if has_match_caps else _none(),
+        db.get_hub_matches_summary() if has_match_caps else _none(),
+        db.get_hub_trend(7) if has_match_caps else _none(),
+        _me_public(is_pishva, admin),
+        db.get_active_admins(),
+        _elo_map() if want_top else _none(),
+        _pishva_teammate_public() if not is_pishva else _none(),
+        db.get_settings_with_defaults(
+            {"system_status": "normal", "repair_mode": "0", "bot_update_mode": "0"}) if is_pishva else _none(),
+    )
+
     active_players = [p for p in all_players if (p["status"] or "active") == "active"]
     elite_n = sum(1 for p in active_players if p["is_elite"])
     special_n = sum(1 for p in active_players if p["is_special"])
 
-    tours = await db.get_tournaments_with_counts()
-    active_tours = sum(1 for t in tours if t["status"] == "active")
-
-    m_summary = await db.get_hub_matches_summary()
-    trend = await db.get_hub_trend(7)
-
-    top = await _top_players(active_players) if "elo" in caps else []
-    has_match_caps = any(c in caps for c in ("match_create", "match_edit", "match_delete", "predictions"))
-    if not has_match_caps:
+    if has_match_caps:
+        active_tours = sum(1 for t in tours if t["status"] == "active")
+    else:
         tours, active_tours = [], 0
         m_summary = {"pending": 0, "oldest_pending_days": 0, "done_today": 0}
         trend = {"days": [], "mix": {"white": 0, "black": 0, "draw": 0}}
 
-    me = await _me_public(is_pishva, admin)
+    top = await _top_players(active_players, elo_map=elo_map) if want_top else []
 
     # تیمِ مدیران: پیشوا همیشه اول (اگر خودِ بیننده پیشوا نیست)، بعد بقیه‌ی
     # مدیرانِ فعال بجز خودِ بیننده.
     team = []
     if not is_pishva:
-        team.append(await _pishva_teammate_public())
-    for a in await db.get_active_admins():
+        team.append(pishva_mate)
+    for a in active_admins:
         if is_pishva or a["telegram_id"] != admin["telegram_id"]:
             team.append(_teammate_public(a))
 
     system = None
     if is_pishva:
-        system = {"status": await db.get_setting("system_status", "normal"),
-                  "repair": await db.get_setting("repair_mode", "0") == "1",
-                  "update": await db.get_setting("bot_update_mode", "0") == "1"}
+        system = {"status": sys_vals["system_status"],
+                  "repair": sys_vals["repair_mode"] == "1",
+                  "update": sys_vals["bot_update_mode"] == "1"}
 
     return _json({
         "now": now_iso,
@@ -298,11 +316,12 @@ async def hub_bootstrap(request):
     })
 
 
-async def _top_players(active_players, limit=5):
+async def _top_players(active_players, limit=5, elo_map=None):
     """چند نفرِ برتر بر اساسِ Elo، برای کارتِ «برترین‌ها»ی خانه‌ی هاب.
     یک کوئریِ واحد برای Elo همه‌ی بازیکنان (نه N تا کوئریِ جدا)."""
-    await elo.ensure_elo_table()
-    elo_map = await db.get_all_player_elo()
+    if elo_map is None:
+        await elo.ensure_elo_table()
+        elo_map = await db.get_all_player_elo()
     ranked = []
     for p in active_players:
         e = elo_map.get(p["id"])

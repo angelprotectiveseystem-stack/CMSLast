@@ -1250,9 +1250,9 @@ async def cmd_override_strike(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         admin_id = int(parts[1])
         count = int(parts[2])
-        async with __import__("aiosqlite").connect(__import__("config").DB_PATH) as d:
-            await d.execute("UPDATE admins SET warnings=? WHERE telegram_id=?", (count, admin_id))
-            await d.commit()
+        # قبلاً اینجا aiosqlite واقعی روی فایلِ محلی می‌نوشت، نه Turso؛ یعنی تغییر هرگز به
+        # دیتابیسِ اصلی (و پنل هاب) نمی‌رسید. حالا از همان تابعِ استانداردِ پروژه (با invalidate کش).
+        await db.set_admin_warnings(admin_id, count)
         await update.message.reply_text(f"✅ اخطارهای مدیر {admin_id} به {count} تغییر یافت.")
         await db.log_action(PISHVA_ID, "override_strike", f"تغییر اخطار مدیر {admin_id} به {count}", admin_id)
     except Exception as e:

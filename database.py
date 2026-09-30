@@ -694,6 +694,34 @@ async def get_settings_bulk(keys, default="1") -> dict:
     return result
 
 
+async def get_settings_with_defaults(defaults: dict) -> dict:
+    """مثل get_setting ولی برای چند کلید با «پیش‌فرضِ مخصوصِ هر کلید».
+    فقط کلیدهایی که در کش نیستن با *یک* کوئریِ IN(...) خونده می‌شن
+    (یک رفت‌وبرگشتِ شبکه‌ای، نه یکی به‌ازای هر کلید). پنلِ تنظیماتِ هاب
+    قبلاً ~۲۷ بار get_setting را پشتِ‌سرِهم صدا می‌زد."""
+    result, missing = {}, []
+    for k, dflt in defaults.items():
+        cached = _cache_get(_setting_cache, k)
+        if cached is not _CACHE_MISS:
+            result[k] = cached
+        else:
+            missing.append(k)
+    if missing:
+        placeholders = ",".join("?" for _ in missing)
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                f"SELECT key, value FROM system_settings WHERE key IN ({placeholders})",
+                missing,
+            ) as cur:
+                rows = await cur.fetchall()
+        found = {row["key"]: row["value"] for row in rows}
+        for k in missing:
+            value = found.get(k, defaults[k])
+            _cache_set(_setting_cache, k, value)
+            result[k] = value
+    return result
+
+
 async def set_setting(key: str, value: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -1772,22 +1800,18 @@ async def get_all_player_elo() -> dict:
 async def get_hub_matches_summary():
     """خلاصه‌ی وضعیتِ مسابقات برای صفحه‌ی خانه‌ی هاب: تعدادِ منتظرِ نتیجه،
     قدیمی‌ترینِ آن‌ها بر حسبِ روز، و تعدادِ نتیجه‌ی ثبت‌شده‌ی «امروز»
-    (بر اساسِ ساعتِ سرور، مثلِ بقیه‌ی ثبتِ زمان‌های این پروژه)."""
+    (بر اساسِ ساعتِ سرور، مثلِ بقیه‌ی ثبتِ زمان‌های این پروژه).
+    هر سه کوئری با *یک* درخواستِ شبکه (pipeline) اجرا می‌شن."""
     now = datetime.now()
     today_prefix = now.strftime("%Y-%m-%d")
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT created_at FROM matches WHERE result IS NULL ORDER BY created_at ASC LIMIT 1"
-        ) as cur:
-            oldest = await cur.fetchone()
-        async with db.execute("SELECT COUNT(*) as c FROM matches WHERE result IS NULL") as cur:
-            pending = (await cur.fetchone())["c"]
-        async with db.execute(
-            "SELECT COUNT(*) as c FROM matches WHERE result IS NOT NULL AND updated_at LIKE ?",
-            (today_prefix + "%",)
-        ) as cur:
-            done_today = (await cur.fetchone())["c"]
+    c_oldest, c_pending, c_done = await aiosqlite.execute_pipeline([
+        ("SELECT created_at FROM matches WHERE result IS NULL ORDER BY created_at ASC LIMIT 1", []),
+        ("SELECT COUNT(*) as c FROM matches WHERE result IS NULL", []),
+        ("SELECT COUNT(*) as c FROM matches WHERE result IS NOT NULL AND updated_at LIKE ?", [today_prefix + "%"]),
+    ])
+    oldest = await c_oldest.fetchone()
+    pending = (await c_pending.fetchone())["c"]
+    done_today = (await c_done.fetchone())["c"]
     oldest_days = 0
     if oldest and oldest["created_at"]:
         try:
@@ -1801,21 +1825,17 @@ async def get_hub_matches_summary():
 async def get_hub_trend(days: int = 7):
     """تعدادِ نتیجه‌های ثبت‌شده در هر یک از N روزِ اخیر (بر اساسِ updated_at)
     + ترکیبِ نتیجه‌ها (برد سفید/سیاه/تساوی) در ۳۰ روزِ اخیر، برای کارتِ
-    «روند» در خانه‌ی هاب."""
+    «روند» در خانه‌ی هاب. هر دو کوئری با یک درخواستِ شبکه."""
     now = datetime.now()
     day_keys = [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days - 1, -1, -1)]
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT updated_at FROM matches WHERE result IS NOT NULL AND updated_at >= ?",
-            ((now - timedelta(days=days)).isoformat(),)
-        ) as cur:
-            recent_rows = await cur.fetchall()
-        async with db.execute(
-            "SELECT result FROM matches WHERE result IS NOT NULL AND updated_at >= ?",
-            ((now - timedelta(days=30)).isoformat(),)
-        ) as cur:
-            mix_rows = await cur.fetchall()
+    c_recent, c_mix = await aiosqlite.execute_pipeline([
+        ("SELECT updated_at FROM matches WHERE result IS NOT NULL AND updated_at >= ?",
+         [(now - timedelta(days=days)).isoformat()]),
+        ("SELECT result FROM matches WHERE result IS NOT NULL AND updated_at >= ?",
+         [(now - timedelta(days=30)).isoformat()]),
+    ])
+    recent_rows = await c_recent.fetchall()
+    mix_rows = await c_mix.fetchall()
     counts = {k: 0 for k in day_keys}
     for r in recent_rows:
         key = str(r["updated_at"])[:10]
