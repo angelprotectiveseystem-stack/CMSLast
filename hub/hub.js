@@ -148,13 +148,23 @@
     var opt = { headers: { 'X-Tg-Init-Data': (tg && tg.initData) || '' } };
     if (body) { opt.method = 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
     return fetch(path, opt).then(function (r) {
-      if (!r.ok) { var e = new Error('http'); e.code = r.status; throw e; }
+      if (!r.ok) {
+        return r.json().catch(function () { return null; }).then(function (data) {
+          var e = new Error('http'); e.code = r.status; e.data = data;
+          if (r.status === 403 && data && data.error === 'locked') gate(403, data);
+          throw e;
+        });
+      }
       return r.json();
     });
   }
 
   /* ─── وضعیت ───────────────────────────────────────────────── */
   var S = { boot: null };
+  function can(c) { return !!(S.boot && S.boot.caps && S.boot.caps.indexOf(c) > -1); }
+  function canAny() { for (var i = 0; i < arguments.length; i++) if (can(arguments[i])) return true; return false; }
+  var MATCH_CAPS = ['match_create', 'match_edit', 'match_delete', 'predictions'];
+  function hasMatchCaps() { return canAny.apply(null, MATCH_CAPS); }
   var uid = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || 0;
   var K_BOOT = 'hub:boot:' + uid, K_PL = 'hub:players:' + uid;
   var cur = 'home';
@@ -246,7 +256,7 @@
     if (m.pending > 0) sub = m.pending + ' مسابقه منتظر ثبت نتیجه است' + (m.done_today ? ' و امروز ' + m.done_today + ' نتیجه ثبت شده.' : '.');
     else if (m.done_today > 0) sub = 'همه‌چیز به‌روز است؛ امروز ' + m.done_today + ' نتیجه ثبت شده.';
     else sub = 'همه‌چیز به‌روز است. مسابقه‌ی بازی نداریم.';
-    $('#hello-sub').textContent = sub;
+    $('#hello-sub').textContent = hasMatchCaps() ? sub : 'به پنل مدیریت خوش آمدید.';
 
     var body = $('#home-body');
     var frag = doc.createDocumentFragment();
@@ -255,27 +265,34 @@
     function q(label, icon, cls, fn) {
       return h('button', { type: 'button', onclick: fn }, h('span', { class: 'q-ic ' + (cls || '') }, ic(icon)), label);
     }
-    frag.append(h('nav', { class: 'quick', 'aria-label': 'میانبرها' },
-      q('بازیکنان', 'users', '', function () { go('players', { f: 'all' }); }),
-      q('مسابقات', 'trophy', '', function () { go('tours'); }),
-      q('برترین‌ها', 'crown', 'gold', function () { go('players', { f: 'elite' }); }),
-      q('نیروهای ویژه', 'bolt', '', function () { go('players', { f: 'special' }); })));
+    var hasP = canAny('players_view', 'player_register'), hasT = hasMatchCaps();
+    var quick = [];
+    if (hasP) quick.push(q('بازیکنان', 'users', '', function () { go('players', { f: 'all' }); }));
+    if (hasT) quick.push(q('مسابقات', 'trophy', '', function () { go('tours'); }));
+    if (hasP) quick.push(q('برترین‌ها', 'crown', 'gold', function () { go('players', { f: 'elite' }); }));
+    if (hasP) quick.push(q('نیروهای ویژه', 'bolt', '', function () { go('players', { f: 'special' }); }));
+    if (!quick.length) quick.push(q('مدیریت', 'gear', '', function () { go('manage'); }));
+    if (can('calendar')) quick.push(q('تقویم', 'calendar', '', function () { withManage(function (mm) { mm.calendarView(); }); }));
+    if (can('comms')) quick.push(q('مخابرات', 'chat', '', function () { withManage(function (mm) { mm.commsView(); }); }));
+    frag.append(h('nav', { class: 'quick', 'aria-label': 'میانبرها' }, quick.slice(0, 4)));
 
     /* خلاصه */
     var pending = m.pending > 0
       ? m.pending + ' مسابقه باز' + (m.oldest_pending_days ? '، قدیمی‌ترینش ' + m.oldest_pending_days + ' روز' : '')
       : 'مسابقه‌ی بازی نداریم';
-    frag.append(secTitle('خلاصه'),
-      h('div', { class: 'group' },
-        row({ lead: riconEl('hourglass', 'bg-amber'), title: 'منتظر ثبت نتیجه', sub: pending, hot: m.pending > 0, tap: function () { go('tours'); } }),
+    var sumRows = [];
+    if (hasT) {
+      sumRows.push(row({ lead: riconEl('hourglass', 'bg-amber'), title: 'منتظر ثبت نتیجه', sub: pending, hot: m.pending > 0, tap: function () { go('tours'); } }),
         row({ lead: riconEl('trophy', 'bg-blue'), title: 'مسابقات فعال',
-              sub: sm.tournaments.active + ' فعال از ' + sm.tournaments.total, hot: sm.tournaments.active > 0, tap: function () { go('tours'); } }),
-        row({ lead: riconEl('users', 'bg-green'), title: 'بازیکنان',
+              sub: sm.tournaments.active + ' فعال از ' + sm.tournaments.total, hot: sm.tournaments.active > 0, tap: function () { go('tours'); } }));
+    }
+    sumRows.push(row({ lead: riconEl('users', 'bg-green'), title: 'بازیکنان',
               sub: sm.players.active + ' فعال، ' + sm.players.elite + ' برتر، ' + sm.players.special + ' ویژه',
-              tap: function () { go('players', { f: 'all' }); } })));
+              tap: hasP ? function () { go('players', { f: 'all' }); } : null }));
+    frag.append(secTitle('خلاصه'), h('div', { class: 'group' }, sumRows));
 
     /* روندها */
-    frag.append(secTitle('روند ۷ روز اخیر', h('small', { text: 'نتیجه‌های ثبت‌شده' })), trendCard(B.trend));
+    if (hasT && B.trend && B.trend.days.length) frag.append(secTitle('روند ۷ روز اخیر', h('small', { text: 'نتیجه‌های ثبت‌شده' })), trendCard(B.trend));
 
     /* برترین‌ها */
     if (B.top && B.top.length) {
@@ -350,12 +367,14 @@
 
   function buildPlayers() {
     var root = $('#tab-players');
+    if (!can('elo')) P.sort = 'name';
     var input = h('input', { type: 'search', placeholder: 'جستجوی نام یا کلاس', enterkeyhint: 'search', autocomplete: 'off', 'aria-label': 'جستجو' });
     var chips = h('div', { class: 'chips' });
     var list = h('div', { class: 'plist' });
     var more = h('div', { class: 'more' });
     var stick = h('div', { class: 'stick' },
-      h('h1', { class: 'page-title', text: 'بازیکنان', style: 'padding-bottom:12px' }),
+      h('div', { class: 'title-row' }, h('h1', { class: 'page-title', text: 'بازیکنان', style: 'padding-bottom:12px' }),
+        can('player_register') ? h('button', { type: 'button', class: 'add-fab', 'aria-label': 'ثبت‌نام بازیکن', onclick: function () { withManage(function (m) { m.registerPlayer(); }); } }, ic('plus')) : null),
       h('div', { class: 'search' }, ic('search'), input), chips);
     root.replaceChildren(stick, list, more);
     P.ui = { input: input, chips: chips, list: list, more: more };
@@ -397,8 +416,8 @@
     }
     P.ui.chips.replaceChildren(
       chip('all', 'همه', P.rows.length), chip('elite', 'برترین‌ها', elite), chip('special', 'نیروهای ویژه', special),
-      h('button', { type: 'button', class: 'chip', onclick: function () { P.sort = P.sort === 'elo' ? 'name' : 'elo'; hx.sel(); applyPlayers(); } },
-        ic('sort', ''), P.sort === 'elo' ? 'بر اساس امتیاز' : 'بر اساس نام'));
+      can('elo') ? h('button', { type: 'button', class: 'chip', onclick: function () { P.sort = P.sort === 'elo' ? 'name' : 'elo'; hx.sel(); applyPlayers(); } },
+        ic('sort', ''), P.sort === 'elo' ? 'بر اساس امتیاز' : 'بر اساس نام') : null);
     P.ui.chips.querySelectorAll('.ic').forEach(function (s) { s.style.width = '16px'; s.style.height = '16px'; });
 
     P.ui.list.replaceChildren();
@@ -429,12 +448,13 @@
         h('div', { class: 'r-t', text: p.name }),
         h('div', { class: 'r-s' }, p.cls ? p.cls + '، ' : '', nn(p.w + p.d + p.l), ' بازی')),
       h('div', { class: 'r-end', style: 'flex-direction:column;align-items:flex-end;gap:3px' },
-        h('span', { class: 'elo num', text: p.elo }),
+        p.elo != null ? h('span', { class: 'elo num', text: p.elo }) : null,
         (p.elite || p.special || (p.status && p.status !== 'active')) ? h('span', { style: 'display:flex;gap:4px' }, badges(p)) : null));
     return h('div', { class: 'prow' }, r);
   }
 
   function openPlayer(id, fallback) {
+    if (can('players_view')) { withManage(function (m) { m.openPlayer(id); }); return; }
     var p = P.map && P.map.get(id);
     if (!p && fallback) p = { id: id, name: fallback.name, cls: fallback.cls, elo: fallback.elo || 1200, w: 0, d: 0, l: 0, warn: 0, elite: fallback.elite ? 1 : 0, special: fallback.special ? 1 : 0, games: fallback.games || 0, status: 'active', _partial: true };
     if (!p) { ensurePlayers().then(function () { if (P.map && P.map.get(id)) openPlayer(id); }); return; }
@@ -481,7 +501,8 @@
         h('div', { class: 'mtxt' }, h('b', { text: 'مقابل ' + opp }), h('small', { text: (m.t || 'بدون مسابقه') + (m.date ? '، ' + m.date : '') })));
     }
     var score = { white: '1 – 0', black: '0 – 1', draw: '½ – ½', cancelled: 'لغو' }[m.res] || null;
-    return h('div', { class: 'mrow' },
+    var editable = m.id != null && canAny('match_edit', 'match_delete');
+    return h(editable ? 'button' : 'div', { class: 'mrow', type: editable ? 'button' : null, onclick: editable ? function () { withManage(function (mm) { mm.matchDetail(m); }); } : null },
       h('div', { class: 'mtxt' }, h('b', { text: m.w + ' در برابر ' + m.b }), h('small', { text: m.date || '' })),
       score ? h('b', { class: 'num', style: 'font-weight:700', text: score }) : h('span', { class: 'badge off', text: 'در انتظار' }));
   }
@@ -528,7 +549,9 @@
         h('div', null, h('b', { class: 'num', text: t.done }), h('span', { text: 'انجام‌شده' })),
         h('div', null, h('b', { class: 'num', text: Math.max(0, t.total - t.done) }), h('span', { text: 'باقی‌مانده' }))),
       extra);
-    Sheet.open({ title: t.name, body: body });
+    var tfoot = null;
+    if (can('match_create')) tfoot = h('button', { type: 'button', class: 'btn', text: '+ ثبت مسابقه‌ی جدید', onclick: function () { withManage(function (mm) { mm.createMatch(); }); } });
+    Sheet.open({ title: t.name, body: body, foot: tfoot });
     api('/hub/api/tournament/' + t.id).then(function (d) {
       var kids = [];
       if (d.standings.length) {
@@ -677,8 +700,34 @@
     doc.head.append(s);
   }
 
+  /* ─── بخشِ مدیریت (تنبل) ───────────────────────────────────── */
+  var M = null, mLoading = false, mQueue = [];
+  function loadScript(src) {
+    return new Promise(function (ok, no) {
+      var s = doc.createElement('script'); s.src = src + '?v=' + V; s.onload = ok; s.onerror = no; doc.head.append(s);
+    });
+  }
+  function withManage(fn) {
+    if (M) { fn(M); return; }
+    mQueue.push(fn);
+    if (mLoading) return;
+    mLoading = true;
+    loadScript('manage.js').then(function () { return loadScript('manage2.js'); }).then(function () {
+      M = window.__HubManageP2.init(core, window.__HubManageP1.init(core));
+      mLoading = false;
+      var q = mQueue; mQueue = []; q.forEach(function (f) { f(M); });
+    }, function () { mLoading = false; mQueue = []; toast('بارگذاری بخش مدیریت ناموفق بود'); });
+  }
+  function buildManage() { built.manage = true; withManage(function (m) { m.renderTab(); }); }
+  var core = {
+    h: h, ic: ic, hx: hx, tg: tg, Sheet: Sheet, toast: toast, api: api, S: S, row: row, riconEl: riconEl, secTitle: secTitle,
+    kv: kv, nn: nn, avatar: avatar, norm: norm, go: function (n, o) { go(n, o); }, cur: function () { return cur; },
+    P: function () { return P; }, ensurePlayers: function (f) { return ensurePlayers(f); },
+    refreshBoot: function () { return refresh(false); }
+  };
+
   /* ─── ناوبری ─────────────────────────────────────────────── */
-  var panels = { home: $('#tab-home'), players: $('#tab-players'), tours: $('#tab-tours'), clock: $('#tab-clock'), me: $('#tab-me') };
+  var panels = { home: $('#tab-home'), players: $('#tab-players'), tours: $('#tab-tours'), manage: $('#tab-manage'), clock: $('#tab-clock'), me: $('#tab-me') };
   var bar = $('#tabbar'), pill = $('#pill');
   function movePill() {
     var b = $('button.on', bar); if (!b) return;
@@ -707,8 +756,10 @@
       if (name === 'players') buildPlayers();
       else if (name === 'tours') buildTours();
       else if (name === 'me') buildMe();
+      else if (name === 'manage') buildManage();
       else if (name === 'clock') loadClock();
     } else if (name === 'players') { applyPlayers(); ensurePlayers(); }
+    else if (name === 'manage' && M) M.renderTab();
     window.scrollTo(0, scrollPos[name] || 0);
     chrome();
     hx.sel();
@@ -724,18 +775,53 @@
   function gateCrest() {
     return h('span', { class: 'crest sm', role: 'img', 'aria-label': 'لوگوی CMS' });
   }
-  function gate(kind) {
+  var lockTimer = 0;
+  function gate(kind, info) {
     bar.hidden = true;
-    var msg = kind === 403 ? ['دسترسی ندارید', 'شما نتوانستید از مراحل امنیتی عبور کنید. به‌نظر می‌رسد دسترسی شما در ربات تأیید نشده یا فعالیت سامانه‌ی مدیریتیِ مجازی توسط CSF غیرفعال شده است. لطفاً پس از اطمینان از دسترسی خود، با پشتیبانی در ارتباط باشید.']
+    try { if (tg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+    try { Sheet.close(); } catch (e) {}
+    var locked = kind === 403 && info && info.error === 'locked';
+    var msg = locked ? [info.title, info.message]
+      : kind === 403 ? ['دسترسی ندارید', 'شما نتوانستید از مراحل امنیتی عبور کنید. به‌نظر می‌رسد دسترسی شما در ربات تأیید نشده یا فعالیت سامانه‌ی مدیریتیِ مجازی توسط CSF غیرفعال شده است. لطفاً پس از اطمینان از دسترسی خود، با پشتیبانی در ارتباط باشید.']
       : kind === 401 ? ['از داخل تلگرام باز کنید', 'این صفحه فقط با دکمه‌ی «CMS» در چتِ ربات کار می‌کند.']
       : ['اتصال برقرار نشد', 'اینترنت را بررسی کنید و دوباره امتحان کنید.'];
-    $('#app').replaceChildren(h('div', { class: 'gate' }, gateCrest(), h('h2', { text: msg[0] }), h('p', { text: msg[1] }),
+    $('#app').replaceChildren(h('div', { class: 'gate' + (locked ? ' locked' : '') }, gateCrest(), h('h2', { text: msg[0] }), h('p', { text: msg[1] }),
+      locked ? h('p', { class: 'gate-live', text: 'به‌محضِ بازشدن، خودکار وارد می‌شوید.' }) : null,
       kind !== 401 && kind !== 403 ? h('button', { class: 'btn', type: 'button', text: 'تلاش دوباره', onclick: function () { location.reload(); } }) : null));
+    if (locked && !lockTimer) {
+      /* هر ۱۰ ثانیه بررسی کن؛ اگر قفل باز شد، صفحه را دوباره بارگذاری کن */
+      lockTimer = setInterval(function () {
+        fetch('/hub/api/bootstrap', { headers: { 'X-Tg-Init-Data': (tg && tg.initData) || '' } }).then(function (r) { if (r.ok) location.reload(); }).catch(function () {});
+      }, 10000);
+    }
+  }
+
+  /* ─── نمایشِ تب‌ها براساسِ دسترسیِ همین مدیر ───────────────── */
+  function applyCaps() {
+    if (!S.boot) return;
+    var show = {
+      home: true,
+      players: canAny('players_view', 'player_register'),
+      tours: hasMatchCaps(),
+      manage: canAny('player_register', 'match_create', 'match_edit', 'match_delete', 'predictions', 'elo', 'comms', 'classes', 'teams',
+                     'calendar', 'admins_manage', 'settings', 'pishva_panel'),
+      clock: true, me: true
+    };
+    var n = 0;
+    bar.querySelectorAll('button[data-go]').forEach(function (b) {
+      var ok = show[b.dataset.go] !== false;
+      b.hidden = !ok; if (ok) n++;
+    });
+    bar.classList.toggle('six', n >= 6);
+    if (!show[cur]) go('home');
+    movePill();
   }
 
   /* ─── راه‌اندازی ─────────────────────────────────────────── */
   function renderAll() {
+    applyCaps();
     renderHome();
+    if (built.manage && M) M.renderTab();
     if (built.me) renderMe(); else { /* آیکونِ تبِ پروفایل را همین حالا پر کن */ renderMeIconOnly(); }
     if (built.tours) renderTours();
   }
@@ -752,7 +838,7 @@
     return api('/hub/api/bootstrap').then(function (d) {
       S.boot = d; lastFetch = Date.now(); LS.set(K_BOOT, d); renderAll();
     }).catch(function (e) {
-      if (e.code === 401 || e.code === 403) { gate(e.code); return; }
+      if (e.code === 401 || e.code === 403) { gate(e.code, e.data); return; }
       if (first && !S.boot) gate(0);
     });
   }
@@ -763,7 +849,7 @@
     if (cached && cached.me) { S.boot = cached; renderAll(); }
     refresh(true).then(function () {
       var idle = window.requestIdleCallback || function (f) { setTimeout(f, 800); };
-      idle(function () { if (!P.rows) { var c = LS.get(K_PL); if (c) setPlayers(c); ensurePlayers(true); } });
+      idle(function () { if (!P.rows && canAny('players_view', 'player_register', 'match_create', 'match_edit')) { var c = LS.get(K_PL); if (c) setPlayers(c); ensurePlayers(true); } });
       idle(function () { loadClockLater(); });
     });
     doc.addEventListener('visibilitychange', function () {

@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#b3121c">
 <title>CMS</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="hub.css">
+<link rel="stylesheet" href="hub.css?v=__V__">
 </head>
 <body data-tab="home">
 
@@ -32,6 +32,17 @@
   <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M7 3.5h10M7 20.5h10M8 3.5c0 4 4 4.5 4 8.5s-4 4.5-4 8.5M16 3.5c0 4-4 4.5-4 8.5s4 4.5 4 8.5"/></symbol>
   <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.5 5.8M4 19v-5h5"/></symbol>
   <symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 5v14M8 19l-3-3M8 19l3-3M16 19V5M16 5l-3 3M16 5l3 3"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H11l-4.5 3.5V16.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 5 6v5.5c0 4.3 2.9 7.6 7 9 4.1-1.4 7-4.7 7-9V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 13.5 6.5 6h11L20 13.5V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z"/><path d="M4 13.5h4.5l1 2h5l1-2H20"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8.5 7H20M8.5 12H20M8.5 17H20"/><circle cx="4.5" cy="7" r=".9"/><circle cx="4.5" cy="12" r=".9"/><circle cx="4.5" cy="17" r=".9"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M5 4.5h11a3 3 0 0 1 3 3V19.5H8a3 3 0 0 1-3-3z"/><path d="M5 16.5a3 3 0 0 1 3-3h11"/></symbol>
+  <symbol id="i-team" viewBox="0 0 24 24"><circle cx="8" cy="9" r="2.8"/><circle cx="16.5" cy="9.5" r="2.3"/><path d="M3 19c.3-3 2.4-4.6 5-4.6s4.7 1.6 5 4.6M14.5 14.6c2.6-.3 4.6 1 5 3.9"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 3.5 19h17z"/><path d="M12 10v4.5M12 17.2v.1"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8"/></symbol>
 </defs></svg>
 
 <main id="app">
@@ -47,6 +58,7 @@
   </section>
   <section id="tab-players" class="tab" hidden></section>
   <section id="tab-tours" class="tab" hidden></section>
+  <section id="tab-manage" class="tab" hidden></section>
   <section id="tab-clock" class="tab" hidden></section>
   <section id="tab-me" class="tab" hidden></section>
 </main>
@@ -54,8 +66,9 @@
 <nav class="tabbar" id="tabbar" aria-label="بخش‌ها">
   <i class="tab-pill" id="pill"></i>
   <button data-go="home" class="on"><svg class="ic"><use href="#i-home"/></svg><span>خانه</span></button>
-  <button data-go="players"><svg class="ic"><use href="#i-users"/></svg><span>بازیکنان</span></button>
-  <button data-go="tours"><svg class="ic"><use href="#i-trophy"/></svg><span>مسابقات</span></button>
+  <button data-go="players" hidden><svg class="ic"><use href="#i-users"/></svg><span>بازیکنان</span></button>
+  <button data-go="tours" hidden><svg class="ic"><use href="#i-trophy"/></svg><span>مسابقات</span></button>
+  <button data-go="manage" hidden><svg class="ic"><use href="#i-grid"/></svg><span>مدیریت</span></button>
   <button data-go="clock"><svg class="ic"><use href="#i-clock"/></svg><span>ساعت</span></button>
   <button data-go="me"><span class="me-ic" id="me-ic"><svg class="ic" style="width:16px;height:16px"><use href="#i-user"/></svg></span><span>پروفایل</span></button>
 </nav>
@@ -71,6 +84,6 @@
 <div id="toast" role="status" aria-live="polite"><span></span></div>
 
 <script>window.__V="__V__";</script>
-<script src="hub.js" defer></script>
+<script src="hub.js?v=__V__" defer></script>
 </body>
 </html>
