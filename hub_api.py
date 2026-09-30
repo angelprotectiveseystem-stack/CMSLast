@@ -1218,6 +1218,7 @@ async def api_request_decide(request):
     if act == "approve":
         await db.update_access_request(req["id"], "approved")
         await db.create_admin(req["telegram_id"], req["username"], req["full_name"], req["role"])
+        await db.close_other_open_requests(req["telegram_id"], req["id"])
         await _send(req["telegram_id"], f"✅ دسترسی تأیید شد\n💼 {ROLE_LABELS.get(req['role'], '')}\n\n/start بزنید.")
     else:
         await db.update_access_request(req["id"], "rejected")

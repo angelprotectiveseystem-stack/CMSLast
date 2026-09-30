@@ -884,6 +884,7 @@ async def _resolve_access_request(args, caller_id, ctx):
     if decision == "approve":
         await db.update_access_request(rid, "approved")
         await db.create_admin(req["telegram_id"], req["username"], req["full_name"], req["role"])
+        await db.close_other_open_requests(req["telegram_id"], rid)
         await _dm(ctx, req["telegram_id"], f"✅ دسترسی تأیید شد\n💼 {ROLE_LABELS.get(req['role'], req['role'])}\n\n/start بزنید.")
         await db.log_action(caller_id, "access_approve", f"تأیید درخواست #{rid} (دستیار هوشمند)", req["telegram_id"])
         return f"✅ درخواست #{rid} ({req['full_name']}) تأیید شد و مدیر ثبت گردید."

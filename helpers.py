@@ -215,6 +215,8 @@ ACTION_LOG_LABELS = {
     "kick_admin":                 ("🚷", "اخراج مدیر"),
     "kick_admin_keyword":         ("🚷", "اخراج مدیر"),
     "set_admin_keyword":          ("👮", "تنظیم مدیر"),
+    "flood_toggle":               ("🌊", "روشن/خاموش‌کردن ضدِ فلود"),
+    "admin_role_change":          ("🔄", "تغییر نقش توسط خود مدیر"),
     "override_strike":            ("🔁", "تغییر تعداد اخطار مدیر"),
     "toggle_perm":                ("🔐", "تغییر دسترسی مدیر"),
     "identity_change":            ("🪪", "تغییر نام مدیر ارشد"),

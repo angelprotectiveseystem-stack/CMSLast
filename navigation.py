@@ -16,7 +16,7 @@ async def get_main_markup(user_id: int):
     if user_id == PISHVA_ID:
         return kb.kb_pishva_main()
     admin = await db.get_admin(user_id)
-    if admin:
+    if admin and admin["is_active"]:
         if admin["role"] == ROLE_TOURNAMENT_MANAGER:
             return kb.kb_tournament_manager_main()
         else:

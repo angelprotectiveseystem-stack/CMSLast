@@ -60,7 +60,8 @@ def kb_tournament_manager_main():
         [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu"),
         InlineKeyboardButton("📅 تقویم", callback_data="menu_calendar")],
         [InlineKeyboardButton("🤖 رهگشا", callback_data="ai_assistant_open")],
-        [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
+        [InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback"),
+        InlineKeyboardButton("🔄 تغییر نقش", callback_data="rolechg_menu")],
     ])
 
 # ─── منوی مدیر امنیتی ─────────────────────────────────────────
@@ -74,7 +75,14 @@ def kb_security_manager_main():
         InlineKeyboardButton("💡 انتقادات و پیشنهادات", callback_data="menu_feedback")],
         [InlineKeyboardButton("♟️ شطرنج زنده", callback_data="chess_menu"),
         InlineKeyboardButton("📅 تقویم", callback_data="menu_calendar")],
-        [InlineKeyboardButton("🤖 رهگشا", callback_data="ai_assistant_open")],
+        [InlineKeyboardButton("🤖 رهگشا", callback_data="ai_assistant_open"),
+        InlineKeyboardButton("🔄 تغییر نقش", callback_data="rolechg_menu")],
+    ])
+
+def kb_role_change_confirm(new_role, new_label):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"✅ تغییر به {new_label}", callback_data=f"rolechg_do_{new_role}", style="success")],
+        [InlineKeyboardButton("❌ انصراف", callback_data="back_main", style="danger")],
     ])
 
 # ─── مدیریت مسابقات (همه چیز اینجاست) ──────────────────────
@@ -1348,20 +1356,25 @@ def kb_security_panel():
         [InlineKeyboardButton("🔙 بازگشت", callback_data="menu_pishva", style="danger")],
     ])
 
-def kb_flood_menu(current_max, current_window):
-    from security import FLOOD_MAX_CHOICES, FLOOD_WINDOW_CHOICES
-    max_row = []
-    for n in FLOOD_MAX_CHOICES:
-        label = f"✅ {n} تلاش" if n == current_max else f"{n} تلاش"
-        max_row.append(InlineKeyboardButton(label, callback_data=f"flood_set_max_{n}",
-                                             style="success" if n == current_max else "primary"))
-    win_row = []
-    for n in FLOOD_WINDOW_CHOICES:
-        label = f"✅ {n} دقیقه" if n == current_window else f"{n} دقیقه"
-        win_row.append(InlineKeyboardButton(label, callback_data=f"flood_set_window_{n}",
-                                             style="success" if n == current_window else "primary"))
-    rows = [max_row[:2], max_row[2:], win_row[:2], win_row[2:]]
-    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="security_panel", style="danger")])
+def kb_flood_menu(enabled, current_max, current_window):
+    from security import fmt_window
+    toggle_label = "🟢 ضدِ فلود: روشن (برای خاموش‌کردن بزنید)" if enabled else "🔴 ضدِ فلود: خاموش (برای روشن‌کردن بزنید)"
+    rows = [
+        [InlineKeyboardButton(toggle_label, callback_data="flood_toggle",
+                              style="success" if enabled else "danger")],
+        [InlineKeyboardButton("🔢 تعدادِ مجاز تلاش", callback_data="flood_noop")],
+        [InlineKeyboardButton("➖5", callback_data="flood_max_dec5", style="danger"),
+         InlineKeyboardButton("➖", callback_data="flood_max_dec", style="danger"),
+         InlineKeyboardButton(f"{current_max}", callback_data="flood_noop", style="primary"),
+         InlineKeyboardButton("➕", callback_data="flood_max_inc", style="success"),
+         InlineKeyboardButton("➕5", callback_data="flood_max_inc5", style="success")],
+        [InlineKeyboardButton("⏱️ بازه‌ی زمانی", callback_data="flood_noop")],
+        [InlineKeyboardButton("➖", callback_data="flood_win_dec", style="danger"),
+         InlineKeyboardButton(fmt_window(current_window), callback_data="flood_noop", style="primary"),
+         InlineKeyboardButton("➕", callback_data="flood_win_inc", style="success")],
+        [InlineKeyboardButton("♻️ بازگشت به پیش‌فرض (3 تلاش / 10 دقیقه)", callback_data="flood_reset", style="primary")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="security_panel", style="danger")],
+    ]
     return InlineKeyboardMarkup(rows)
 
 def kb_queue_list(queued):

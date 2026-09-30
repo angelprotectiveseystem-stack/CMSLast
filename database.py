@@ -756,6 +756,23 @@ async def create_admin(telegram_id, username, full_name, role):
             "INSERT OR IGNORE INTO admins(telegram_id,username,full_name,display_name,role,joined_at,last_active,permissions) VALUES (?,?,?,?,?,?,?,?)",
             (telegram_id, username, full_name, full_name, role, now, now, default_perms)
         )
+        # FIX (باگِ «بعد از تأیید دوباره، /start باز هم انتخابِ نقش می‌خواد»):
+        # INSERT OR IGNORE وقتی ردیفِ این آیدی از قبل توی جدول باشه (مثلاً
+        # مدیری که قبلاً اخراج شده و is_active=0 شده) هیچ کاری نمی‌کرد؛ پس
+        # با تأییدِ درخواستِ جدید، ادمین غیرفعال می‌موند و cmd_start اون رو
+        # «غریبه» حساب می‌کرد. حالا اگه ردیفِ غیرفعال وجود داشته باشه،
+        # دوباره فعال می‌شه، با نقشِ جدیدِ درخواست‌شده و دسترسی‌های پیش‌فرض
+        # (تا مدیرِ اخراج‌شده دسترسی‌های قبلیش رو خودکار پس نگیره).
+        # ادمینِ فعال دست نمی‌خوره (مثلاً تأییدِ یک درخواستِ تکراری).
+        await db.execute(
+            "UPDATE admins SET is_active=1, role=?, "
+            "username=CASE WHEN ?<>'' THEN ? ELSE username END, "
+            "full_name=CASE WHEN ?<>'' THEN ? ELSE full_name END, "
+            "permissions=?, last_active=? "
+            "WHERE telegram_id=? AND is_active=0",
+            (role, username or "", username or "", full_name or "", full_name or "",
+             default_perms, now, telegram_id)
+        )
         await db.commit()
     _invalidate_admin_cache(telegram_id)
     _hub_menu_sync(telegram_id)
@@ -2918,6 +2935,32 @@ async def get_access_request(req_id: int):
 async def update_access_request(req_id: int, status: str):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE access_requests SET status=? WHERE id=?", (status, req_id))
+        await db.commit()
+
+
+async def get_pending_request_by_uid(telegram_id: int):
+    """درخواستِ دسترسیِ در انتظارِ بررسیِ این کاربر (اگه باشه) — برای جلوگیری
+    از ثبتِ درخواستِ تکراری."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM access_requests WHERE telegram_id=? AND status='pending' "
+            "ORDER BY requested_at DESC LIMIT 1",
+            (telegram_id,)
+        ) as cur:
+            return await cur.fetchone()
+
+
+async def close_other_open_requests(telegram_id: int, keep_req_id: int):
+    """بعد از تأیید یک درخواست، بقیه‌ی درخواست‌های باز (pending/queued) همون
+    کاربر رو می‌بنده تا بعداً به‌اشتباه دوباره تأیید/رد نشن یا کاربر توی
+    «صف انتظار» گیر نکنه."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE access_requests SET status='superseded' "
+            "WHERE telegram_id=? AND id<>? AND status IN ('pending','queued')",
+            (telegram_id, keep_req_id)
+        )
         await db.commit()
 
 

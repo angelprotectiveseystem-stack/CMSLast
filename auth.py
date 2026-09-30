@@ -448,6 +448,18 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
+    # 📥 اگه درخواستِ قبلیِ این شخص هنوز در انتظارِ بررسیِ مدیر ارشده،
+    # اجازه‌ی ثبتِ درخواستِ دوم نمی‌دیم (باعثِ درخواست‌های تکراری می‌شد).
+    pending_req = await db.get_pending_request_by_uid(uid)
+    if pending_req:
+        await update.message.reply_text(
+            "📥 *درخواست شما در انتظار بررسی است*\n\n"
+            "درخواست قبلی شما هنوز توسط مدیر ارشد بررسی نشده است.\n"
+            "لطفاً تا اعلام نتیجه صبور باشید؛ نیازی به ارسال درخواست جدید نیست.",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
     # 🌊 ضدِ فلود: اگه این غریبه در بازه‌ی زمانیِ تنظیم‌شده (پنل امنیتی APS)
     # بیش از حدِ مجاز /start بزنه، خودکار وارد صف انتظار امنیتی می‌شه و
     # نیازی به ادامه‌ی مسیرِ عادی (نمایشِ انتخاب نقش) نیست.
@@ -625,6 +637,9 @@ async def on_access_request_msg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     username = ctx.user_data.get("reg_username", "")
     full_name = ctx.user_data.get("reg_fullname", "")
     role = ctx.user_data.get("pending_role", ROLE_TOURNAMENT_MANAGER)
+    if await db.get_pending_request_by_uid(uid):
+        await update.message.reply_text("📥 درخواست قبلی شما هنوز در انتظار بررسی است.")
+        return ConversationHandler.END
     req_id = await db.create_access_request(uid, username, full_name, role, msg)
     role_label = "🏆 مدیر مسابقات" if role == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
     ts = now_shamsi()
@@ -652,6 +667,7 @@ async def on_approve_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await db.update_access_request(req_id, "approved")
     await db.create_admin(req["telegram_id"], req["username"], req["full_name"], req["role"])
+    await db.close_other_open_requests(req["telegram_id"], req_id)
     role_label = "🏆 مدیر مسابقات" if req["role"] == ROLE_TOURNAMENT_MANAGER else "🛡️ مدیر امنیتی"
     try:
         await ctx.bot.send_message(
@@ -685,3 +701,84 @@ async def on_reject_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         pass
     await safe_edit_message_text(query, query.message.text + "\n\n❌ *رد شد*", parse_mode="Markdown")
     await query.answer("❌ رد شد.")
+
+
+# ─── تغییر نقشِ خودِ ادمین (از داخل پنلِ خودش) ─────────────────
+# دکمه‌ی «🔄 تغییر نقش» توی پنل مدیر مسابقات و مدیر امنیتی. نقش فقط بین
+# این دو جابه‌جا می‌شه (مدیر ارشد نقشِ قابل‌تغییر نداره). کلیدِ callbackها
+# عمداً با «rolechg_» شروع می‌شن، نه «role_»، تا با هندلرِ انتخابِ نقشِ
+# ثبت‌نام (pattern="^role_") قاطی نشن.
+_ROLE_LABELS = {
+    ROLE_TOURNAMENT_MANAGER: "🏆 مدیر مسابقات",
+    ROLE_SECURITY_MANAGER: "🛡️ مدیر امنیتی",
+}
+
+
+def _other_role(role: str) -> str:
+    return ROLE_SECURITY_MANAGER if role == ROLE_TOURNAMENT_MANAGER else ROLE_TOURNAMENT_MANAGER
+
+
+async def role_change_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    uid = query.from_user.id
+    if uid == PISHVA_ID:
+        await query.answer("👑 مدیر ارشد نقشِ قابل‌تغییر ندارد.", show_alert=True)
+        return
+    admin = await db.get_admin(uid)
+    if not (admin and admin["is_active"]):
+        await query.answer("⛔ شما مدیرِ فعال نیستید.", show_alert=True)
+        return
+    await query.answer()
+    cur = admin["role"]
+    new = _other_role(cur)
+    text = (
+        f"{box('🔄 تغییر نقش')}\n\n"
+        f"💼 نقش فعلی شما: {_ROLE_LABELS.get(cur, cur)}\n"
+        f"🎯 نقش جدید: {_ROLE_LABELS[new]}\n\n"
+        "با تغییر نقش، منوی پنل شما مطابق نقش جدید عوض می‌شود و مدیر ارشد هم مطلع می‌شود.\n\n"
+        "آیا مطمئن هستید؟"
+    )
+    await safe_edit_message_text(
+        query, text, reply_markup=kb.kb_role_change_confirm(new, _ROLE_LABELS[new]), parse_mode="Markdown"
+    )
+
+
+async def role_change_apply(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    uid = query.from_user.id
+    if uid == PISHVA_ID:
+        await query.answer("👑 مدیر ارشد نقشِ قابل‌تغییر ندارد.", show_alert=True)
+        return
+    new_role = query.data[len("rolechg_do_"):]
+    if new_role not in _ROLE_LABELS:
+        await query.answer("❗ نقش نامعتبر.", show_alert=True)
+        return
+    admin = await db.get_admin(uid)
+    if not (admin and admin["is_active"]):
+        await query.answer("⛔ شما مدیرِ فعال نیستید.", show_alert=True)
+        return
+    old_role = admin["role"]
+    if old_role == new_role:
+        await query.answer("ℹ️ نقش شما از قبل همین است.", show_alert=True)
+        return
+
+    await db.set_admin_role(uid, new_role)
+    name = admin["display_name"] or admin["full_name"] or str(uid)
+    await db.log_action(
+        uid, "admin_role_change",
+        f"{name}: {_ROLE_LABELS.get(old_role, old_role)} ← {_ROLE_LABELS[new_role]}", uid
+    )
+    try:
+        await notify_pishva(
+            ctx.bot,
+            f"🔄 *تغییر نقش مدیر*\n\n👤 {name}\n"
+            f"💼 {_ROLE_LABELS.get(old_role, old_role)}  ⬅️  {_ROLE_LABELS[new_role]}\n"
+            f"⏱️ `{now_shamsi()}`"
+        )
+    except Exception:
+        logger.warning("role change: notifying pishva failed", exc_info=True)
+
+    await query.answer(f"✅ نقش شما به {_ROLE_LABELS[new_role]} تغییر کرد.", show_alert=True)
+    fresh = await db.get_admin(uid)  # کش توسطِ set_admin_role پاک شده؛ نقشِ جدید خونده می‌شه
+    await show_admin_welcome(update, ctx, fresh)
+

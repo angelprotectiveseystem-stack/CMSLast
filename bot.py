@@ -48,7 +48,8 @@ from config import (
 
 from auth import (
     cmd_start, on_role_select, on_pishva_password, on_admin_username,
-    on_admin_fullname, on_access_request_msg, on_approve_request, on_reject_request
+    on_admin_fullname, on_access_request_msg, on_approve_request, on_reject_request,
+    role_change_menu, role_change_apply
 )
 from navigation import (
     back_main, menu_tournament, menu_players, menu_matches, menu_pishva, pishva_panel_page,
@@ -185,6 +186,7 @@ from security import (
     request_block_ask, block_confirm, security_blocked_list,
     security_blocked_item, unblock_action, block_gate,
     security_flood_menu, security_flood_set_max, security_flood_set_window,
+    security_flood_toggle, security_flood_step, security_flood_reset, security_flood_noop,
 )
 from anomaly_alerts import suspicious_undo, suspicious_disable, suspicious_dismiss
 
@@ -957,6 +959,10 @@ def build_application():
     app.add_handler(CallbackQueryHandler(on_approve_request, pattern="^req_approve_"))
     app.add_handler(CallbackQueryHandler(on_reject_request, pattern="^req_reject_"))
 
+    # تغییر نقشِ خودِ ادمین
+    app.add_handler(CallbackQueryHandler(role_change_menu, pattern="^rolechg_menu$"))
+    app.add_handler(CallbackQueryHandler(role_change_apply, pattern="^rolechg_do_"))
+
     # Navigation
     app.add_handler(CallbackQueryHandler(back_main, pattern="^back_main$"))
     app.add_handler(CallbackQueryHandler(refresh_dashboard, pattern="^refresh_dashboard$"))
@@ -1086,6 +1092,10 @@ def build_application():
     app.add_handler(CallbackQueryHandler(pishva_vault, pattern="^pishva_vault$"))
     app.add_handler(CallbackQueryHandler(security_panel, pattern="^security_panel$"))
     app.add_handler(CallbackQueryHandler(security_flood_menu, pattern="^security_flood_menu$"))
+    app.add_handler(CallbackQueryHandler(security_flood_toggle, pattern="^flood_toggle$"))
+    app.add_handler(CallbackQueryHandler(security_flood_step, pattern="^flood_(max_(dec5|dec|inc|inc5)|win_(dec|inc))$"))
+    app.add_handler(CallbackQueryHandler(security_flood_reset, pattern="^flood_reset$"))
+    app.add_handler(CallbackQueryHandler(security_flood_noop, pattern="^flood_noop$"))
     app.add_handler(CallbackQueryHandler(security_flood_set_max, pattern="^flood_set_max_\\d+$"))
     app.add_handler(CallbackQueryHandler(security_flood_set_window, pattern="^flood_set_window_\\d+$"))
     app.add_handler(CallbackQueryHandler(security_queue_list, pattern="^security_queue$"))
