@@ -306,7 +306,7 @@
         Object.keys(groups).forEach(function (g) {
           var gr = h('div', { class: 'group' });
           groups[g].forEach(function (i) {
-            gr.append(toggleRow(i.label, i.on, function () { return post('/hub/api/settings/toggle', { key: i.key }).then(function (r) { C.refreshBoot(); return r.items.filter(function (x) { return x.key === i.key; })[0].on; }); }));
+            gr.append(toggleRow(i.label, i.on, function () { return post('/hub/api/settings/toggle', { key: i.key }).then(function (r) { clearTimeout(window.__hubBootT); window.__hubBootT = setTimeout(function () { C.refreshBoot(); }, 1500); return r.items.filter(function (x) { return x.key === i.key; })[0].on; }); }));
           });
           w.append(M.secTitle(g), gr);
         });

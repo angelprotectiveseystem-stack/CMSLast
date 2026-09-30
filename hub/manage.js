@@ -93,12 +93,26 @@
   function toggleRow(label, on, fn, sub) {
     var b = h('button', { type: 'button', class: 'switch' + (on ? ' on' : '') },
       h('span', null, h('span', { text: label }), sub ? h('small', { class: 'sw-sub', text: sub }) : null), h('i', { class: 'tg' }));
+    var busy = false, confirmed = !!on;   // confirmed = آخرین وضعیتی که سرور تأیید کرده
+    // اپتیمیستیک: کلید همان لحظه جابه‌جا می‌شود و سرور پشتِ صحنه تأیید می‌کند.
+    // کلیک‌های پشتِ‌سرهم گم نمی‌شوند: بعد از هر پاسخ، اگر ظاهرِ کلید با وضعیتِ تأییدشده فرق داشت دوباره همگام می‌شود.
+    // (قبلاً کلید تا پایانِ درخواست disabled بود و «گیر کرده» به نظر می‌رسید.)
+    function run() {
+      var target = b.classList.contains('on');
+      busy = true;
+      Promise.resolve(fn(target)).then(function (v) {
+        busy = false;
+        confirmed = (typeof v === 'boolean') ? v : target;
+        if (b.classList.contains('on') !== confirmed) { run(); return; }
+      }, function (e) {
+        busy = false;
+        b.classList.toggle('on', confirmed);   // برگرداندنِ کلید به آخرین وضعیتِ درست
+        fail(e);
+      });
+    }
     b.addEventListener('click', function () {
-      if (b.disabled) return; b.disabled = true;
-      Promise.resolve(fn(!b.classList.contains('on'))).then(function (v) {
-        b.disabled = false; hx.sel();
-        if (typeof v === 'boolean') b.classList.toggle('on', v);
-      }, function (e) { b.disabled = false; fail(e); });
+      b.classList.toggle('on'); hx.sel();
+      if (!busy) run();
     });
     return b;
   }

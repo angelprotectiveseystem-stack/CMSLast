@@ -763,6 +763,8 @@
     window.scrollTo(0, scrollPos[name] || 0);
     chrome();
     hx.sel();
+    // همگام‌سازی: با هر جابه‌جاییِ تب، اگر داده‌ی خانه بیش از ۲۰ ثانیه قدیمی است، بی‌صدا تازه‌اش کن
+    if (S.boot && Date.now() - lastFetch > 20000) refresh(false);
     if (prev === 'clock' && window.HubClock && window.HubClock.onHide) window.HubClock.onHide();
     if (name === 'clock' && window.HubClock && window.HubClock.onShow) window.HubClock.onShow();
   }
@@ -853,7 +855,9 @@
       idle(function () { loadClockLater(); });
     });
     doc.addEventListener('visibilitychange', function () {
-      if (!doc.hidden && Date.now() - lastFetch > 60000 && S.boot) refresh(false);
+      if (doc.hidden) return;
+      if (S.boot && Date.now() - lastFetch > 15000) refresh(false);
+      if (P.rows && canAny('players_view', 'player_register', 'match_create', 'match_edit')) ensurePlayers();
     });
     requestAnimationFrame(movePill);
     setTimeout(movePill, 250);
