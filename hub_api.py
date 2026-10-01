@@ -473,6 +473,8 @@ async def api_player_status(request):
 @routes.post("/hub/api/player/{id}/delete")
 async def api_player_delete(request):
     c = await _ctx(request, "player_delete", write=True)
+    if not c.is_pishva:   # حذفِ کامل فقط مدیر ارشد (دفاعِ دوم، علاوه بر نبودنِ قابلیت در caps مدیران)
+        raise _fail("pishva_only", "حذفِ کاملِ بازیکن فقط برای مدیر ارشد است.", 403)
     pid = _pid(request)
     p = await db.get_player(pid)
     if not p:

@@ -29,7 +29,6 @@ CAPS = [
     ("player_register", "ثبت و ویرایشِ بازیکن",            "بازیکنان"),
     ("player_warn",     "اخطار به بازیکن",                  "بازیکنان"),
     ("player_kick",     "اخراج / درخواستِ اخراجِ بازیکن",   "بازیکنان"),
-    ("player_delete",   "حذفِ بازیکن",                      "بازیکنان"),
     ("match_create",    "ثبتِ مسابقه",                      "مسابقات"),
     ("match_edit",      "ویرایشِ مسابقه",                   "مسابقات"),
     ("match_delete",    "حذفِ مسابقه",                      "مسابقات"),
@@ -44,11 +43,13 @@ CAPS = [
 CAP_KEYS = [c[0] for c in CAPS]
 
 # فقط مدیر ارشد؛ هیچ override‌ای هم اثر ندارد.
-PISHVA_ONLY = ("admins_manage", "settings", "pishva_panel")
+# player_delete (حذفِ کاملِ بازیکن) فقط مدیر ارشد: از CAPS برداشته شد تا نه نقشِ پیش‌فرضی بتواند داشته
+# باشد و نه هیچ overrideی (حتی اگر قبلاً در permissions یک مدیر ذخیره شده باشد) اثری داشته باشد.
+PISHVA_ONLY = ("admins_manage", "settings", "pishva_panel", "player_delete")
 
 ROLE_DEFAULTS = {
     ROLE_TOURNAMENT_MANAGER: {
-        "players_view", "player_register", "player_warn", "player_delete",
+        "players_view", "player_register", "player_warn", "player_kick",
         "match_create", "match_edit", "match_delete", "predictions", "elo",
         "comms", "classes", "teams", "calendar",
     },
