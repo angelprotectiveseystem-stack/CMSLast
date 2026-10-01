@@ -97,6 +97,23 @@ def role_caps(role: str, perms: dict) -> dict:
     return out
 
 
+# همه‌ی کلیدهایی که مسیرِ احرازِ هویت (gate_reason + compute_caps + hub_enabled) می‌خواند،
+# با «همان پیش‌فرض‌هایی» که خودِ آن توابع به‌کار می‌برند.
+_AUTH_SETTING_DEFAULTS = {
+    "hub_enabled": "1",
+    "repair_mode": "0", "bot_update_mode": "0", "system_status": "normal",
+    "bot_active_for_admins": "1", "working_hours_active": "0", "working_hours_system_enabled": "0",
+    "match_registration_enabled": "1", "communications_enabled": "1", "team_mode_enabled": "0",
+    "managers_can_create_teams": "0", "admin_direct_kick_enabled": "1",
+}
+
+
+async def prewarm_auth_settings():
+    """وقتی کش سرد است، ۱۲ کلید را با «یک» کوئری پر می‌کند؛ بعدش همه‌ی get_settingهای
+    مسیرِ احراز از کش جواب می‌دهند (قبلاً چند موجِ جدا از رفت‌وبرگشتِ شبکه بود)."""
+    await db.get_settings_with_defaults(_AUTH_SETTING_DEFAULTS)
+
+
 async def compute_caps(is_pishva: bool, admin):
     """(caps: set[str], feats: dict). caps شاملِ همه‌ی سوییچ‌های کلیِ سیستم هم هست.
     پیش‌فرضِ هر کلید دقیقاً همان مقداری‌ست که ربات برای همان کلید به‌کار می‌برد."""

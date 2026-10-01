@@ -648,17 +648,14 @@ async def api_predict(request):
     wid, bid = _int(request.query.get("white"), "سفید"), _int(request.query.get("black"), "سیاه")
     if wid == bid:
         raise _fail("same_player", "دو بازیکنِ متفاوت انتخاب کنید.")
-    wp, bp = await db.get_player(wid), await db.get_player(bid)
+    # همه‌ی خوانش‌ها هم‌زمان؛ و فقط بازی‌های مستقیمِ این دو نفر (نه کلِ تاریخچه‌ی سفید)
+    wp, bp, (we, be), hist = await asyncio.gather(
+        db.get_player(wid), db.get_player(bid), elo.get_player_elo_pair(wid, bid), db.get_h2h_results(wid, bid))
     if not wp or not bp:
         raise _fail("not_found", "بازیکن پیدا نشد.", 404)
-    we, be = await elo.get_player_elo(wid), await elo.get_player_elo(bid)
     pw = elo.expected_score(we["rating"], be["rating"])
-    hist = await db.get_player_match_history(wid)
     hw = hb = hd = 0
     for m in hist:
-        other = m["black_player_id"] if m["white_player_id"] == wid else m["white_player_id"]
-        if other != bid or m["result"] not in ("white", "black", "draw"):
-            continue
         if m["result"] == "draw":
             hd += 1
         elif (m["result"] == "white") == (m["white_player_id"] == wid):
@@ -693,8 +690,9 @@ def _admin_name(a):
 
 
 async def _name_map():
-    m = {PISHVA_ID: await db.get_setting("pishva_display_name", "مدیر ارشد")}
-    for a in await db.get_all_admins():
+    pname, admins = await asyncio.gather(db.get_setting("pishva_display_name", "مدیر ارشد"), db.get_all_admins())
+    m = {PISHVA_ID: pname}
+    for a in admins:
         m[a["telegram_id"]] = _admin_name(a)
     return m
 
@@ -702,23 +700,25 @@ async def _name_map():
 @routes.get("/hub/api/comms/overview")
 async def api_comms_overview(request):
     c = await _ctx(request, "comms")
-    names = await _name_map()
+    # ۶ خوانشِ مستقل «هم‌زمان» (قبلاً پشتِ‌سرِهم، هرکدام یک رفت‌وبرگشتِ شبکه) و با LIMIT در خودِ SQL
+    names, active, inbox_rows, sent_rows, ann_rows, news_rows = await asyncio.gather(
+        _name_map(), db.get_active_admins(),
+        db.get_messages_for(c.uid, 40), db.get_sent_messages_for(c.uid, 40),
+        db.get_all_announcements(15), db.get_all_news(15))
     recipients = []
     if c.uid != PISHVA_ID:
         recipients.append({"id": PISHVA_ID, "name": names[PISHVA_ID], "role": "مدیر ارشد"})
-    for a in await db.get_active_admins():
+    for a in active:
         if a["telegram_id"] != c.uid:
             recipients.append({"id": a["telegram_id"], "name": _admin_name(a), "role": ROLE_LABELS.get(a["role"], "مدیر")})
     inbox = [{"id": m["id"], "from": names.get(m["sender_id"], "؟"), "text": m["text"],
-              "at": _dt(m["sent_at"]), "read": bool(m["is_read"])}
-             for m in list(await db.get_messages_for(c.uid))[:40]]
+              "at": _dt(m["sent_at"]), "read": bool(m["is_read"])} for m in list(inbox_rows)[:40]]
     sent = [{"id": m["id"], "to": names.get(m["receiver_id"], "؟"), "text": m["text"],
-             "at": _dt(m["sent_at"]), "read": bool(m["is_read"])}
-            for m in list(await db.get_sent_messages_for(c.uid))[:40]]
+             "at": _dt(m["sent_at"]), "read": bool(m["is_read"])} for m in list(sent_rows)[:40]]
     anns = [{"id": a["id"], "text": re.sub(r"<[^>]+>", "", str(a["text"] or ""))[:400], "at": _dt(a["sent_at"])}
-            for a in list(await db.get_all_announcements())[:15]]
+            for a in list(ann_rows)[:15]]
     news = [{"id": n["id"], "text": re.sub(r"<[^>]+>", "", str(n["text"] or ""))[:400], "at": _dt(n["sent_at"])}
-            for n in list(await db.get_all_news())[:15]]
+            for n in list(news_rows)[:15]]
     return hub._json({"recipients": recipients, "inbox": inbox, "sent": sent,
                       "announcements": anns, "news": news, "can_broadcast": c.is_pishva})
 
@@ -985,8 +985,8 @@ async def api_calendar_month(request):
     m = _int(request.query.get("m", tm), "ماه")
     if not (1300 <= y <= 1500 and 1 <= m <= 12):
         raise _fail("bad_request", "ماه/سال نامعتبر است.")
-    grid = hcal.month_grid(y, m, await _hijri_offset())
-    custom = await db.get_calendar_month(y, m)
+    off, custom = await asyncio.gather(_hijri_offset(), db.get_calendar_month(y, m))
+    grid = hcal.month_grid(y, m, off)
     for d in grid["days"]:
         cu = custom.get(d["d"])
         d["custom"] = {"type": cu["day_type"], "title": cu["title"]} if cu else None
@@ -1000,13 +1000,13 @@ async def api_calendar_month(request):
 async def api_calendar_holidays(request):
     await _ctx(request, "calendar")
     today = _tehran_today()
-    off = await _hijri_offset()
-    items = hcal.upcoming_holidays(today, 3, off)
-    by_j = {i["j"]: i for i in items}
     end = today + timedelta(days=366 * 3)
     sj = hcal.jstr(*hcal.date_to_jalali(today))
     ej = hcal.jstr(*hcal.date_to_jalali(end))
-    for r in await db.get_calendar_range(sj, ej):
+    off, cal_rows = await asyncio.gather(_hijri_offset(), db.get_calendar_range(sj, ej))
+    items = hcal.upcoming_holidays(today, 3, off)
+    by_j = {i["j"]: i for i in items}
+    for r in cal_rows:
         if r["day_type"] != "holiday":
             continue
         if r["jdate"] in by_j:
@@ -1216,16 +1216,15 @@ async def api_admin_create(request):
 @routes.get("/hub/api/requests")
 async def api_requests(request):
     await _pishva_ctx(request)
-    names = await _name_map()
+    names, pend, kick_rows = await asyncio.gather(
+        _name_map(), db.get_pending_requests(), db.get_pending_kick_requests())
+    pnames = await db.get_players_names([r["player_id"] for r in kick_rows])   # یک کوئری، نه یکی برای هر درخواست
     acc = [{"id": r["id"], "name": r["full_name"] or "؟", "username": r["username"] or "",
             "role": ROLE_LABELS.get(r["role"], r["role"]), "message": r["message"] or "",
-            "at": _dt(r["requested_at"])} for r in await db.get_pending_requests()]
-    kicks = []
-    for r in await db.get_pending_kick_requests():
-        p = await db.get_player(r["player_id"])
-        kicks.append({"id": r["id"], "admin": names.get(r["admin_id"], "؟"),
-                      "player": p["full_name"] if p else "؟", "player_id": r["player_id"],
-                      "at": _dt(r["requested_at"])})
+            "at": _dt(r["requested_at"])} for r in pend]
+    kicks = [{"id": r["id"], "admin": names.get(r["admin_id"], "؟"),
+              "player": pnames.get(r["player_id"], "؟"), "player_id": r["player_id"],
+              "at": _dt(r["requested_at"])} for r in kick_rows]
     return hub._json({"access": acc, "kicks": kicks})
 
 
@@ -1438,8 +1437,7 @@ async def api_logs(request):
         period = "today"
     page = max(0, _int(q.get("page", 0), "page"))
     admin_id = _int(q["admin"], "admin") if q.get("admin") else None
-    rows, total = await db.get_action_logs(period, admin_id, page, 25)
-    names = await _name_map()
+    (rows, total), names = await asyncio.gather(db.get_action_logs(period, admin_id, page, 25), _name_map())
     try:
         from helpers import ACTION_LOG_LABELS as _AL
     except Exception:

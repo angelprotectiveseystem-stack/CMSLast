@@ -2324,26 +2324,28 @@ async def set_message_notif(msg_id: int, chat_id: int, message_id: int):
         await db.commit()
 
 
-async def get_messages_for(receiver_id: int):
+async def get_messages_for(receiver_id: int, limit: int = None):
+    sql = "SELECT * FROM messages WHERE receiver_id=? ORDER BY sent_at DESC"
+    args = [receiver_id]
+    if limit:
+        sql += " LIMIT ?"; args.append(int(limit))
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM messages WHERE receiver_id=? ORDER BY sent_at DESC",
-            (receiver_id,)
-        ) as cur:
+        async with db.execute(sql, args) as cur:
             return await cur.fetchall()
 
 
-async def get_sent_messages_for(sender_id: int):
+async def get_sent_messages_for(sender_id: int, limit: int = None):
     """تاریخچه‌ی پیام‌های ارسالیِ خودِ فرستنده (چه مدیر ارشد چه یه ادمین
     معمولی). deleted_for_sender=0 رو فیلتر می‌کنه چون این حذفِ نرم فقط
     مخصوص لیستِ خودِ همون فرستنده‌ست."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM messages WHERE sender_id=? AND deleted_for_sender=0 ORDER BY sent_at DESC",
-            (sender_id,)
-        ) as cur:
+        sql = "SELECT * FROM messages WHERE sender_id=? AND deleted_for_sender=0 ORDER BY sent_at DESC"
+        args = [sender_id]
+        if limit:
+            sql += " LIMIT ?"; args.append(int(limit))
+        async with db.execute(sql, args) as cur:
             return await cur.fetchall()
 
 
@@ -2390,10 +2392,11 @@ async def create_announcement(text: str, file_id="", file_type=""):
         return cur.lastrowid
 
 
-async def get_all_announcements():
+async def get_all_announcements(limit: int = None):
+    sql = "SELECT * FROM announcements ORDER BY sent_at DESC" + (" LIMIT %d" % int(limit) if limit else "")
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM announcements ORDER BY sent_at DESC") as cur:
+        async with db.execute(sql) as cur:
             return await cur.fetchall()
 
 
@@ -2411,10 +2414,11 @@ async def create_news(text: str):
         await db.commit()
 
 
-async def get_all_news():
+async def get_all_news(limit: int = None):
+    sql = "SELECT * FROM news ORDER BY sent_at DESC" + (" LIMIT %d" % int(limit) if limit else "")
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM news ORDER BY sent_at DESC") as cur:
+        async with db.execute(sql) as cur:
             return await cur.fetchall()
 
 
@@ -2913,6 +2917,31 @@ async def update_kick_request(req_id: int, status: str):
             (status, now, req_id)
         )
         await db.commit()
+
+
+async def get_players_names(ids) -> dict:
+    """{id: full_name} برای چند بازیکن با یک کوئری (به‌جای get_player به‌ازای هر نفر)."""
+    ids = list({int(i) for i in ids if i is not None})
+    if not ids:
+        return {}
+    ph = ",".join("?" for _ in ids)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(f"SELECT id, full_name FROM players WHERE id IN ({ph})", ids) as cur:
+            return {r["id"]: r["full_name"] for r in await cur.fetchall()}
+
+
+async def get_h2h_results(a: int, b: int):
+    """فقط بازی‌های مستقیمِ دو بازیکن (نه کلِ تاریخچه‌ی یکی از آن‌ها)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT white_player_id, black_player_id, result FROM matches
+               WHERE result IN ('white','black','draw')
+                 AND ((white_player_id=? AND black_player_id=?) OR (white_player_id=? AND black_player_id=?))""",
+            (a, b, b, a)
+        ) as cur:
+            return await cur.fetchall()
 
 
 async def get_pending_kick_requests():

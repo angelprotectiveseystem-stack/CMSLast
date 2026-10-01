@@ -127,13 +127,15 @@ async def _require_admin(request):
         # عکس چون هرلحظه زنده از تلگرام proxy می‌شود مشکلی نداشت، فقط اسم).
         try:
             tg_name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x)
-            await db.sync_pishva_identity(tg_name)
+            await asyncio.gather(db.sync_pishva_identity(tg_name), hub_caps.prewarm_auth_settings())
         except Exception:
             logger.exception("hub: sync_pishva_identity failed for %s", uid)
         return True, None, user
-    if await db.get_blocked_user(uid):
+    # سه خوانشِ مستقل هم‌زمان (کشِ سرد = یک موج، نه ۴-۵ موجِ پشتِ‌سرِهم). ترتیبِ «بررسی» همان قبلی ست.
+    blocked, admin, _ = await asyncio.gather(
+        db.get_blocked_user(uid), db.get_admin(uid), hub_caps.prewarm_auth_settings())
+    if blocked:
         raise _err(web.HTTPForbidden, "forbidden")
-    admin = await db.get_admin(uid)
     if not admin or not admin["is_active"] or admin["role"] not in HUB_ALLOWED_ROLES:
         raise _err(web.HTTPForbidden, "forbidden")
     if not await db.can_use_hub(uid):
