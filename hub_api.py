@@ -144,9 +144,16 @@ async def _destructive(uid, action):
 _bg = set()
 
 
+async def _safe(coro):
+    try:
+        await coro
+    except Exception:
+        logger.warning("hub_api: background task failed", exc_info=True)
+
+
 def _spawn(coro):
     """اجرای کار در پس‌زمینه بدونِ معطل‌کردنِ پاسخِ API (رفرنس نگه داشته می‌شود تا GC نکُشدش)."""
-    t = asyncio.create_task(coro)
+    t = asyncio.create_task(_safe(coro))
     _bg.add(t)
     t.add_done_callback(_bg.discard)
     return t
@@ -287,7 +294,27 @@ def hub_norm(s):
 async def api_player_panel(request):
     c = await _ctx(request, "players_view")
     pid = _pid(request)
-    p = await db.get_player(pid)
+    want_elo = "elo" in c.caps
+    want_matches = any(x in c.caps for x in MATCH_CAPS)
+    want_teams = "teams" in c.caps
+
+    async def _none():
+        return None
+
+    async def _rank():
+        try:
+            return (await db.get_player_hub_detail(pid, 1))["rank_row"]["rank"]
+        except Exception:
+            return None
+
+    # قبلاً ۷-۸ کوئری پشتِ‌سرِهم بود؛ همه‌ی خوانش‌های مستقل هم‌زمان، پس زمان ≈ کندترین یکی (نه جمعِ همه).
+    p, log, pend, e, rank, ehist, hist, teams = await asyncio.gather(
+        db.get_player(pid), db.get_warnings_log("player", pid, 30), db.get_pending_kick_request_for_player(pid),
+        elo.get_player_elo(pid) if want_elo else _none(),
+        _rank() if want_elo else _none(),
+        elo.get_player_elo_history(pid, 10) if want_elo else _none(),
+        db.get_player_match_history(pid) if want_matches else _none(),
+        db.get_player_teams(pid) if want_teams else _none())
     if not p:
         raise _fail("not_found", "بازیکن پیدا نشد.", 404)
     w, d, l = p["wins"] or 0, p["draws"] or 0, p["losses"] or 0
@@ -298,28 +325,18 @@ async def api_player_panel(request):
         "notes": p["notes"] or "",
     }
     # ─ انضباطی (همه‌ی نقش‌های دارای «مشاهده‌ی بازیکنان») ─
-    log = await db.get_warnings_log("player", pid, 30)
     out["warn_log"] = [{"reason": r["reason"], "by": r["issuer_name"] or ("مدیر ارشد" if r["issued_by"] == PISHVA_ID else "؟"),
                         "at": _dt(r["issued_at"])} for r in log]
-    pend = await db.get_pending_kick_request_for_player(pid)
     out["kick_pending"] = bool(pend)
     # ─ Elo ─
-    if "elo" in c.caps:
-        e = await elo.get_player_elo(pid)
-        rank = None
-        try:
-            rank = (await db.get_player_hub_detail(pid, 1))["rank_row"]["rank"]
-        except Exception:
-            pass
-        hist = await elo.get_player_elo_history(pid, 10)
+    if want_elo:
         out["elo"] = {"rating": round(e["rating"]), "peak": round(e["peak_rating"]),
                       "games": e.get("games_played", 0), "title": elo.get_elo_title(e["rating"]), "rank": rank,
                       "history": [{"change": round(h["change"] or 0), "new": round(h["new_rating"] or 0),
                                    "opp": h["opponent_name"] or "؟", "res": h["result"],
-                                   "at": str(h["recorded_at"])[:10]} for h in hist]}
+                                   "at": str(h["recorded_at"])[:10]} for h in ehist]}
     # ─ مسابقات ─
-    if any(x in c.caps for x in MATCH_CAPS):
-        hist = await db.get_player_match_history(pid)
+    if want_matches:
         beat, lost = {}, {}
         for m in hist:
             mine = "white" if m["white_player_id"] == pid else "black"
@@ -333,8 +350,8 @@ async def api_player_panel(request):
         out["last_matches"] = [{
             "id": m["id"], "wid": m["white_player_id"], "w": m["white_name"] or "؟", "b": m["black_name"] or "؟",
             "res": m["result"], "date": (m["match_date"] or "")[:10]} for m in list(hist)[:12]]
-    if "teams" in c.caps:
-        out["teams"] = [{"id": t["id"], "name": t["name"]} for t in await db.get_player_teams(pid)]
+    if want_teams:
+        out["teams"] = [{"id": t["id"], "name": t["name"]} for t in teams]
     out["can"] = {
         "edit": "player_register" in c.caps, "warn": "player_warn" in c.caps,
         "kick": "player_kick" in c.caps, "kick_direct": bool(c.feats["direct_kick"]),
@@ -411,9 +428,9 @@ async def api_player_warn(request):
     upd = await db.get_player(pid)
     await db.log_action(c.uid, "player_warning", f"اخطار به {p['full_name']}: {reason}", pid)
     if (upd["warnings"] or 0) >= 3 and not c.is_pishva:
-        await _send(PISHVA_ID,
+        _spawn(_send(PISHVA_ID,
                     f"🔴 بازیکن *{_md(p['full_name'])}* به {upd['warnings']} اخطار رسید!\n"
-                    f"📋 دلیل: {_md(reason)}\n⏱️ `{now_shamsi()}`", parse_mode="Markdown")
+                    f"📋 دلیل: {_md(reason)}\n⏱️ `{now_shamsi()}`", parse_mode="Markdown"))
     return _ok(warnings=upd["warnings"] or 0)
 
 
@@ -432,20 +449,20 @@ async def api_player_kick(request):
     if c.is_pishva or c.feats["direct_kick"]:
         await db.update_player(pid, status="kicked")
         await db.log_action(c.uid, "kick_player", f"اخراج: {p['full_name']}", pid)
-        await _destructive(c.uid, "kick_player")
+        _spawn(_destructive(c.uid, "kick_player"))
         return _ok(mode="direct")
     if await db.get_pending_kick_request_for_player(pid):
         raise _fail("already", "برای این بازیکن قبلاً درخواستِ اخراج ثبت شده و منتظرِ تأیید است.", 409)
     req_id = await db.create_kick_request(c.uid, pid)
-    try:
+
+    async def _notify():
         import keyboards as kb
         from helpers import box
         await _send(PISHVA_ID,
                     f"{box('🚫 درخواست اخراج بازیکن')}\n\n👤 ادمینِ درخواست‌دهنده: *{_md(c.name)}*\n"
                     f"♟️ بازیکن: *{_md(p['full_name'])}*\n⏱️ `{now_shamsi()}`\n\n📌 تایید یا رد کنید:",
                     markup=kb.kb_kick_request(req_id), parse_mode="Markdown")
-    except Exception:
-        logger.warning("hub_api: kick-request notify failed", exc_info=True)
+    _spawn(_notify())   # پس‌زمینه: جوابِ دکمه منتظرِ تلگرام نمی‌ماند؛ خطاها لاگ می‌شوند
     await db.log_action(c.uid, "request_kick_player", f"درخواست اخراج: {p['full_name']}", pid)
     return _ok(mode="request")
 
@@ -461,7 +478,7 @@ async def api_player_status(request):
     if st == "suspended":
         await db.update_player(pid, status="suspended")
         await db.log_action(c.uid, "suspend_player", f"تعلیق: {p['full_name']}", pid)
-        await _destructive(c.uid, "suspend_player")
+        _spawn(_destructive(c.uid, "suspend_player"))
     elif st == "active":
         await db.update_player(pid, status="active", warnings=0)
         await db.log_action(c.uid, "revive_player", f"احیا: {p['full_name']}", pid)

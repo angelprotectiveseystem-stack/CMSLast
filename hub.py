@@ -343,9 +343,10 @@ async def _top_players(active_players, limit=5, elo_map=None):
 @routes.get("/hub/api/players")
 async def hub_players(request):
     _p, _a, _u, caps, _f = await _require_cap(request, "players_view", "match_create", "match_edit", "player_register")
-    all_players = await db.get_all_players()
-    await elo.ensure_elo_table()
-    elo_map = await db.get_all_player_elo()
+    async def _elo_map():
+        await elo.ensure_elo_table()
+        return await db.get_all_player_elo()
+    all_players, elo_map = await asyncio.gather(db.get_all_players(), _elo_map())
     cols = ["id", "name", "cls", "elo", "w", "d", "l", "warn", "elite", "special", "status", "games"]
     show_elo = "elo" in caps
     rows = []
