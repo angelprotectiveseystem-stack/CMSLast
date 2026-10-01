@@ -10,7 +10,42 @@
   /* ─── ابزارهای مشترک ────────────────────────────────────────── */
   function can(c) { return !!(C.S.boot && C.S.boot.caps && C.S.boot.caps.indexOf(c) > -1); }
   function feat(k) { return !!(C.S.boot && C.S.boot.features && C.S.boot.features[k]); }
+  /* ─── stale-while-revalidate ───────────────────────────────────
+     آخرین پاسخِ هر GET در حافظه می‌ماند: دفعه‌ی بعد صفحه «همان لحظه» با داده‌ی قبلی باز می‌شود و
+     پشت‌صحنه تازه می‌شود (فقط اگر چیزی عوض شده باشد دوباره رندر می‌شود). بعد از هر نوشتن (post)
+     کلِ حافظه خالی می‌شود تا هیچ‌وقت داده‌ی «قبل از ویرایش» نشان داده نشود. */
+  var memo = {}, gen = 0;
+  function swr(path, onData, onErr) {
+    var hit = memo[path], had = hit !== undefined, sig = had ? JSON.stringify(hit) : '', g = gen;
+    if (had) onData(hit);
+    return api(path).then(function (d) {
+      if (g !== gen) return d;               // وسطِ راه یک نوشتن انجام شد؛ این پاسخ ممکن است کهنه باشد
+      memo[path] = d;
+      if (!had || JSON.stringify(d) !== sig) onData(d);
+      return d;
+    }, function (e) { if (!had && onErr) onErr(e); });
+  }
   function post(path, body) { return api(path, body || {}); }
+  window.__hubOnWrite = function () { gen++; memo = {}; };   // hub.js api() صدایش می‌زند: هر نوشتنی (از هرجا) حافظه را خالی می‌کند
+  /* پیش‌بارگذاریِ صفحه‌های مدیریت (همان مسیرهایی که خودِ صفحه‌ها می‌خوانند) — با تأخیر و پشتِ‌سرِهم، تا فشاری روی سرور نیاید */
+  var pfAt = 0;
+  function prefetch() {
+    if (Date.now() - pfAt < 25000 || document.hidden) return;
+    pfAt = Date.now();
+    var list = [];
+    if (can('comms')) list.push('/hub/api/comms/overview');
+    if (can('match_edit') || can('match_delete') || can('match_create')) list.push('/hub/api/matches?scope=pending&q=');
+    if (can('elo')) list.push('/hub/api/elo/leaderboard?limit=100');
+    if (can('calendar')) list.push('/hub/api/calendar/month', '/hub/api/calendar/holidays');
+    if (can('settings')) list.push('/hub/api/settings');
+    if (can('admins_manage')) list.push('/hub/api/admin/list');
+    if (can('pishva_panel')) list.push('/hub/api/requests', '/hub/api/logs?period=today&page=0');
+    if (can('classes') || can('player_register') || can('match_create')) list.push('/hub/api/classes');
+    (function next() {
+      var path = list.shift(); if (!path) return;
+      swr(path, function () {}).then(function () { setTimeout(next, 60); }, function () { setTimeout(next, 60); });
+    })();
+  }
   function errMsg(e) {
     if (e && e.data && e.data.message) return e.data.message;
     if (e && e.code === 403) return 'این کار برای شما مجاز نیست.';
@@ -52,11 +87,19 @@
     return h('div', { class: 'empty' }, 'بارگذاری نشد. ', h('button', { type: 'button', class: 'add-row', text: 'تلاش دوباره', onclick: retry }));
   }
   /* بدنه‌ی ناهمگام: اسپینر، بعد پرشدن با نتیجه‌ی fetch */
-  function lazy(promiseFn, render) {
+  function lazy(src, render) {
     var box = h('div', null, spin());
     function go() {
+      var shown = false;
+      if (typeof src === 'string') {       // مسیرِ GET → stale-while-revalidate (داده‌ی قبلی فوری، تازه‌سازی پشت‌صحنه)
+        var hit = memo[src];
+        if (hit === undefined) box.replaceChildren(spin());
+        swr(src, function (d) { shown = true; box.replaceChildren(render(d)); },
+          function (e) { if (e && e.data && e.data.error === 'locked') return; box.replaceChildren(errBox(go)); });
+        return;
+      }
       box.replaceChildren(spin());
-      promiseFn().then(function (d) { box.replaceChildren(render(d)); },
+      src().then(function (d) { box.replaceChildren(render(d)); },
         function (e) { if (e && e.data && e.data.error === 'locked') return; box.replaceChildren(errBox(go)); });
     }
     go();
@@ -183,12 +226,57 @@
     return field(label, btnEl);
   }
 
-  function afterPlayerChange() { C.ensurePlayers(true); C.refreshBoot(); }
+  var apcT = 0;
+  function afterPlayerChange() {
+    // رفرشِ فهرستِ بازیکنان و خانه «بعد از» نشستنِ پنلِ بازیکن (قبلاً هم‌زمان با آن و رقیبِ آن بود)
+    clearTimeout(apcT);
+    apcT = setTimeout(function () { C.ensurePlayers(true); C.refreshBoot(); }, 1200);
+  }
+
+  /* ─── پنلِ بازیکن: باز شدنِ فوری ─────────────────────────────────
+     panelCache از نوشتن‌ها پاک «نمی‌شود» (فقط پچ می‌شود)؛ پس پنل همیشه همان لحظه با آخرین داده
+     باز می‌شود و پشت‌صحنه تازه می‌شود. اگر هنوز چیزی نداریم، از ردیفِ فهرستِ بازیکنان یک سربرگِ فوری می‌سازیم. */
+  var panelCache = {}, panelAt = {}, panelKeys = [];
+  function putPanel(id, d) {
+    if (!(id in panelCache)) { panelKeys.push(id); if (panelKeys.length > 60) delete panelCache[panelKeys.shift()]; }
+    panelCache[id] = d; panelAt[id] = Date.now();
+  }
+  var panelFly = {};
+  function fetchPanel(id) {                      // درخواستِ در حالِ پرواز به اشتراک گذاشته می‌شود (warm + باز شدن = یک درخواست)
+    if (panelFly[id]) return panelFly[id];
+    var pr = api('/hub/api/player/' + id + '/panel').then(function (d) { delete panelFly[id]; putPanel(id, d); return d; },
+      function (e) { delete panelFly[id]; throw e; });
+    return (panelFly[id] = pr);
+  }
+  function warmPlayer(id) {                     // با pointerdown روی ردیف صدا زده می‌شود: ~۱۰۰ms زودتر شروع
+    if (Date.now() - (panelAt[id] || 0) < 8000) return;
+    panelAt[id] = Date.now();
+    fetchPanel(id).then(null, function () {});
+  }
+  function patchPanel(id, patch) {
+    delete panelFly[id];              // اپتیمیستیک: بعد از اقدام، پنل همان لحظه درست نشان داده شود
+    var row = C.P() && C.P().map && C.P().map.get(id);
+    if (row && patch && typeof patch !== 'function') {   // ردیفِ فهرست همیشه پچ می‌شود (حتی اگر پنل هنوز کش نشده)
+      if ('status' in patch) row.status = patch.status;
+      if ('warnings' in patch) row.warn = patch.warnings;
+      if ('elite' in patch) row.elite = patch.elite ? 1 : 0;
+      if ('special' in patch) row.special = patch.special ? 1 : 0;
+    }
+    var d = panelCache[id]; if (!d) return;
+    putPanel(id, Object.assign({}, d, typeof patch === 'function' ? patch(d) : patch));
+  }
+  function quickPanel(id) {                     // سربرگِ فوری از ردیفِ فهرست (پیش از رسیدنِ پنلِ کامل)
+    var P = C.P(), r = P && P.map && P.map.get(id);
+    if (!r) return null;
+    return { id: id, name: r.name, cls: r.cls, status: r.status || 'active', warnings: r.warn || 0, w: r.w || 0, d: r.d || 0, l: r.l || 0,
+      elite: !!r.elite, special: !!r.special, elo: r.elo != null ? { rating: r.elo } : null, kick_pending: false,
+      warn_log: null, can: {}, _quick: true };
+  }
 
   /* ═══════════ ثبت بازیکن ═══════════ */
   function registerPlayer() {
     push('ثبت‌نام بازیکن', function () {
-      return { body: lazy(function () { return api('/hub/api/classes'); }, function (d) {
+      return { body: lazy('/hub/api/classes', function (d) {
         if (!d.classes.length) return empty('اول باید یک کلاس بسازید (مدیریت ← کلاس‌ها).');
         var name = input({ maxlength: 60, placeholder: 'نام و نام‌خانوادگی' });
         var cls = select(d.classes.map(function (c) { return [c.id, c.name]; }), d.classes[0].id);
@@ -218,8 +306,32 @@
   /* ═══════ پنلِ بازیکن (بر اساس نقش) ═══════ */
   function openPlayer(id) {
     root('', function () {
-      return { body: lazy(function () { return api('/hub/api/player/' + id + '/panel'); }, function (p) { return playerBody(p); }) };
+      var box = h('div', null), sig = '';
+      function paint(d) { sig = JSON.stringify(d); box.replaceChildren(d._quick ? quickBody(d) : playerBody(d)); }
+      var have = panelCache[id] || quickPanel(id);
+      if (have) paint(have); else box.append(spin());
+      fetchPanel(id).then(function (d) {
+        if (JSON.stringify(d) !== sig) paint(d);
+      }, function (e) {
+        if (e && e.data && e.data.error === 'locked') return;
+        if (!have) box.replaceChildren(errBox(function () { openPlayer(id); }));
+      });
+      return { body: box };
     });
+  }
+  function quickBody(p) {                        // سربرگ + آمار فوری؛ بقیه‌ی پنل که برسد جایگزین می‌شود
+    var w = h('div', null), tags = [];
+    if (p.elite) tags.push(h('span', { class: 'badge elite' }, ic('star'), ''));
+    if (p.special) tags.push(h('span', { class: 'badge special' }, ic('bolt'), ''));
+    if (p.status !== 'active') tags.push(h('span', { class: 'badge off', text: STATUS[p.status] || p.status }));
+    w.append(h('div', { class: 'p-top' }, avatar(p.id, p.name, 'lg'), h('h3', { text: p.name }),
+      p.cls ? h('div', { class: 'p-sub', text: ' ' + p.cls }) : null, tags.length ? h('div', { class: 'tags' }, tags) : null));
+    w.append(h('div', { class: 'stat3' },
+      h('div', null, h('b', { class: 'num', text: p.elo ? p.elo.rating : '' }), h('span', { text: '' })),
+      h('div', null, h('b', { class: 'num', text: p.w + p.d + p.l }), h('span', { text: '' })),
+      h('div', null, h('b', { class: 'num' + (p.warnings >= 3 ? ' bad' : ''), text: p.warnings }), h('span', { text: '' }))));
+    w.append(spin());
+    return w;
   }
   function playerBody(p) {
     var w = h('div', null);
@@ -246,7 +358,7 @@
     if (K.predict) acts.push(['bolt', 'پیش‌بینی با حریف', 'bg-violet', function () { predictFor(p); }]);
     if (K.warn) acts.push(['alert', 'ثبت اخطار', 'bg-amber', function () {
       reasonView('اخطار برای ' + p.name, 'دلیل اخطار', 'مثلاً: بی‌احترامی در سالن', function (t) { return post('/hub/api/player/' + p.id + '/warn', { reason: t }); },
-        function (r) { toast('اخطار ثبت شد (' + fa(r.warnings) + ' اخطار)'); afterPlayerChange(); openPlayer(p.id); });
+        function (r) { toast('اخطار ثبت شد (' + fa(r.warnings) + ' اخطار)'); patchPanel(p.id, { warnings: r.warnings }); afterPlayerChange(); openPlayer(p.id); });
     }]);
     if (K.kick && p.status === 'active') {
       acts.push(['lock', K.kick_direct ? 'اخراج بازیکن' : 'درخواست اخراج', 'bg-red', function () {
@@ -254,24 +366,24 @@
         if (p.elite || p.special) msg += '\n⚠️ این بازیکن ' + (p.elite ? 'برتر' : 'ویژه') + ' است.';
         confirmView(K.kick_direct ? 'اخراج' : 'درخواست اخراج', msg, K.kick_direct ? 'اخراج کن' : 'ارسال درخواست',
           function () { return post('/hub/api/player/' + p.id + '/kick', { confirm: true }); },
-          function (r) { toast(r.mode === 'direct' ? 'بازیکن اخراج شد' : 'درخواست برای مدیر ارشد ارسال شد'); afterPlayerChange(); openPlayer(p.id); });
+          function (r) { toast(r.mode === 'direct' ? 'بازیکن اخراج شد' : 'درخواست برای مدیر ارشد ارسال شد'); patchPanel(p.id, r.mode === 'direct' ? { status: 'kicked' } : { kick_pending: true }); afterPlayerChange(); openPlayer(p.id); });
       }]);
       acts.push(['pause', 'تعلیق', 'bg-amber', function () {
         confirmView('تعلیق', '«' + p.name + '» تعلیق می‌شود و در مسابقه‌ها شرکت داده نمی‌شود.', 'تعلیق کن',
           function () { return post('/hub/api/player/' + p.id + '/status', { status: 'suspended' }); },
-          function () { toast('تعلیق شد'); afterPlayerChange(); openPlayer(p.id); });
+          function () { toast('تعلیق شد'); patchPanel(p.id, { status: 'suspended' }); afterPlayerChange(); openPlayer(p.id); });
       }]);
     }
     if (K.kick && p.status !== 'active') acts.push(['reset', 'احیا (بازگشت به فعال و پاک‌شدن اخطارها)', 'bg-green', function () {
       confirmView('احیا', '«' + p.name + '» به لیست فعال برمی‌گردد و اخطارهایش صفر می‌شود.', 'احیا کن',
         function () { return post('/hub/api/player/' + p.id + '/status', { status: 'active' }); },
-        function () { toast('احیا شد'); afterPlayerChange(); openPlayer(p.id); }, false);
+        function () { toast('احیا شد'); patchPanel(p.id, { status: 'active', warnings: 0 }); afterPlayerChange(); openPlayer(p.id); }, false);
     }]);
     if (K.elite) acts.push(['star', p.elite ? 'حذف از برترین‌ها' : 'ثبت به‌عنوان برتر', 'bg-amber', function () {
-      post('/hub/api/player/' + p.id + '/flags', { elite: !p.elite }).then(function () { hx.ok(); afterPlayerChange(); openPlayer(p.id); }, fail);
+      post('/hub/api/player/' + p.id + '/flags', { elite: !p.elite }).then(function () { hx.ok(); patchPanel(p.id, { elite: !p.elite }); afterPlayerChange(); openPlayer(p.id); }, fail);
     }]);
     if (K.special) acts.push(['bolt', p.special ? 'حذف از نیروهای ویژه' : 'ثبت به‌عنوان نیروی ویژه', 'bg-red', function () {
-      post('/hub/api/player/' + p.id + '/flags', { special: !p.special }).then(function () { hx.ok(); afterPlayerChange(); openPlayer(p.id); }, fail);
+      post('/hub/api/player/' + p.id + '/flags', { special: !p.special }).then(function () { hx.ok(); patchPanel(p.id, { special: !p.special }); afterPlayerChange(); openPlayer(p.id); }, fail);
     }]);
     if (K.delete) acts.push(['trash', 'حذف کامل بازیکن', 'bg-red', function () {
       confirmView('حذف کامل', '«' + p.name + '» و همه‌ی مسابقه‌ها و سابقه‌ی اخطارهایش برای همیشه پاک می‌شود. این کار برگشت ندارد.', 'حذف کن',
@@ -324,14 +436,20 @@
 
   function editPlayer(p) {
     push('ویرایش ' + p.name, function () {
-      return { body: lazy(function () { return api('/hub/api/classes'); }, function (d) {
+      return { body: lazy('/hub/api/classes', function (d) {
         var n = input({ maxlength: 60, value: p.name });
         var c = select(d.classes.map(function (x) { return [x.id, x.name]; }), p.class_id);
         var nt = h('textarea', { class: 'inp', rows: 3, maxlength: 400, placeholder: 'یادداشت (اختیاری)' }); nt.value = p.notes || '';
         return h('div', null, field('نام و نام‌خانوادگی', n), field('کلاس', c), field('یادداشت', nt),
           h('div', { style: 'margin:6px 16px 0' }, actBtn('ذخیره', '', function () {
             return post('/hub/api/player/' + p.id + '/edit', { name: n.value, class_id: +c.value, notes: nt.value });
-          }, function () { toast('ذخیره شد'); afterPlayerChange(); back(); openPlayer(p.id); })));
+          }, function () {
+            toast('ذخیره شد');
+            var cn = c.options[c.selectedIndex] ? c.options[c.selectedIndex].text : p.cls;
+            patchPanel(p.id, { name: n.value.trim(), class_id: +c.value, cls: cn, notes: nt.value.trim() });
+            var row = C.P() && C.P().map && C.P().map.get(p.id); if (row) { row.name = n.value.trim(); row.cls = cn; }
+            afterPlayerChange(); back(); openPlayer(p.id);
+          })));
       }) };
     });
   }
@@ -346,7 +464,7 @@
       function draw() {
         chipsBox.replaceChildren(chipsBar([['pending', 'منتظر نتیجه'], ['done', 'انجام‌شده'], ['all', 'همه']], st.scope, function (k) { st.scope = k; draw(); }));
         listBox.replaceChildren(spin());
-        api('/hub/api/matches?scope=' + st.scope + '&q=' + encodeURIComponent(st.q)).then(function (d) {
+        swr('/hub/api/matches?scope=' + st.scope + '&q=' + encodeURIComponent(st.q), function (d) {
           if (!d.matches.length) { listBox.replaceChildren(empty('مسابقه‌ای پیدا نشد.')); return; }
           listBox.replaceChildren(h('div', { class: 'group' }, d.matches.map(function (m) {
             return row({ title: m.w + ' ⚔️ ' + m.b, sub: (m.res ? RES[m.res] : 'منتظر نتیجه') + ' • ' + (m.date || '') + (m.t ? ' • ' + m.t : ''),
@@ -458,7 +576,7 @@
   /* ═══════════ Elo ═══════════ */
   function eloBoard() {
     root('جدول Elo', function () {
-      return { body: lazy(function () { return api('/hub/api/elo/leaderboard?limit=100'); }, function (d) {
+      return { body: lazy('/hub/api/elo/leaderboard?limit=100', function (d) {
         if (!d.rows.length) return empty('هنوز امتیازی محاسبه نشده؛ بعد از ثبت اولین نتیجه پر می‌شود.');
         return h('div', { class: 'group' }, d.rows.map(function (r, i) {
           return row({ lead: h('span', { class: 'rank num' + (i < 3 ? ' top' : ''), style: 'width:24px;text-align:center', text: i + 1 }),
@@ -473,7 +591,7 @@
   var STYLES = [['none', 'بی‌رنگ'], ['primary', 'آبی'], ['success', 'سبز'], ['danger', 'قرمز']];
   function classesView() {
     root('کلاس‌ها', function () {
-      return { body: lazy(function () { return api('/hub/api/classes'); }, function (d) {
+      return { body: lazy('/hub/api/classes', function (d) {
         var w = h('div', null);
         w.append(h('div', { class: 'group' }, d.classes.length ? d.classes.map(function (c) {
           return row({ title: 'کلاس ' + c.name, sub: c.count + ' بازیکن', tap: function () { classDetail(c); } });
@@ -508,7 +626,7 @@
   window.__HubManageP1 = { init: function (core) {
     C = core; h = core.h; ic = core.ic; hx = core.hx; Sheet = core.Sheet; toast = core.toast; api = core.api;
     row = core.row; riconEl = core.riconEl; secTitle = core.secTitle; kv = core.kv; nn = core.nn; avatar = core.avatar; norm = core.norm;
-    return { can: can, feat: feat, push: push, root: root, back: back, refresh: refresh, dirty: dirty, closeAll: closeAll, lazy: lazy, empty: empty, spin: spin,
+    return { can: can, feat: feat, push: push, root: root, back: back, refresh: refresh, dirty: dirty, closeAll: closeAll, lazy: lazy, swr: swr, prefetch: prefetch, warmPlayer: warmPlayer, empty: empty, spin: spin,
       field: field, input: input, select: select, btn: btn, actBtn: actBtn, footBtns: footBtns, toggleRow: toggleRow, chipsBar: chipsBar,
       confirmView: confirmView, reasonView: reasonView, pickPlayer: pickPlayer, post: post, fail: fail, errBox: errBox, fa: fa,
       registerPlayer: registerPlayer, openPlayer: openPlayer, matchesList: matchesList, createMatch: createMatch, matchDetail: matchDetail,

@@ -177,6 +177,7 @@ button.row:active{ background:rgba(128,128,128,.12); }
 .tabbar{ position:fixed; z-index:20; inset-inline:12px; bottom:calc(10px + var(--bottom)); height:var(--tabbar-h); border-radius:34px; background:var(--bar-bg);
   box-shadow:0 0 0 1px rgba(224,42,55,.22), 0 10px 30px rgba(0,0,0,.38), 0 0 26px rgba(224,42,55,.14); display:flex; padding:5px; direction:rtl;
   transition:transform .4s cubic-bezier(.2,.8,.2,1); animation:bar-in .7s cubic-bezier(.2,.9,.25,1.1) backwards; }
+.tabbar.pending{ opacity:0; pointer-events:none; animation:none; }
 body.clock-live .tabbar{ transform:translateY(calc(100% + 24px)); }
 @keyframes bar-in{ from{ opacity:0; transform:translateY(130%) scale(.92); } to{ opacity:1; transform:none; } }
 /* حبابِ متحرکِ زیرِ تبِ فعال: فنری + کشیده‌شدن هنگامِ حرکت + درخشش قرمز */

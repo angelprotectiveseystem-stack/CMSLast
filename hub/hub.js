@@ -155,7 +155,7 @@
           throw e;
         });
       }
-      return r.json();
+      return r.json().then(function (j) { if (body && window.__hubOnWrite) window.__hubOnWrite(); return j; });
     });
   }
 
@@ -450,6 +450,7 @@
       h('div', { class: 'r-end', style: 'flex-direction:column;align-items:flex-end;gap:3px' },
         p.elo != null ? h('span', { class: 'elo num', text: p.elo }) : null,
         (p.elite || p.special || (p.status && p.status !== 'active')) ? h('span', { style: 'display:flex;gap:4px' }, badges(p)) : null));
+    if (M && can('players_view')) r.addEventListener('pointerdown', function () { M.warmPlayer(p.id); }, { passive: true });
     return h('div', { class: 'prow' }, r);
   }
 
@@ -729,16 +730,20 @@
   /* ─── ناوبری ─────────────────────────────────────────────── */
   var panels = { home: $('#tab-home'), players: $('#tab-players'), tours: $('#tab-tours'), manage: $('#tab-manage'), clock: $('#tab-clock'), me: $('#tab-me') };
   var bar = $('#tabbar'), pill = $('#pill');
+  /* حباب قرمزِ زیرِ تبِ فعال.
+     قبلاً با getBoundingClientRect اندازه‌گیری می‌شد؛ آن مقدار «transform» را هم شامل می‌شود:
+     وقتی دکمه با :active کوچک (scale .88) بود یا نوار هنوز در انیمیشنِ ورودِ خودش بود، حباب
+     باریک و کج (وسطِ دو دکمه) می‌ماند. offsetLeft/offsetWidth از transform تأثیر نمی‌گیرند. */
   function movePill() {
-    var b = $('button.on', bar); if (!b) return;
-    var br = b.getBoundingClientRect(), rr = bar.getBoundingClientRect();
-    var w = br.width + 'px', t = 'translateX(' + (br.left - rr.left) + 'px)';
-    var moved = pill.style.transform !== t;
-    if (moved && pill.style.transform && !pill.dataset.init) {
-      pill.classList.remove('go'); void pill.offsetWidth; pill.classList.add('go');
-    }
+    var b = $('button.on', bar);
+    if (!b || b.hidden || !b.offsetWidth) return;
+    var t = 'translateX(' + b.offsetLeft + 'px)', w = b.offsetWidth + 'px';
+    var first = !pill.style.transform;
+    if (first) pill.style.transition = 'none';          // اولین جایگذاری بدونِ «پرواز» از گوشه
+    else if (pill.style.transform !== t) { pill.classList.remove('go'); void pill.offsetWidth; pill.classList.add('go'); }
     pill.style.width = w;
     pill.style.transform = t;
+    if (first) { void pill.offsetWidth; pill.style.transition = ''; }
   }
   function go(name, opts) {
     if (name === 'players' && opts) { if (opts.f) P.f = opts.f; if (opts.sort) P.sort = opts.sort; }
@@ -815,8 +820,10 @@
       b.hidden = !ok; if (ok) n++;
     });
     bar.classList.toggle('six', n >= 6);
+    bar.classList.remove('pending');   // تا قبل از رسیدنِ دسترسی‌ها نوار پنهان است (نه «فقط سه دکمه»)
     if (!show[cur]) go('home');
     movePill();
+    requestAnimationFrame(movePill);
   }
 
   /* ─── راه‌اندازی ─────────────────────────────────────────── */
@@ -839,6 +846,8 @@
   function refresh(first) {
     return api('/hub/api/bootstrap').then(function (d) {
       S.boot = d; lastFetch = Date.now(); LS.set(K_BOOT, d); renderAll();
+      var pf = function () { if (d.caps && d.caps.length) withManage(function (m) { m.prefetch(); }); };
+      if (window.requestIdleCallback) window.requestIdleCallback(pf); else setTimeout(pf, 800);
     }).catch(function (e) {
       if (e.code === 401 || e.code === 403) { gate(e.code, e.data); return; }
       if (first && !S.boot) gate(0);
@@ -861,7 +870,15 @@
     });
     requestAnimationFrame(movePill);
     setTimeout(movePill, 250);
-    if (window.ResizeObserver) new ResizeObserver(movePill).observe(bar);
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(movePill);
+      ro.observe(bar);
+      bar.querySelectorAll('button[data-go]').forEach(function (x) { ro.observe(x); });
+    }
+    if (doc.fonts && doc.fonts.ready) doc.fonts.ready.then(movePill);
+    bar.addEventListener('animationend', function (e) { if (e.target === bar) movePill(); });
+    window.addEventListener('orientationchange', function () { setTimeout(movePill, 200); });
+    if (tg && tg.onEvent) { try { tg.onEvent('viewportChanged', movePill); } catch (e) {} }
   }
   function loadClockLater() { /* پیش‌بارگیریِ فایل بدونِ نمایش */
     if (clockState) return;
