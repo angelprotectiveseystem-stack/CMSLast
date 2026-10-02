@@ -189,7 +189,11 @@ const VIEW_DATA = {
   classes: () => [["/api/principal/classes"]],
   players: () => [["/api/principal/players"]],
   matches: () => [["/api/principal/matches", { period: "all" }]],
-  top: () => [["/api/principal/top", { period: "week" }], ["/api/principal/trends"]],
+  top: () => [["/api/principal/top", { period: "week" }]],
+};
+// داده‌هایی که برای «نمایش» لازم نیستند ولی همراهِ ورود به بخش در پس‌زمینه گرفته می‌شوند
+const VIEW_EXTRA = {
+  top: () => [["/api/principal/trends"]],
 };
 // آیا همهٔ دادهٔ این بخش همین حالا در کش هست؟ (پس بدونِ هیچ انتظاری می‌شود نشانش داد)
 function viewIsCached(view) {
@@ -197,7 +201,7 @@ function viewIsCached(view) {
   return jobs.length > 0 && jobs.every(([path, params]) => readEntry(cacheKeyOf(path, params || {})));
 }
 function prefetchView(view) {
-  const jobs = VIEW_DATA[view] ? VIEW_DATA[view]() : [];
+  const jobs = (VIEW_DATA[view] ? VIEW_DATA[view]() : []).concat(VIEW_EXTRA[view] ? VIEW_EXTRA[view]() : []);
   jobs.forEach(([path, params]) => prefetch(path, params));
 }
 
@@ -279,7 +283,10 @@ function setActiveDock(view) {
 }
 function bindNav() {
   document.querySelectorAll(".dock-item").forEach(btn => {
-    btn.addEventListener("pointerdown", () => prefetchView(btn.dataset.view), { passive: true });
+    const pre = () => prefetchView(btn.dataset.view);
+    btn.addEventListener("pointerenter", pre, { passive: true });
+    btn.addEventListener("pointerdown", pre, { passive: true });
+    btn.addEventListener("focus", pre, { passive: true });
     btn.addEventListener("click", () => switchView(btn.dataset.view));
   });
   if (trendsBtnEl) trendsBtnEl.addEventListener("click", toggleTrendsPanel);
@@ -308,7 +315,7 @@ async function switchView(view) {
     await new Promise(r => setTimeout(r, 80));
   }
 
-  viewBodyEl.innerHTML = skeletonHTML(3, view === "top" || view === "classes");
+  if (!cachedNow) viewBodyEl.innerHTML = skeletonHTML(3, view === "top" || view === "classes");
   try {
     await RENDERERS[view]();
   } catch (e) {
@@ -581,7 +588,11 @@ async function renderMatches(period = "all", searchTerm = "") {
     countEl.textContent = list.length ? list.length + " مسابقه" : "";
     listEl.innerHTML = list.length ? list.map(matchCard).join("") : emptyHTML("مسابقه‌ای با این مشخصات یافت نشد.", "i-board");
   }
-  searchEl.addEventListener("input", draw);
+  let matchesSearchDebounce;
+  searchEl.addEventListener("input", () => {
+    clearTimeout(matchesSearchDebounce);
+    matchesSearchDebounce = setTimeout(draw, 90);
+  });
   draw();
 }
 
@@ -813,7 +824,17 @@ const rgSuggEl = document.getElementById("assistant-suggestions");
 const rgFormEl = document.getElementById("assistant-form");
 const rgInputEl = document.getElementById("assistant-input");
 
+let rgLastWarm = 0;
+function warmAssistant() {
+  const now = Date.now();
+  if (now - rgLastWarm < 20000) return;
+  rgLastWarm = now;
+  const url = new URL("/api/principal/assistant/warm", window.location.origin);
+  url.searchParams.set("k", KEY);
+  fetch(url.toString()).catch(() => {});
+}
 function openRg() {
+  warmAssistant();
   rgEl.classList.add("open");
   rgEl.setAttribute("aria-hidden", "false");
   rgFabEl.setAttribute("aria-expanded", "true");
@@ -828,6 +849,10 @@ function closeRg() {
   rgFabEl.setAttribute("aria-expanded", "false");
   document.body.classList.remove("rg-open");
   window.__unlockBodyScroll && window.__unlockBodyScroll();
+}
+if (rgFabEl) {
+  rgFabEl.addEventListener("pointerenter", warmAssistant, { passive: true });
+  rgFabEl.addEventListener("pointerdown", warmAssistant, { passive: true });
 }
 if (rgFabEl) rgFabEl.addEventListener("click", () => (rgEl.classList.contains("open") ? closeRg() : openRg()));
 rgEl.querySelectorAll("[data-close]").forEach(el => el.addEventListener("click", closeRg));
@@ -914,7 +939,8 @@ rgFormEl.addEventListener("submit", (e) => {
 
 // ─── شروع ─────────────────────────────────────────────────────
 bindNav();
-switchView("home").then(warmUp);
+switchView("home");
+warmUp();
 
 // ─── اسپلش خوش‌آمدگویی ─────────────────────────────────────────
 (function runSplash() {
