@@ -135,11 +135,7 @@ function showOutage(reason) {
       <div class="outage-msg">${blocked
         ? "دسترسیِ این دستگاه به پنل مدیر مدرسه محدود شده است.<br>در صورتی که این اشتباه است، با پارسا کریمی در ارتباط باشید."
         : "با عرض پوزش، پنل نظارت شما بر مسابقات به دلیل مشکل در اجرای سیستم از دسترس خارج گشته‌.<br>این مشکل به زودی برطرف خواهد شد.<br>در این فاصله با پارسا کریمی در ارتباط باشید.<br>با تشکر از پیگیری و شکیبایی شما🙏"}</div>
-    </div>
-    <footer class="secured-by" dir="ltr" title="Chess Security Force">
-      <span class="logo sb-logo" aria-hidden="true"></span>
-      <span class="sb-text">Secured by <b>CSF</b></span>
-    </footer>`;
+    </div>`;
   document.body.appendChild(box);
   document.body.classList.add("rg-open");
 }
