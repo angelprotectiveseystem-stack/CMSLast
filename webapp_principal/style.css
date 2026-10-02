@@ -363,106 +363,28 @@ html[data-theme="dark"] .stat-ic { background: rgba(255, 112, 120, .12); }
 /* ── کارت بازیکن ──────────────────────────────────────────── */
 .pcard { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 10px 13px; align-items: center; padding: 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); content-visibility: auto; contain-intrinsic-size: 0 128px; }
 .pcard .tiles, .pcard .wdl { grid-column: 1 / -1; }
-/* بازیکنانِ ویژه (elite): حلقهٔ طلاییِ چرخان دورِ کارت + هالهٔ نور دورِ آواتار + درخششِ ستاره. */
+/* بازیکنانِ برتر (elite) و ویژه (special): فقط ظاهرِ ثابت — طبقِ دستورِ مدیر مدرسه
+   هیچ انیمیشنی روی کارتِ بازیکن‌ها وجود ندارد. */
 .pcard.is-elite {
   border-color: transparent;
   background: linear-gradient(120deg, var(--gold-soft), transparent 55%), var(--surface);
-  box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--gold) 45%, transparent), 0 10px 24px -16px color-mix(in srgb, var(--gold) 70%, transparent);
+  box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--gold) 55%, transparent), 0 10px 24px -16px color-mix(in srgb, var(--gold) 70%, transparent);
 }
-/* حلقهٔ طلایی: قبلاً با انیمیت‌کردنِ زاویهٔ conic-gradient ساخته می‌شد که یعنی هر فریم
-   repaint (نه فقط compositing) — با چند کارتِ «برتر» همزمان رو صفحه، همین لگِ پنل بازیکن‌ها رو می‌ساخت.
-   الان: ماسکِ حلقه (شکلِ ثابت، دورِ کارت) رو یه لایهٔ ساکن نگه می‌داریم، و فقط لایهٔ چرخانِ
-   زیرش (بزرگ‌تر از کارت) رو با transform می‌چرخونیم — فقط compositor، بدون repaint. */
-.pcard.is-elite .elite-ring {
-  position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; pointer-events: none;
-  overflow: hidden; z-index: 1;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor; mask-composite: exclude;
-  opacity: .9;
-}
-.pcard.is-elite .elite-ring::before {
-  content: ""; position: absolute; inset: -50%;
-  background: conic-gradient(from 0deg, var(--gold), transparent 30%, transparent 70%, var(--gold));
-  animation: elite-spin 4s linear infinite;
-  animation-play-state: paused; /* فقط وقتی کارت رویِ صفحه دیده می‌شود اجرا می‌شود، نه همیشه برایِ همه‌ی کارت‌ها */
-}
-.pcard.is-elite.in-view .elite-ring::before { animation-play-state: running; will-change: transform; }
-@keyframes elite-spin { to { transform: rotate(360deg); } }
 .pcard.is-elite .avatar {
-  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--gold), 0 0 14px -2px color-mix(in srgb, var(--gold) 75%, transparent);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--gold);
 }
-.pcard.is-elite .pc-main h4 .ic { color: var(--gold); animation: elite-star 1.8s ease-in-out infinite; animation-play-state: paused; }
-.pcard.is-elite.in-view .pc-main h4 .ic { animation-play-state: running; }
-@keyframes elite-star { 0%, 100% { transform: scale(1) rotate(0deg); } 50% { transform: scale(1.22) rotate(10deg); } }
+.pcard.is-elite .pc-main h4 .ic { color: var(--gold); }
 
-/* ── نیروهای ویژه (⚡ is_special) ─────────────────────────────
-   هویتِ بصریِ کاملاً جدا از بازیکنانِ برتر (طلاییِ چرخان): «انرژیِ الکتریکی» با رنگِ بنفش‌-آبی —
-   یک درخششِ نوریِ مورب که هر چند ثانیه از رویِ کارت رد می‌شود، هالهٔ ضربان‌دارِ دورِ آواتار، و رعدی که مثلِ جرقه سوسو می‌زند.
-   فقط transform و opacity انیمیت می‌شوند (بدون رنگ‌آمیزیِ دوباره) تا روی گوشی هم روان بماند. */
 :root { --volt: #6a4be0; --volt-2: #1596c9; --volt-soft: rgba(106, 75, 224, .13); }
 html[data-theme="dark"] { --volt: #a58fff; --volt-2: #62d6ff; --volt-soft: rgba(165, 143, 255, .16); }
 
-.pcard.is-special { overflow: hidden; isolation: isolate; }
-/* ظاهرِ کارت (اگر همزمان «برتر» هم باشد، همان قابِ طلاییِ برتر می‌ماند و فقط افکت‌های ویژه به آن اضافه می‌شود) */
 .pcard.is-special:not(.is-elite) {
   border-color: color-mix(in srgb, var(--volt) 42%, var(--line));
   background: linear-gradient(115deg, var(--volt-soft), transparent 60%), var(--surface);
   box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--volt) 20%, transparent), 0 12px 26px -16px color-mix(in srgb, var(--volt) 65%, transparent);
 }
-/* نورِ مورب که رویِ کارت می‌گذرد */
-.pcard.is-special::after {
-  content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 46%; z-index: 1; pointer-events: none;
-  background: linear-gradient(100deg, transparent 0%, color-mix(in srgb, var(--volt-2) 26%, transparent) 42%, color-mix(in srgb, #fff 38%, transparent) 50%, transparent 100%);
-  transform: translate3d(-130%, 0, 0) skewX(-18deg);
-  animation: volt-sweep 4.2s cubic-bezier(.4, 0, .2, 1) var(--vd, 0s) infinite;
-  animation-play-state: paused;
-}
-.pcard.is-special.in-view::after { animation-play-state: running; will-change: transform; }
-@keyframes volt-sweep {
-  0%, 55% { transform: translate3d(-130%, 0, 0) skewX(-18deg); }
-  100%    { transform: translate3d(330%, 0, 0) skewX(-18deg); }
-}
-/* هالهٔ ضربان‌دارِ دورِ آواتار */
 .pcard.is-special:not(.is-elite) .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--volt); }
-.pcard.is-special .avatar { position: relative; }
-.pcard.is-special .avatar::after {
-  content: ""; position: absolute; inset: -4px; border-radius: 20px; pointer-events: none;
-  border: 2px solid var(--volt-2); opacity: 0;
-  animation: volt-pulse 2.4s ease-out var(--vd, 0s) infinite;
-  animation-play-state: paused;
-}
-.pcard.is-special.in-view .avatar::after { animation-play-state: running; will-change: transform, opacity; }
-@keyframes volt-pulse {
-  0%       { opacity: .75; transform: scale(.92); }
-  70%, 100% { opacity: 0; transform: scale(1.28); }
-}
-/* رعدِ کنارِ نام: مثلِ جرقه سوسو می‌زند */
-.pcard.is-special .pc-main h4 .ic.bolt {
-  color: var(--volt-2); filter: drop-shadow(0 0 4px color-mix(in srgb, var(--volt-2) 80%, transparent));
-  animation: volt-flicker 3.2s linear var(--vd, 0s) infinite;
-  animation-play-state: paused;
-}
-.pcard.is-special.in-view .pc-main h4 .ic.bolt { animation-play-state: running; }
-@keyframes volt-flicker {
-  0%, 20%, 100% { opacity: 1; transform: scale(1); }
-  4%  { opacity: .3; }
-  7%  { opacity: 1; transform: scale(1.2); }
-  11% { opacity: .45; }
-  15% { opacity: 1; transform: scale(1); }
-}
-/* هر کارت زمانِ خودش را دارد تا همه‌ی کارت‌ها هم‌زمان نورگیری نکنند */
-.stack > .pcard.is-special:nth-child(2n) { --vd: -1.7s; }
-.stack > .pcard.is-special:nth-child(3n) { --vd: -2.9s; }
-/* روی گوشی‌های ضعیف یا وقتی کاربر انیمیشن‌های سیستم را خاموش کرده، همه‌ی جلوه‌ها کاملاً خاموش می‌شوند */
-@media (prefers-reduced-motion: reduce) {
-  .pcard.is-elite .elite-ring::before,
-  .pcard.is-elite .pc-main h4 .ic,
-  .pcard.is-special::after,
-  .pcard.is-special .avatar::after,
-  .pcard.is-special .pc-main h4 .ic.bolt {
-    animation: none !important;
-  }
-}
+.pcard.is-special .pc-main h4 .ic.bolt { color: var(--volt-2); }
 .avatar { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 16px; font-size: 19px; font-weight: 800; color: #fff3da; background: linear-gradient(135deg, var(--c1, #a3121b), var(--c2, #6f0a11)); }
 .avatar.t1 { --c1: #b8801f; --c2: #7a520c; }
 .avatar.t2 { --c1: #7d2a55; --c2: #4e1236; }
@@ -667,41 +589,92 @@ body.ready .fab:active { transform: scale(.9); transition-delay: 0s; transition-
   .stat--wide { grid-column: span 2; }
 }
 
+/* ── گوشی/تبلت: این‌ها فقط ساختارِ بی‌اثر روی موبایل‌اند ── */
+.toolbar { display: block; }
+.home-layout, .home-main, .home-side { display: block; }
+.dock-brand { display: none; }
+
 /* ── دسکتاپِ واقعی (کامپیوتر) ─────────────────────────────────
-   تا اینجا فقط عرضِ محتوا کمی باز می‌شد؛ خودِ چیدمان (ناوبریِ پایین،
-   یک ستون کارت، پنلِ رهگشا مثل یک ورق‌خواب) دقیقاً همون چیدمانِ گوشی
-   بود، فقط وسطِ صفحه‌ی بزرگ. از اینجا به بعد واقعاً برای صفحه‌کلید/موس
-   و عرضِ زیاد بازطراحی می‌شه: ناوبری از نوارِ پایین به سایدبارِ کنار
-   تبدیل می‌شه، کارت‌ها چندستونه می‌شن، و رهگشا به‌جای ورق‌خوابِ
-   تمام‌عرض، یک پنجرهٔ شناورِ کوچیکه (مثل ویجت‌های گفتگوی دسکتاپی). */
-@media (min-width: 1080px) {
-  :root { --sidebar-w: 84px; }
+   یک رابطِ کاملاً مجزا از گوشی: سایدبارِ تمام‌قد با برند و منوی برچسب‌دار،
+   محتوای عریض با شبکهٔ چندستونه، صفحهٔ خانه دو ستونه (آمار | نفرات برتر)،
+   نوارِ ابزارِ افقی (جستجو + فیلتر) و رهگشا به‌صورتِ پنجرهٔ شناور. */
+@media (min-width: 1024px) {
+  :root { --sidebar-w: 268px; --brand-h: 150px; --nav-gap: 6px; --nav-item-h: 52px; }
 
-  body { padding-inline-start: calc(var(--sidebar-w) + 40px); }
-  .page { width: min(100%, 900px); padding-bottom: 48px; }
+  body { padding-inline-start: var(--sidebar-w); }
+  .page { width: min(100%, 1280px); padding: 20px 44px 56px; }
 
-  /* سایدبارِ ناوبری (همون HTML/JS قبلی؛ فقط جهتِ چیدمان عوض شده) */
+  /* سایدبارِ تمام‌قد */
   .dock {
-    grid-template-columns: 1fr; grid-template-rows: repeat(5, 1fr);
-    left: auto; right: auto; bottom: auto; top: 50%; margin-inline: 0;
-    inset-inline-start: 22px;
-    width: var(--sidebar-w); height: min(76vh, 470px); padding: 8px;
-    transform: translateY(-50%) translateX(140%);
-    transition: transform .8s .1s var(--spring);
+    display: flex; flex-direction: column; gap: var(--nav-gap);
+    left: auto; right: auto; bottom: 0; top: 0; margin-inline: 0; inset-inline-start: 0;
+    width: var(--sidebar-w); height: auto; padding: 24px 16px;
+    border-radius: 0; border: 0; border-inline-end: 1px solid var(--line);
+    background: var(--surface); box-shadow: none;
+    transform: none; transition: none;
   }
-  body.ready .dock { transform: translateY(-50%); }
+  .dock-brand {
+    display: grid; justify-items: center; align-content: start; gap: 4px; height: var(--brand-h);
+    margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--line); text-align: center;
+  }
+  .dock-brand .logo { --logo: 64px; margin-bottom: 8px; }
+  .dock-brand b { font-size: 16px; font-weight: 800; line-height: 1.5; }
+  .dock-brand small { font-size: 12px; color: var(--muted); }
   .dock-thumb {
-    inset-inline-start: 8px; top: 8px; bottom: auto;
-    width: calc(100% - 16px); height: calc((100% - 16px) / 5);
-    transform: translateY(calc(var(--i, 0) * 100%));
+    top: calc(24px + var(--brand-h) + 20px); bottom: auto; inset-inline-start: 16px;
+    width: calc(100% - 32px); height: var(--nav-item-h); border-radius: 16px;
+    transform: translateY(calc(var(--i, 0) * (var(--nav-item-h) + var(--nav-gap))));
+  }
+  .dock-item {
+    display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: 14px;
+    height: var(--nav-item-h); padding-inline: 18px; border-radius: 16px; font-size: 14.5px;
   }
   .dock-item .ic { width: 22px; height: 22px; }
-  .dock-item span { font-size: 10.5px; }
+  .dock-item span { font-size: 14.5px; }
+  .dock-item.is-on .ic { transform: none; }
+  .dock-item:not(.is-on):hover { color: var(--ink); background: var(--surface-2); }
 
-  /* دکمهٔ شناورِ رهگشا: گوشه‌ی پایینِ محتوا (نه بالای یک دکِ پایینی که دیگه اونجا نیست) */
+  /* نوار ابزارِ بالا */
+  .util { height: 56px; }
+  .icon-btn { width: 42px; height: 42px; }
+
+  /* سربرگِ خانه: افقی و چپ‌چین (در RTL یعنی کنارِ شروع) */
+  .hero { grid-template-columns: auto 1fr; justify-items: start; text-align: start; column-gap: 20px; row-gap: 0; padding: 8px 0 30px; }
+  .hero .logo { --logo: 76px; grid-row: 1 / span 2; align-self: center; }
+  .hero h1 { grid-column: 2; align-self: end; font-size: 34px; }
+  .hero p { grid-column: 2; align-self: start; margin-top: 4px; font-size: 14.5px; }
+  .page-head { padding: 8px 0 24px; }
+  .page-head h2 { font-size: 32px; }
+
+  /* خانه: دو ستون */
+  .home-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+  .home-main, .home-side { display: block; min-width: 0; }
+  .home-side .section-head { margin-top: 0; }
+  .stat-grid { grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .stat--hero, .stat--wide { grid-column: auto; }
+  .stat { min-height: 150px; }
+  .stat--hero { min-height: 150px; }
+
+  /* نوار ابزارِ افقی: جستجو + فیلتر */
+  .toolbar { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 4px; }
+  .toolbar .search { flex: 1; min-width: 0; margin-bottom: 14px; }
+  .toolbar .sheets { flex: none; width: 380px; margin-bottom: 14px; }
+  .count { margin-top: 0; }
+
+  /* شبکهٔ کارت‌ها */
+  .stack { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; align-items: start; }
+  .trends-body { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+
+  /* نفرات برتر در صفحهٔ «برترین‌ها»: دو ستونه */
+  #top-list { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+  #top-list .top-row { background-color: var(--surface); border-top: 0; }
+  #top-list .top-row:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  #top-list .top-row:hover { background-color: var(--surface-2); }
+
+  /* دکمهٔ شناورِ رهگشا */
   .fab { left: auto; bottom: 28px; inset-inline-end: 28px; }
 
-  /* پنلِ رهگشا: به‌جای ورق‌خوابِ تمام‌عرض، یک پنجرهٔ شناورِ کوچیکِ کنارِ دکمه */
+  /* پنلِ رهگشا: پنجرهٔ شناورِ کوچک */
   .rg-backdrop { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
   .rg-panel {
     left: auto; right: auto; bottom: 96px; margin-inline: 0;
@@ -714,23 +687,19 @@ body.ready .fab:active { transform: scale(.9); transition-delay: 0s; transition-
   }
   .rg.open .rg-panel { transform: none; opacity: 1; }
 
-  /* کارت‌ها: به‌جای یک ستونِ کشیده، چندستونه بر اساسِ عرضِ موجود */
-  .stack { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); align-items: start; }
-  .trends-body { grid-template-columns: repeat(2, 1fr); }
-
-  /* هاور: روی موس/تاچ‌پد فیدبکِ بصری بده (چیزی که روی گوشی اصلاً معنی نداره ولی
-     روی دسکتاپ نبودنش باعث می‌شه همه‌چیز «بی‌فرق با گوشی» حس بشه) */
-  .ccard, .pcard, .mcard, .top-row {
-    transition: transform .22s var(--ease-out), box-shadow .22s var(--ease-out);
-  }
+  /* هاور */
+  .ccard, .pcard, .mcard { transition: transform .22s var(--ease-out), box-shadow .22s var(--ease-out); }
   .ccard:hover, .pcard:hover, .mcard:hover {
     transform: translateY(-3px);
     box-shadow: var(--shadow), 0 16px 30px -20px rgba(20, 8, 8, .4);
   }
-  .top-row:hover { background: var(--surface-2); }
-  .dock-item:not(.is-on):hover { color: var(--ink); }
   .link:hover { text-decoration: underline; }
   .sugg-chip:hover { filter: brightness(1.05); }
+}
+
+/* دسکتاپِ خیلی عریض: سه‌ستونه */
+@media (min-width: 1500px) {
+  .stack { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
 }
 @media (max-width: 370px) {
   .sheet { font-size: 12px; gap: 3px; }

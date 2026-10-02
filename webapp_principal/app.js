@@ -363,6 +363,8 @@ async function renderHome() {
   const rows = (top.leaderboard || []).slice(0, 5);
 
   viewBodyEl.innerHTML = `
+    <div class="home-layout">
+    <div class="home-main">
     <div class="stat-grid">
       ${statCard("i-school", s.classes_total, "کلاس", { hero: true })}
       ${statCard("i-pawn", s.players_total, s.players_active + " نفر فعال")}
@@ -371,11 +373,15 @@ async function renderHome() {
       ${statCard("i-flag", s.matches_decided, "مسابقهٔ با نتیجه")}
       ${statCard("i-trophy", s.tournaments_active, "تورنومنت فعال")}
     </div>
+    </div>
+    <div class="home-side">
     <div class="section-head">
       <h3><svg class="ic" aria-hidden="true"><use href="#i-trophy"/></svg>نفرات برتر این هفته</h3>
       <button class="link" type="button" data-goto="top">مشاهدهٔ همه</button>
     </div>
     <ul class="board" id="home-top"></ul>
+    </div>
+    </div>
   `;
   const box = document.getElementById("home-top");
   box.innerHTML = rows.length ? rows.map((r, i) => topRow(r, i)).join("") : emptyHTML("این هفته هنوز مسابقه‌ای با نتیجه ثبت نشده.", "i-trophy");
@@ -423,7 +429,6 @@ async function renderClasses() {
 function playerCard(p) {
   return `
     <div class="pcard ${p.is_elite ? "is-elite" : ""} ${p.is_special ? "is-special" : ""}">
-      ${p.is_elite ? '<i class="elite-ring" aria-hidden="true"></i>' : ""}
       <span class="avatar ${avatarTone(p.full_name)}">${esc(initials(p.full_name))}</span>
       <div class="pc-main">
         <h4>${esc(p.full_name)}${p.is_elite ? '<svg class="ic" aria-hidden="true"><use href="#i-star"/></svg>' : ""}${p.is_special ? '<svg class="ic bolt" aria-hidden="true"><use href="#i-bolt"/></svg>' : ""}</h4>
@@ -440,18 +445,6 @@ function playerCard(p) {
     </div>`;
 }
 
-// فقط کارت‌های «برتر/ویژه»ای که واقعاً رویِ صفحه دیده می‌شوند انیمیشن می‌گیرند (کلاسِ in-view) —
-// با ۳۰-۴۰ نیرویِ ویژه، بقیه‌شان که پایینِ لیست و خارج از دید هستند، هیچ فریمی مصرف نمی‌کنند.
-let specialCardsObserver = null;
-function watchSpecialCards(container) {
-  if (!("IntersectionObserver" in window)) return;
-  if (specialCardsObserver) specialCardsObserver.disconnect();
-  else specialCardsObserver = new IntersectionObserver((entries) => {
-    entries.forEach(en => en.target.classList.toggle("in-view", en.isIntersecting));
-  }, { rootMargin: "200px 0px", threshold: 0 });
-  container.querySelectorAll(".pcard.is-elite, .pcard.is-special").forEach(el => specialCardsObserver.observe(el));
-}
-
 async function renderPlayers() {
   beginRender(renderPlayers);
   const data = await api("/api/principal/players");
@@ -461,6 +454,7 @@ async function renderPlayers() {
     return;
   }
   viewBodyEl.innerHTML = `
+    <div class="toolbar">
     <div class="search">
       <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
       <input type="text" id="players-search" placeholder="جستجوی نام بازیکن یا کلاس…" autocomplete="off">
@@ -469,6 +463,7 @@ async function renderPlayers() {
       <span class="sheet-thumb" aria-hidden="true"></span>
       <button class="sheet is-on" type="button" data-f="all"><svg class="ic" aria-hidden="true"><use href="#i-pawn"/></svg>همه</button>
       <button class="sheet" type="button" data-f="active"><svg class="ic" aria-hidden="true"><use href="#i-flag"/></svg>فعال</button>
+    </div>
     </div>
     <p class="count" id="players-count"></p>
     <div class="stack" id="players-list"></div>
@@ -491,7 +486,6 @@ async function renderPlayers() {
     }
     countEl.textContent = rows.length ? rows.length + " بازیکن" : "";
     listEl.innerHTML = rows.length ? rows.map(playerCard).join("") : emptyHTML("بازیکنی با این مشخصات یافت نشد.", "i-search");
-    watchSpecialCards(listEl);
   }
   sheetBtns.forEach((b, i) => {
     b.addEventListener("click", () => {
@@ -546,6 +540,7 @@ function matchCard(m) {
 async function renderMatches(period = "all", searchTerm = "") {
   beginRender(() => renderMatches(period, searchTerm));
   viewBodyEl.innerHTML = `
+    <div class="toolbar">
     <div class="search">
       <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
       <input type="text" id="matches-search" placeholder="جستجوی نام بازیکن…" autocomplete="off">
@@ -553,6 +548,7 @@ async function renderMatches(period = "all", searchTerm = "") {
     <div class="sheets" id="matches-filter" style="--n:${MATCH_PERIODS.length}">
       <span class="sheet-thumb" aria-hidden="true"></span>
       ${MATCH_PERIODS.map(p => `<button class="sheet" type="button" data-f="${p.f}"><svg class="ic" aria-hidden="true"><use href="#${p.ic}"/></svg>${p.label}</button>`).join("")}
+    </div>
     </div>
     <p class="count" id="matches-count"></p>
     <div class="stack" id="matches-list">${skeletonHTML(3)}</div>
