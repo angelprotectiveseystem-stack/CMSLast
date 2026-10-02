@@ -45,7 +45,7 @@ CAP_KEYS = [c[0] for c in CAPS]
 # فقط مدیر ارشد؛ هیچ override‌ای هم اثر ندارد.
 # player_delete (حذفِ کاملِ بازیکن) فقط مدیر ارشد: از CAPS برداشته شد تا نه نقشِ پیش‌فرضی بتواند داشته
 # باشد و نه هیچ overrideی (حتی اگر قبلاً در permissions یک مدیر ذخیره شده باشد) اثری داشته باشد.
-PISHVA_ONLY = ("admins_manage", "settings", "pishva_panel", "player_delete")
+PISHVA_ONLY = ("admins_manage", "settings", "pishva_panel", "player_delete", "match_scan")
 
 ROLE_DEFAULTS = {
     ROLE_TOURNAMENT_MANAGER: {

@@ -1530,6 +1530,17 @@ async def create_match(white_id, black_id, match_date, tournament_id, created_by
         return cur.lastrowid
 
 
+async def get_matches_on_date(match_date: str):
+    """مسابقه‌های یک تاریخ (برای هشدارِ «تکراری» در ثبت با عکس)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT white_player_id, black_player_id, result FROM matches WHERE substr(match_date,1,10)=?",
+            (str(match_date)[:10],)
+        ) as cur:
+            return await cur.fetchall()
+
+
 async def get_match(mid: int):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row

@@ -571,6 +571,113 @@ async def api_match_create(request):
     return _ok(id=mid)
 
 
+# ─── ثبتِ نتیجه با عکس (فقط مدیر ارشد) ─────────────────────────────
+_scan_busy = set()          # جلوگیری از دوبار-زدن (هر اسکن هزینه دارد)
+SCAN_COMMIT_CHUNK = 20
+
+
+@routes.post("/hub/api/match/scan")
+async def api_match_scan(request):
+    c = await _ctx(request, "match_scan")
+    if not c.is_pishva:
+        raise _fail("pishva_only", "این قابلیت فقط برای مدیر ارشد است.", 403)
+    if c.uid in _scan_busy:
+        raise _fail("busy", "عکسِ قبلی هنوز در حال خوانده‌شدن است.", 429)
+    _scan_busy.add(c.uid)          # بلافاصله (قبل از هر await) تا دو درخواستِ هم‌زمان رد نشوند
+    try:
+        b = await _body(request)
+        import match_vision as mv
+        try:
+            raw, mime = mv.decode_image(b.get("image"), b.get("mime") or "")
+        except ValueError as e:
+            raise _fail("bad_image", str(e), 400)
+        players = [p for p in await db.get_all_players() if (p["status"] or "active") == "active"]
+        roster = mv.make_roster(players)
+        try:
+            data = await mv.extract_matches(raw, mime, [r["name"] for r in roster])
+        except mv.VisionError as e:
+            raise _fail("ai_" + e.code, e.message, 503 if e.code == "no_key" else 502)
+    finally:
+        _scan_busy.discard(c.uid)
+    review = mv.build_review(data, roster)
+    if not review["items"]:
+        raise _fail("nothing_found", "در عکس مسابقه‌ای پیدا نشد. عکسِ واضح‌تر و کامل‌تری بفرستید.", 422)
+    # هشدارِ تکراری: همان دو نفر با همان رنگ، هم‌تاریخِ امروز، از قبل ثبت شده
+    today = today_gregorian()
+    exist = {(r["white_player_id"], r["black_player_id"]) for r in await db.get_matches_on_date(today)}
+    for it in review["items"]:
+        it["dup"] = bool(it["w"]["id"] and it["b"]["id"] and (it["w"]["id"], it["b"]["id"]) in exist)
+    review["today"] = today
+    await db.log_action(c.uid, "scan_matches", f"خواندنِ عکسِ برگه: {len(review['items'])} ردیف")
+    return hub._json(review)
+
+
+@routes.post("/hub/api/match/scan/commit")
+async def api_match_scan_commit(request):
+    c = await _ctx(request, "match_scan", write=True)
+    if not c.is_pishva:
+        raise _fail("pishva_only", "این قابلیت فقط برای مدیر ارشد است.", 403)
+    b = await _body(request)
+    items = b.get("items")
+    if not isinstance(items, list) or not items:
+        raise _fail("bad_request", "موردی برای ثبت نیست.")
+    if len(items) > SCAN_COMMIT_CHUNK:
+        raise _fail("too_many", f"در هر مرحله حداکثر {SCAN_COMMIT_CHUNK} مورد.")
+    md = _valid_date(b.get("date") or today_gregorian())
+    tid = None
+    if b.get("tournament_id"):
+        t = await db.get_tournament(_int(b["tournament_id"], "مسابقه"))
+        if not t:
+            raise _fail("not_found", "مسابقه/تورنمنت پیدا نشد.", 404)
+        tid = t["id"]
+    else:
+        dt = await db.get_default_tournament()
+        tid = dt["id"] if dt else None
+    pmap = {p["id"]: p for p in await db.get_all_players()}
+    created, failed = 0, []
+    try:
+        await elo.ensure_elo_table()
+    except Exception:
+        logger.warning("hub_api: ensure_elo_table failed", exc_info=True)
+    # ترتیبِ برگه حفظ می‌شود (Elo به ترتیبِ بازی‌ها حساب می‌شود) و تک‌به‌تک؛ خطای یک ردیف بقیه را نمی‌خوابانَد.
+    for it in items:
+        idx = it.get("i") if isinstance(it, dict) else None
+        try:
+            wid, bid = _int(it.get("white_id"), "سفید"), _int(it.get("black_id"), "سیاه")
+            res = it.get("result") or None
+            if res not in (None, "white", "black", "draw"):
+                raise _fail("bad_request", "نتیجه‌ی نامعتبر.")
+            if wid == bid:
+                raise _fail("same_player", "سفید و سیاه یک نفر است.")
+            for pid_ in (wid, bid):
+                p = pmap.get(pid_)
+                if not p:
+                    raise _fail("not_found", "بازیکن پیدا نشد.", 404)
+                if (p["status"] or "active") != "active":
+                    raise _fail("inactive", f"«{p['full_name']}» فعال نیست.")
+            mid = await db.create_match(wid, bid, md, tid, c.uid)
+            if res:
+                reason = "توافقی" if res == "draw" else ""
+                fresh = await db.get_match(mid)
+                await db.record_match_result(mid, res, reason, c.uid, match=fresh)
+                try:
+                    await elo.update_elo_after_match(wid, bid, res, mid)
+                except Exception:
+                    logger.warning("hub_api: Elo update failed (scan)", exc_info=True)
+            created += 1
+        except Exception as e:
+            msg = getattr(e, "text", None) or str(e) or "خطا"
+            try:
+                msg = json.loads(msg).get("message", msg)
+            except Exception:
+                pass
+            logger.warning("hub_api: scan commit item %s failed: %s", idx, msg)
+            failed.append({"i": idx, "message": str(msg)[:120]})
+    if created:
+        await db.log_action(c.uid, "scan_commit", f"ثبت با عکس: {created} مسابقه")
+    return hub._json({"ok": True, "created": created, "failed": failed})
+
+
 @routes.post("/hub/api/match/{id}/edit")
 async def api_match_edit(request):
     c = await _ctx(request, "match_edit", write=True)
