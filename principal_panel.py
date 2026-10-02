@@ -236,7 +236,83 @@ def _disabled_page():
 
 
 def _json(data):
-    return web.json_response(data, dumps=lambda o: json.dumps(o, ensure_ascii=False, default=str))
+    resp = web.json_response(data, dumps=lambda o: json.dumps(o, ensure_ascii=False, default=str))
+    try:
+        resp.enable_compression()   # فهرست‌های بلند (بازیکن‌ها/مسابقات) با gzip خیلی کم‌حجم‌تر می‌رسن
+    except Exception:
+        pass
+    return resp
+
+
+# ─── کش «تازه + کهنهٔ فوری» (stale-while-revalidate) روی خروجیِ APIها ──────
+# لایهٔ database.py فقط خودِ جدول‌ها را ۱۵ ثانیه کش می‌کند؛ ولی بعد از انقضا، اولین
+# کلیکِ مدیر مجبور بود منتظرِ چند رفت‌وبرگشتِ شبکه‌ای به Turso بماند. اینجا خروجیِ نهایی
+# (JSON ساخته‌شده) نگه داشته می‌شود:
+#   • تا _RESP_FRESH ثانیه: بدونِ هیچ کاری فوری برمی‌گردد.
+#   • تا _RESP_STALE_MAX ثانیه: همان لحظه نسخهٔ قبلی برمی‌گردد و هم‌زمان در پس‌زمینه تازه می‌شود.
+#   • قدیمی‌تر: مثلِ قبل منتظرِ داده‌ی تازه می‌ماند (تا هیچ‌وقت داده‌ی خیلی کهنه نمایش داده نشود).
+# درخواست‌های هم‌زمانِ یک کلید در یک محاسبه ادغام می‌شوند (۵ کلیکِ پشتِ‌سرهم = ۱ کوئری).
+_RESP_FRESH = 10
+_RESP_STALE_MAX = 60
+_resp_cache = {}        # key -> (text, fresh_until, stale_until)
+_resp_refreshing = {}   # key -> asyncio.Task
+
+
+def _swr_refresh(key, compute):
+    import time
+    task = _resp_refreshing.get(key)
+    if task is not None and not task.done():
+        return task
+
+    async def run():
+        try:
+            value = await compute()
+            now = time.monotonic()
+            if len(_resp_cache) > 200:
+                _resp_cache.clear()
+            _resp_cache[key] = (value, now + _RESP_FRESH, now + _RESP_STALE_MAX)
+            return value
+        finally:
+            _resp_refreshing.pop(key, None)
+
+    task = asyncio.create_task(run())
+    _resp_refreshing[key] = task
+    # خطای تسکِ پس‌زمینه نباید «Task exception was never retrieved» بسازد
+    task.add_done_callback(lambda t: t.cancelled() or t.exception())
+    return task
+
+
+async def _swr(key, compute):
+    import time
+    hit = _resp_cache.get(key)
+    if hit:
+        value, fresh_until, stale_until = hit
+        now = time.monotonic()
+        if now < fresh_until:
+            return value
+        if now < stale_until:
+            _swr_refresh(key, compute)
+            return value
+    return await asyncio.shield(_swr_refresh(key, compute))
+
+
+async def _swr_response(request, compute):
+    """compute(request) باید یک web.Response (از _json) برگرداند؛ متنِ آن کش می‌شود."""
+    key = request.path + "?" + "&".join(
+        f"{k}={v}" for k, v in sorted(request.query.items()) if k != "k"
+    )
+
+    async def run():
+        resp = await compute(request)
+        return resp.text
+
+    text = await _swr(key, run)
+    out = web.Response(text=text, content_type="application/json", charset="utf-8")
+    try:
+        out.enable_compression()
+    except Exception:
+        pass
+    return out
 
 
 # ─── نفراتِ برتر: حالت (خودکار/دستی) از تلگرام تنظیم می‌شه ─────────────
@@ -361,15 +437,8 @@ def _result_fa(m):
 
 
 # ─── خلاصه کلی ────────────────────────────────────────────────────
-@routes.get("/api/principal/overview")
-async def principal_overview(request):
-    _require_auth(request)
-    await _require_not_blocked(request)
-    await _require_enabled(request)
-    # قبلاً این ۵ کوئری پشتِ‌سرِهم (نه هم‌زمان) اجرا می‌شدن — یعنی ۵ رفت‌وبرگشتِ
-    # کاملِ شبکه‌ای به Turso، یکی بعد از اون یکی. چون کاملاً مستقل از همدیگه‌ن،
-    # با gather هم‌زمان اجرا می‌شن و کل زمانِ انتظار برابرِ کندترین‌شون می‌شه،
-    # نه مجموعِ همه‌شون.
+async def _overview_stats_uncached() -> dict:
+    # این ۵ کوئری کاملاً مستقل‌اند → هم‌زمان (gather)، نه پشتِ‌سرِهم.
     classes, players, tournaments, matches_all, matches_week = await asyncio.gather(
         db.get_all_classes(),
         db.get_all_players(),
@@ -386,19 +455,38 @@ async def principal_overview(request):
     players_active = sum(1 for p in players if p and p["status"] == "active")
     decided = [m for m in matches_all if m and m["result"] in ("white", "black", "draw")]
     active_tournaments = [t for t in tournaments if t and t["status"] == "active"]
+    return {
+        "classes_total": len(classes),
+        "players_total": len(players),
+        "players_active": players_active,
+        "matches_total": len(matches_all),
+        "matches_this_week": len(matches_week),
+        "matches_decided": len(decided),
+        "tournaments_active": len(active_tournaments),
+    }
 
-    return _json({
-        "ok": True,
-        "stats": {
-            "classes_total": len(classes),
-            "players_total": len(players),
-            "players_active": players_active,
-            "matches_total": len(matches_all),
-            "matches_this_week": len(matches_week),
-            "matches_decided": len(decided),
-            "tournaments_active": len(active_tournaments),
-        },
-    })
+
+async def _overview_stats() -> dict:
+    """آمارِ خلاصه، کش‌شده؛ هم برای صفحهٔ «خانه» و هم برای پرامپتِ رهگشا (یک محاسبه برای هر دو)."""
+    import json as _j
+    text = await _swr("overview-stats", lambda: _stats_as_text())
+    return _j.loads(text)
+
+
+async def _stats_as_text() -> str:
+    return json.dumps(await _overview_stats_uncached(), ensure_ascii=False)
+
+
+@routes.get("/api/principal/overview")
+async def principal_overview(request):
+    _require_auth(request)
+    await _require_not_blocked(request)
+    await _require_enabled(request)
+    return await _swr_response(request, _compute_overview)
+
+
+async def _compute_overview(request):
+    return _json({"ok": True, "stats": await _overview_stats()})
 
 
 # ─── کلاس‌ها ──────────────────────────────────────────────────────
@@ -407,6 +495,10 @@ async def principal_classes(request):
     _require_auth(request)
     await _require_not_blocked(request)
     await _require_enabled(request)
+    return await _swr_response(request, _compute_classes)
+
+
+async def _compute_classes(request):
     # قبلاً برای هر کلاس یک کوئری جدا (get_players_by_class) زده می‌شد — یعنی
     # با N کلاس، N رفت‌وبرگشتِ شبکه‌ایِ اضافه، پشتِ‌سرِهم. چون get_all_players
     # همه‌ی بازیکن‌ها رو با class_id برمی‌گردونه (و الان کش هم می‌شه)، به‌جاش
@@ -436,6 +528,10 @@ async def principal_players(request):
     _require_auth(request)
     await _require_not_blocked(request)
     await _require_enabled(request)
+    return await _swr_response(request, _compute_players)
+
+
+async def _compute_players(request):
     players = await db.get_all_players() or []
     out = []
     for p in players:
@@ -460,6 +556,10 @@ async def principal_matches(request):
     _require_auth(request)
     await _require_not_blocked(request)
     await _require_enabled(request)
+    return await _swr_response(request, _compute_matches)
+
+
+async def _compute_matches(request):
     period = request.query.get("period", "all")
     matches = await db.get_matches_by_filter(period) or []
     out = []
@@ -524,6 +624,10 @@ async def principal_top(request):
     _require_auth(request)
     await _require_not_blocked(request)
     await _require_enabled(request)
+    return await _swr_response(request, _compute_top)
+
+
+async def _compute_top(request):
     mode = await _top_mode()
 
     if mode == "manual":
@@ -558,6 +662,10 @@ async def principal_trends(request):
     _require_auth(request)
     await _require_not_blocked(request)
     await _require_enabled(request)
+    return await _swr_response(request, _compute_trends)
+
+
+async def _compute_trends(request):
     import turso_db as _a
 
     now = datetime.now()
@@ -643,7 +751,7 @@ ASSISTANT_REQUEST_TIMEOUT = 20  # قبلاً ۱۲ بود؛ کوتاه بودنش
 # خطاهای گذرای Gemini (شلوغیِ سرور / محدودیتِ نرخ) معمولاً با یک تلاشِ مجدد و کمی صبر
 # برطرف می‌شن؛ قبلاً همون لحظه می‌رفتیم سراغِ مدلِ بعدی یا پیامِ خطا می‌دادیم.
 ASSISTANT_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
-ASSISTANT_RETRY_DELAY = 1.2  # ثانیه
+ASSISTANT_RETRY_DELAY = 0.6  # ثانیه (قبلاً ۱.۲)
 ASSISTANT_MAX_OUTPUT_TOKENS = 1024
 ASSISTANT_MAX_HISTORY_TURNS = 6  # چند رفت‌وبرگشت آخر (برای اینکه هر بار کل تاریخچه از کلاینت زیاد نشه)
 ASSISTANT_MAX_TOOL_HOPS = 4      # حداکثر چندبار پشتِ‌سرهم اجازه‌ی صدازدنِ تابع (فقط گزارش‌گیریه، نیازی به عدد بزرگ نیست)
@@ -712,13 +820,14 @@ async def _tool_get_teams(args: dict) -> str:
     teams = await db.get_all_teams() or []
     if not teams:
         return "هنوز هیچ تیمی ثبت نشده."
-    lines = []
-    for t in teams:
+    async def _team_line(t):
         members, tstats = await asyncio.gather(db.get_team_members(t["id"]), db.get_team_stats(t["id"]))
-        lines.append(
+        return (
             f"- {t['name']}: {len(members or [])} عضو | "
             f"{tstats['wins']} برد، {tstats['draws']} تساوی، {tstats['losses']} باخت"
         )
+    # همهٔ تیم‌ها هم‌زمان (قبلاً تیم‌به‌تیم و پشتِ‌سرِهم)
+    lines = list(await asyncio.gather(*[_team_line(t) for t in teams]))
     return "آمار تیم‌ها (بر اساسِ نتایجِ مسابقاتِ تیمی):\n" + "\n".join(lines)
 
 
@@ -732,13 +841,12 @@ async def _tool_get_tournaments(args: dict) -> str:
 
 
 async def _tool_get_staff(args: dict) -> str:
-    lines = [f"- مدیر ارشد: {await pishva_display()}"]
-    admins = await db.get_all_admins() or []
-    for a in admins:
-        if not a["is_active"]:
-            continue
+    admins = [a for a in (await db.get_all_admins() or []) if a["is_active"]]
+    names = await asyncio.gather(pishva_display(), *[admin_display(a) for a in admins])
+    lines = [f"- مدیر ارشد: {names[0]}"]
+    for a, name in zip(admins, names[1:]):
         role_fa = ASSISTANT_ROLE_FA.get(a["role"], a["role"])
-        lines.append(f"- {role_fa}: {await admin_display(a)}")
+        lines.append(f"- {role_fa}: {name}")
     return "\n".join(lines)
 
 
@@ -843,8 +951,10 @@ def _assistant_system_prompt(overview_stats: dict) -> str:
         f"مسابقات با نتیجه: {overview_stats.get('matches_decided', 0)} | "
         f"تورنمنت‌های فعال: {overview_stats.get('tournaments_active', 0)}"
     )
+    # ترتیبِ عمدی: همهٔ متنِ ثابت اول، و ساعت/آمارِ متغیر در انتها. Gemini پیشوندِ مشترکِ
+    # درخواست‌ها را به‌صورت خودکار کش می‌کند؛ اگر ساعت اولِ پرامپت بود، هر پیام پیشوندِ
+    # متفاوتی می‌داشت و این کش هیچ‌وقت کار نمی‌کرد.
     return (
-        f"{now_context_for_ai()}\n\n"
         "اسم تو «رهگشا» (Rahgosha) است؛ دستیار هوشمند «پنل مدیر مدرسه» در سامانه‌ی CMS (سیستم مدیریت مسابقات شطرنج مدرسه). "
         "هر وقت مدیر اسمت را پرسید یا خواست خودت را معرفی کنی، همیشه بگو: «من رهگشا، دستیار هوشمند LUX هستم.» "
         "خودت را هرگز محصول گوگل، جمینای یا هر شرکت/مدل دیگری معرفی نکن. "
@@ -861,7 +971,6 @@ def _assistant_system_prompt(overview_stats: dict) -> str:
         "خواستِ اجراییِ مشخصی داشت (مثلاً «فلان بازیکن رو حذف کن» یا «ساعت کاری رو ببند»)، مؤدبانه "
         "توضیح بده که این پنل فقط‌خواندنی‌ست و برای این کار باید با مدیر ارشد یا ادمین مدرسه در تلگرام "
         "هماهنگ شود؛ خودت هرگز چنین کاری را انجام‌شده اعلام نکن.\n\n"
-        f"آمار خلاصه‌ی همین لحظه‌ی پنل:\n{stats_line}\n\n"
         f"{PANEL_GUIDE}\n\n"
         "ابزارهایی که در اختیار داری (فقط برای مشاهده/گزارش، هیچ‌کدوم داده‌ای رو تغییر نمی‌دن): "
         "get_players (نام/کلاس/وضعیتِ بازیکنان، با جست‌وجو)، get_classes (آمار تجمیعیِ هر کلاس)، "
@@ -878,10 +987,12 @@ def _assistant_system_prompt(overview_stats: dict) -> str:
         "چون بر پایه‌ی آمارِ تجمیعیِ کلاس/تیمه نه رتبه‌بندیِ فردی — برای این دو حتماً از get_classes یا "
         "get_teams استفاده کن و بر اساسِ اعداد (نه حدس) بگو کدوم بهتره.\n\n"
         "اگر چیزی را نمی‌دانی یا خارج از حیطه‌ی این پنل است، صادقانه بگو که این اطلاعات را نداری، حدس نزن."
+        f"\n\n— اطلاعاتِ لحظه‌ای —\n{now_context_for_ai()}\n\n"
+        f"آمار خلاصه‌ی همین لحظه‌ی پنل:\n{stats_line}"
     )
 
 
-async def _call_assistant_gemini(contents: list, tools=None, model_chain=None):
+async def _call_assistant_gemini(contents: list, tools=None, model_chain=None, system_instruction=None):
     """یک درخواست به Gemini می‌زند و (data, model) را برمی‌گرداند — data کل JSON پاسخ است
     (نه فقط متن)، چون ممکن است شاملِ یک functionCall باشد که دیسپچرِ بالای صفحه باید قبل
     از جوابِ نهایی پردازشش کند؛ model اسمِ همون مدلی‌ست که واقعاً جواب داده، تا صدازننده
@@ -910,7 +1021,7 @@ async def _call_assistant_gemini(contents: list, tools=None, model_chain=None):
         generation_config = {
             "maxOutputTokens": ASSISTANT_MAX_OUTPUT_TOKENS,
             "thinkingConfig": (
-                {"thinkingLevel": "minimal"} if is_gen3 else {"thinkingBudget": 256}
+                {"thinkingLevel": "minimal"} if is_gen3 else {"thinkingBudget": 0}
             ),
         }
         # نسل ۳ جمینای (gemini-3.5-flash-lite / gemini-3.6-flash) دیگه پارامترِ
@@ -926,6 +1037,8 @@ async def _call_assistant_gemini(contents: list, tools=None, model_chain=None):
             "contents": contents,
             "generationConfig": generation_config,
         }
+        if system_instruction:
+            payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
         if tools:
             payload["tools"] = tools
         data = None
@@ -1008,6 +1121,28 @@ async def _principal_chat_log(sid, sender: str, text: str):
         logger.exception("Principal assistant: could not save chat message")
 
 
+_assistant_bg_tasks = set()
+
+
+def _assistant_bg(coro):
+    """اجرای کار در پس‌زمینه بدونِ معطل‌کردنِ پاسخ (ذخیرهٔ گفتگو در دیتابیس نباید جلوی جوابِ مدیر را بگیرد)."""
+    task = asyncio.create_task(coro)
+    _assistant_bg_tasks.add(task)
+    task.add_done_callback(_assistant_bg_tasks.discard)
+    return task
+
+
+async def _assistant_open_session(raw_sid, message: str):
+    sid = await _principal_chat_session(raw_sid, message)
+    await _principal_chat_log(sid, "user", message)
+    return sid
+
+
+async def _assistant_log_many(sid, entries):
+    for sender, text in entries:
+        await _principal_chat_log(sid, sender, text)
+
+
 @routes.post("/api/principal/assistant")
 async def principal_assistant(request):
     _require_auth(request)
@@ -1025,8 +1160,9 @@ async def principal_assistant(request):
     if len(message) > 1500:
         message = message[:1500]
 
-    sid = await _principal_chat_session(body.get("session_id"), message)
-    await _principal_chat_log(sid, "user", message)
+    # باز کردنِ جلسه + ذخیرهٔ پیامِ کاربر هم‌زمان با بقیهٔ کار (قبلاً چند رفت‌وبرگشتِ
+    # پشتِ‌سرِ هم به دیتابیس قبل از شروعِ سوال از مدل بود).
+    session_task = asyncio.create_task(_assistant_open_session(body.get("session_id"), message))
 
     raw_history = body.get("history") or []
     history = []
@@ -1036,52 +1172,33 @@ async def principal_assistant(request):
             text = str(turn.get("text", "")).strip()
             if role in ("user", "model") and text:
                 history.append({"role": role, "parts": [{"text": text[:1500]}]})
+    while history and history[0]["role"] != "user":   # Gemini: نوبتِ اول باید user باشد
+        history.pop(0)
 
     if not GEMINI_API_KEY:
         no_key_reply = "سرویس دستیار در حال حاضر در دسترس نیست. لطفاً موضوع را به مدیر سیستم اطلاع دهید."
-        await _principal_chat_log(sid, "system", no_key_reply)
+        sid = await session_task
+        _assistant_bg(_assistant_log_many(sid, [("system", no_key_reply)]))
         return _json({"ok": True, "reply": no_key_reply, "session_id": sid})
 
-    classes, players, tournaments, matches_all, matches_week = await asyncio.gather(
-        db.get_all_classes(), db.get_all_players(), db.get_all_tournaments(),
-        db.get_matches_by_filter("all"), db.get_matches_by_filter("week"),
-    )
-    classes = classes or []; players = players or []; tournaments = tournaments or []
-    matches_all = matches_all or []; matches_week = matches_week or []
-    players_active = sum(1 for p in players if p and p["status"] == "active")
-    decided = [m for m in matches_all if m and m["result"] in ("white", "black", "draw")]
-    active_tournaments = [t for t in tournaments if t and t["status"] == "active"]
-    stats = {
-        "classes_total": len(classes),
-        "players_total": len(players),
-        "players_active": players_active,
-        "matches_total": len(matches_all),
-        "matches_this_week": len(matches_week),
-        "matches_decided": len(decided),
-        "tournaments_active": len(active_tournaments),
-    }
+    stats = await _overview_stats()   # کش‌شده: معمولاً فوری
 
     system_prompt = _assistant_system_prompt(stats)
-    contents = (
-        [{"role": "user", "parts": [{"text": system_prompt}]},
-         {"role": "model", "parts": [{"text": "بله، در خدمتم. هر سوالی درباره‌ی پنل دارید بفرمایید."}]}]
-        + history
-        + [{"role": "user", "parts": [{"text": message}]}]
-    )
+    contents = history + [{"role": "user", "parts": [{"text": message}]}]
     tools = [{"function_declarations": ASSISTANT_TOOL_DECLARATIONS}]
 
     reply = "متأسفانه در حال حاضر امکان پاسخ‌گویی وجود ندارد. لطفاً لحظاتی بعد مجدداً تلاش فرمایید."
     reply_ok = False  # فقط پاسخِ واقعیِ مدل «ai» ثبت می‌شه؛ پیام‌های خطا «system»
-    # مدلی که توی هاپِ قبلیِ همین درخواست جواب داده رو برای هاپِ بعدی هم اول امتحان می‌کنیم —
-    # وگرنه با هر هاپِ ابزار (tool call)، دوباره از اولِ زنجیره شروع می‌شد و اگه مدلِ اول یا
-    # دومِ زنجیره کند/بی‌پاسخ باشن، این تاخیر به تعدادِ هاپ‌ها تکرار و جمع می‌شد (همون چیزی
-    # که باعث می‌شد یک پیام تا ~۲ دقیقه طول بکشه).
+    log_entries = []  # بعد از ارسالِ پاسخ، در پس‌زمینه ذخیره می‌شوند
+    # مدلی که توی هاپِ قبلیِ همین درخواست جواب داده رو برای هاپِ بعدی هم اول امتحان می‌کنیم.
     working_model = None
     for _hop in range(ASSISTANT_MAX_TOOL_HOPS):
         chain = ASSISTANT_MODEL_CHAIN
         if working_model and working_model in ASSISTANT_MODEL_CHAIN:
             chain = [working_model] + [m for m in ASSISTANT_MODEL_CHAIN if m != working_model]
-        data, working_model = await _call_assistant_gemini(contents, tools, model_chain=chain)
+        data, working_model = await _call_assistant_gemini(
+            contents, tools, model_chain=chain, system_instruction=system_prompt
+        )
         if data is None:
             break
         parts = _extract_assistant_parts(data)
@@ -1089,20 +1206,23 @@ async def principal_assistant(request):
             reply = "پوزش می‌خواهم، منظور پرسش برایم روشن نشد. خواهشمندم آن را به شکل دیگری مطرح فرمایید."
             break
 
-        fn_call = next((p["functionCall"] for p in parts if "functionCall" in p), None)
-        if fn_call:
-            fname = fn_call["name"]
-            fargs = fn_call.get("args", {})
-            result_text = await _dispatch_assistant_tool(fname, fargs)
-            await _principal_chat_log(sid, "tool", f"🔧 {fname}({fargs}) → {str(result_text)[:400]}")
-            # باید همون parts ای که خودِ مدل برگردونده رو عیناً پس بفرستیم (نه فقط functionCall
-            # رو دستی بازسازی کنیم)، چون مدل‌های نسل ۳ جمینای یه thoughtSignature هم کنارش
-            # می‌دن که برگردوندنش برای دورِ بعدی الزامیه.
+        fn_calls = [p["functionCall"] for p in parts if "functionCall" in p]
+        if fn_calls:
+            # اگر مدل چند تابع را یک‌جا خواست (مثلاً کلاس‌ها + تورنمنت‌ها)، همه را هم‌زمان اجرا
+            # می‌کنیم و همهٔ جواب‌ها را در «یک» هاپ برمی‌گردانیم (قبلاً فقط اولی جواب داده می‌شد).
+            results = await asyncio.gather(*[
+                _dispatch_assistant_tool(fc["name"], fc.get("args", {})) for fc in fn_calls
+            ])
+            response_parts = []
+            for fc, result_text in zip(fn_calls, results):
+                fargs = fc.get("args", {})
+                log_entries.append(("tool", f"🔧 {fc['name']}({fargs}) → {str(result_text)[:400]}"))
+                response_parts.append(
+                    {"functionResponse": {"name": fc["name"], "response": {"result": result_text}}}
+                )
+            # همان parts ِ خودِ مدل (با thoughtSignatureِ نسل ۳) عیناً برگردانده می‌شود.
             contents.append({"role": "model", "parts": parts})
-            contents.append({
-                "role": "user",
-                "parts": [{"functionResponse": {"name": fname, "response": {"result": result_text}}}],
-            })
+            contents.append({"role": "user", "parts": response_parts})
             continue
 
         reply = "".join(p.get("text", "") for p in parts).strip() or "باشه."
@@ -1111,8 +1231,36 @@ async def principal_assistant(request):
     else:
         reply = "این پرسش نیازمند بررسی چندمرحله‌ای است. خواهشمندم آن را در قالب پرسش‌های کوتاه‌تر مطرح فرمایید."
 
-    await _principal_chat_log(sid, "ai" if reply_ok else "system", reply)
+    sid = await session_task   # تا اینجا معمولاً خیلی وقت است تمام شده
+    log_entries.append(("ai" if reply_ok else "system", reply))
+    _assistant_bg(_assistant_log_many(sid, log_entries))
     return _json({"ok": True, "reply": reply, "session_id": sid})
+
+
+# ─── گرم‌کردنِ رهگشا: وقتی مدیر پنجرهٔ رهگشا را باز می‌کند (قبل از اولین پیام) ───
+_assistant_last_warm = 0.0
+
+
+async def _warm_assistant():
+    try:
+        await _overview_stats()
+        if GEMINI_API_KEY:
+            # فقط برقراریِ اتصالِ TCP/TLS با گوگل (keep-alive)، تا اولین پیام هزینهٔ دست‌دادن را نپردازد.
+            await net_utils.get_gemini_client().head("https://generativelanguage.googleapis.com/", timeout=5)
+    except Exception:
+        pass   # گرم‌کردن بهترین‌تلاش است؛ خطایش مهم نیست
+
+
+@routes.get("/api/principal/assistant/warm")
+async def principal_assistant_warm(request):
+    import time
+    global _assistant_last_warm
+    await _guard(request)
+    now = time.monotonic()
+    if now - _assistant_last_warm > 15:
+        _assistant_last_warm = now
+        _assistant_bg(_warm_assistant())
+    return _json({"ok": True})
 
 
 # ─── اعلانات (زنگوله) ────────────────────────────────────────────
