@@ -438,15 +438,15 @@ _BOT = None  # رفرنسِ ربات؛ در اولین sync_menu_buttons ست م
 
 
 def _hub_button():
-    from config import WEBAPP_URL
-    if not WEBAPP_URL:
+    from config import HUB_URL, HUB_BUTTON_TEXT
+    if not HUB_URL:
         return None
     try:
         from telegram import MenuButtonWebApp, WebAppInfo
     except ImportError:
         logger.warning("MenuButtonWebApp not available in this python-telegram-bot version.")
         return None
-    return MenuButtonWebApp(text="CMS", web_app=WebAppInfo(url=f"{WEBAPP_URL}/hub/"))
+    return MenuButtonWebApp(text=HUB_BUTTON_TEXT, web_app=WebAppInfo(url=HUB_URL))
 
 
 async def sync_menu_button_for(bot, telegram_id: int):
@@ -498,8 +498,9 @@ async def sync_menu_buttons(bot):
     _BOT = bot
     button = _hub_button()
     if button is None:
-        logger.info("WEBAPP_URL not set (or no MenuButtonWebApp); skipping hub menu-button sync.")
+        logger.info("HUB_URL/WEBAPP_URL/RAILWAY_PUBLIC_DOMAIN not set (or no MenuButtonWebApp); skipping hub menu-button sync.")
         return
+    logger.info("Hub menu button URL: %s", button.web_app.url)
 
     chat_ids = [PISHVA_ID]
     try:

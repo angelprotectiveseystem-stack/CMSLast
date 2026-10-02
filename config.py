@@ -24,7 +24,34 @@ CHESS_AI_ID = -1
 # ─── مینی‌اپ شطرنج زنده ─────────────────────────────────────────
 # آدرس عمومی (HTTPS) که مینی‌اپ روی آن سرو می‌شود، مثلا:
 # https://your-app.up.railway.app/webapp/
-WEBAPP_URL = os.environ.get("WEBAPP_URL", "").rstrip("/")
+def _resolve_base_url() -> str:
+    """آدرس پایه (فقط origin، بدون /webapp یا /hub) را از روی متغیرها می‌سازد.
+    اولویت: WEBAPP_URL ← RAILWAY_PUBLIC_DOMAIN ← RAILWAY_STATIC_URL.
+    اگر https:// نداشت اضافه می‌شود؛ اگر کسی آدرس را با /webapp یا /hub
+    وارد کرده بود، آن بخش حذف می‌شود تا مسیرها دوبار پشتِ هم نیایند."""
+    raw = ""
+    for name in ("WEBAPP_URL", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL"):
+        raw = os.environ.get(name, "").strip()
+        if raw:
+            break
+    if not raw:
+        return ""
+    if not raw.lower().startswith(("http://", "https://")):
+        raw = "https://" + raw
+    raw = raw.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    for suffix in ("/webapp", "/hub"):
+        if raw.lower().endswith(suffix):
+            raw = raw[: -len(suffix)].rstrip("/")
+    return raw
+
+
+WEBAPP_URL = _resolve_base_url()
+
+# دکمه‌ی کنارِ چت (هاب). هر دو با متغیر قابل تغییرند:
+#   HUB_URL         → آدرسِ کاملِ هاب؛ اگر ست شود از WEBAPP_URL مستقل است
+#   HUB_BUTTON_TEXT → متنِ دکمه (پیش‌فرض: CMS)
+HUB_URL = os.environ.get("HUB_URL", "").strip() or (f"{WEBAPP_URL}/hub/" if WEBAPP_URL else "")
+HUB_BUTTON_TEXT = os.environ.get("HUB_BUTTON_TEXT", "").strip() or "CMS"
 WEBAPP_PORT = int(os.environ.get("PORT", os.environ.get("WEBAPP_PORT", "8080")))
 
 # ─── System Status Codes ──────────────────────────────────────
