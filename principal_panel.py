@@ -44,6 +44,7 @@ from aiohttp import web
 
 import database as db
 from helpers import now_context_for_ai, admin_display, pishva_display
+from status_page import render_status_page
 
 logger = logging.getLogger(__name__)
 
@@ -196,41 +197,24 @@ async def _require_enabled(request):
 
 
 def _blocked_page():
-    html = (
-        "<!doctype html><html lang='fa' dir='rtl'><head><meta charset='utf-8'>"
-        "<title>دسترسی مسدود است</title>"
-        "<style>body{font-family:Tahoma,sans-serif;background:#111;color:#eee;"
-        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"
-        "text-align:center;padding:20px}"
-        ".title{font-size:28px;font-weight:bold;margin-bottom:18px;display:block}"
-        ".msg{font-size:17px;line-height:1.9}</style></head><body>"
-        "<div>"
-        "<span class='title'>🚫 دسترسی مسدود است</span>"
-        "<div class='msg'>"
+    # ظاهر: همان لوگو و حالِ‌وهوای پنل اصلیِ تلگرام (status_page.py)
+    html = render_status_page(
+        "دسترسی مسدود است",
+        "🚫 دسترسی مسدود است",
         "دسترسیِ این دستگاه به پنل مدیر مدرسه محدود شده است.<br>"
-        "در صورتی که این اشتباه است، با پارسا کریمی در ارتباط باشید."
-        "</div></div></body></html>"
+        "در صورتی که این اشتباه است، با پارسا کریمی در ارتباط باشید.",
     )
     return web.Response(text=html, content_type="text/html", charset="utf-8", status=403)
 
 
 def _disabled_page():
-    html = (
-        "<!doctype html><html lang='fa' dir='rtl'><head><meta charset='utf-8'>"
-        "<title>پنل غیرفعال است</title>"
-        "<style>body{font-family:Tahoma,sans-serif;background:#111;color:#eee;"
-        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"
-        "text-align:center;padding:20px}"
-        ".title{font-size:28px;font-weight:bold;margin-bottom:18px;display:block}"
-        ".msg{font-size:17px;line-height:1.9}</style></head><body>"
-        "<div>"
-        "<span class='title'>مدیر عزیز!</span>"
-        "<div class='msg'>"
+    html = render_status_page(
+        "پنل غیرفعال است",
+        "مدیر عزیز!",
         "با عرض پوزش، پنل نظارت شما بر مسابقات به دلیل مشکل در اجرای سیستم از دسترس خارج گشته‌.<br>"
         "این مشکل به زودی برطرف خواهد شد.<br>"
         "در این فاصله با پارسا کریمی در ارتباط باشید.<br>"
-        "با تشکر از پیگیری و شکیبایی شما🙏"
-        "</div></div></body></html>"
+        "با تشکر از پیگیری و شکیبایی شما🙏",
     )
     return web.Response(text=html, content_type="text/html", charset="utf-8", status=503)
 
