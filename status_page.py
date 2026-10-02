@@ -26,15 +26,9 @@ body{
 .wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;max-width:420px}
 .brand-mark{display:flex;align-items:center;justify-content:center;animation:floaty 2.4s ease-in-out infinite}
 .brand-mark img{width:120px;height:120px;object-fit:contain;display:block}
-@keyframes floaty{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-8px) rotate(4deg)}}
+@keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 .title{font-size:22px;font-weight:700;line-height:1.6}
 .msg{color:#9aa4c7;font-size:14px;line-height:1.9}
-.secured-by{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));
-  display:flex;align-items:center;gap:8px;color:#9aa4c7;opacity:.85;direction:ltr;user-select:none;
-  font-family:"Rajdhani","Oxanium","Segoe UI Semibold","Segoe UI",-apple-system,BlinkMacSystemFont,system-ui,sans-serif}
-.secured-by img{width:30px;height:30px;object-fit:contain;display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.45))}
-.secured-by span{display:inline-flex;align-items:baseline;gap:6px;font-size:10px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;line-height:1;white-space:nowrap}
-.secured-by b{font-size:14px;font-weight:800;letter-spacing:.2em;background:linear-gradient(180deg,#ffe7a8,#d9a441);-webkit-background-clip:text;background-clip:text;color:transparent}
 @media (prefers-reduced-motion:reduce){.brand-mark{animation:none}}
 """
 
@@ -51,8 +45,5 @@ def render_status_page(tab_title, title, message_html):
         "<div class='title'>" + _html.escape(title) + "</div>"
         "<div class='msg'>" + message_html + "</div>"
         "</div>"
-        "<div class='secured-by' title='Chess Security Force'>"
-        "<img src='" + SECURITY_LOGO_DATA_URI + "' alt='' aria-hidden='true'>"
-        "<span>Secured by <b>CSF</b></span></div>"
         "</body></html>"
     )
