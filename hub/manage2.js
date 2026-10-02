@@ -3,12 +3,12 @@
 (function () {
   'use strict';
   var C, M, h, ic, hx, toast, api, row, riconEl, secTitle, kv, nn, avatar;
-  var post, can, feat, push, root, back, refresh, lazy, empty, field, input, select, btn, actBtn, toggleRow, chipsBar, confirmView, reasonView, fail, fa;
+  var post, can, feat, push, root, back, refresh, lazy, swr, empty, field, input, select, btn, actBtn, toggleRow, chipsBar, confirmView, reasonView, fail, fa;
 
   /* ═══════════ تیم‌ها ═══════════ */
   function teamsView() {
     root('تیم‌ها', function () {
-      return { body: lazy(function () { return api('/hub/api/teams'); }, function (d) {
+      return { body: lazy('/hub/api/teams', function (d) {
         return h('div', { class: 'group' }, d.teams.length ? d.teams.map(function (t) {
           return row({ title: t.name, sub: fa(t.members) + ' عضو • ' + fa(t.wins) + ' برد، ' + fa(t.losses) + ' باخت' + (t.warnings ? ' • ' + fa(t.warnings) + ' اخطار' : ''),
             tap: function () { teamDetail(t.id); } });
@@ -26,7 +26,7 @@
   }
   function teamDetail(id) {
     push('تیم', function () {
-      return { body: lazy(function () { return api('/hub/api/team/' + id); }, function (t) {
+      return { body: lazy('/hub/api/team/' + id, function (t) {
         var w = h('div', null);
         w.append(h('div', { class: 'p-top' }, h('h3', { text: t.name }), t.slogan ? h('div', { class: 'p-sub', text: t.slogan }) : null));
         w.append(h('div', { class: 'stat3' },
@@ -121,7 +121,7 @@
         box.replaceChildren(w);
       }
       function load() {
-        api('/hub/api/comms/overview').then(function (d) { st.data = d; draw(); }, function () { box.replaceChildren(M.errBox(load)); });
+        swr('/hub/api/comms/overview', function (d) { st.data = d; draw(); }, function () { box.replaceChildren(M.errBox(load)); });
       }
       box.append(M.spin()); load();
       return { body: box };
@@ -138,7 +138,7 @@
       function drawMonth() {
         box.replaceChildren(M.spin());
         var q = st.y ? '?y=' + st.y + '&m=' + st.m : '';
-        api('/hub/api/calendar/month' + q).then(function (g) {
+        swr('/hub/api/calendar/month' + q, function (g) {
           st.y = g.year; st.m = g.month;
           var grid = h('div', { class: 'cal' });
           WD.forEach(function (x, i) { grid.append(h('span', { class: 'cal-h' + (i === 6 ? ' fri' : ''), text: x })); });
@@ -179,7 +179,7 @@
       }
       function drawHolidays() {
         box.replaceChildren(M.spin());
-        api('/hub/api/calendar/holidays').then(function (d) {
+        swr('/hub/api/calendar/holidays', function (d) {
           var w = h('div', null);
           w.append(h('div', { class: 'note', text: d.note }));
           var year = null, month = null, grp = null;
@@ -206,7 +206,7 @@
   var ROLES = [['tournament_manager', 'مسئول مسابقات'], ['security_manager', 'مسئول انتظامات']];
   function adminsView() {
     root('مدیریت مدیران', function () {
-      return { body: lazy(function () { return api('/hub/api/admin/list'); }, function (d) {
+      return { body: lazy('/hub/api/admin/list', function (d) {
         return h('div', { class: 'group' }, d.admins.length ? d.admins.map(function (a) {
           return row({ lead: avatar(a.id, a.name, 'sm'), title: a.name, sub: a.role_label + (a.active ? '' : ' • غیرفعال') + (a.warnings ? ' • ' + fa(a.warnings) + ' اخطار' : ''),
             tap: function () { adminDetail(a, d); } });
@@ -277,7 +277,7 @@
   /* ═══════════ درخواست‌ها ═══════════ */
   function requestsView() {
     root('درخواست‌ها', function () {
-      return { body: lazy(function () { return api('/hub/api/requests'); }, function (d) {
+      return { body: lazy('/hub/api/requests', function (d) {
         var w = h('div', null);
         function decide(url, ok, msg) { return function () { post(url).then(function () { hx.ok(); toast(msg); C.refreshBoot(); refresh(); }, fail); }; }
         w.append(M.secTitle('درخواست‌های دسترسی', h('small', { class: 'num', text: d.access.length })));
@@ -299,7 +299,7 @@
   var STATUSES = [['normal', '🟢 نرمال'], ['bad', '🟡 بد'], ['danger', '🔴 خطرناک'], ['aps', '🪽 APS']];
   function settingsView() {
     root('تنظیمات', function () {
-      return { body: lazy(function () { return api('/hub/api/settings'); }, function (s) {
+      return { body: lazy('/hub/api/settings', function (s) {
         var w = h('div', null);
         var groups = {};
         s.items.forEach(function (i) { (groups[i.group] = groups[i.group] || []).push(i); });
@@ -325,7 +325,7 @@
   }
   function systemView() {
     push('وضعیتِ سیستم', function () {
-      return { body: lazy(function () { return api('/hub/api/settings'); }, function (s) {
+      return { body: lazy('/hub/api/settings', function (s) {
         var w = h('div', null);
         w.append(h('div', { class: 'note', text: 'در حالت‌های تعمیر، آپدیت، خطرناک و APS (و وقتی ربات برای ادمین‌ها خاموش است) پنل و ربات برای همه‌ی مدیران بسته می‌شود؛ فقط شما دسترسی دارید.' }));
         w.append(M.secTitle('وضعیتِ سیستم'), chipsBar(STATUSES, s.status, function (k) {
@@ -352,7 +352,7 @@
       function draw() {
         bar.replaceChildren(chipsBar([['today', 'امروز'], ['week', 'هفته'], ['month', 'ماه'], ['all', 'همه']], st.period, function (k) { st.period = k; st.page = 0; draw(); }));
         box.replaceChildren(M.spin());
-        api('/hub/api/logs?period=' + st.period + '&page=' + st.page).then(function (d) {
+        swr('/hub/api/logs?period=' + st.period + '&page=' + st.page, function (d) {
           var w = h('div', null);
           w.append(d.rows.length ? h('div', { class: 'group' }, d.rows.map(function (r) {
             return h('div', { class: 'mrow' }, h('div', { class: 'mtxt' }, h('b', { style: 'white-space:normal', text: r.text || r.label }), h('small', { text: r.admin + ' • ' + r.label + ' • ' + r.at })));
@@ -389,6 +389,7 @@
     grp('مسابقات', [
       R('match_create', 'plus', 'bg-green', 'ثبتِ مسابقه', 'ساختِ یک مسابقه‌ی جدید', function () { M.createMatch(); }),
       (can('match_edit') || can('match_delete') || can('match_create')) ? R(null, 'trophy', 'bg-amber', 'مسابقه‌ها', 'ثبتِ نتیجه، ویرایش، حذف', M.matchesList) : null,
+      R('match_scan', 'camera', 'bg-blue', 'ثبت نتیجه با عکس', 'عکسِ برگه ← بازبینی ← ثبت', function () { M.scanStart(); }),
       R('predictions', 'bolt', 'bg-violet', 'پیش‌بینی', 'احتمالِ پیروزی دو بازیکن', function () { M.predict(); }),
       R('elo', 'star', 'bg-amber', 'جدول Elo', 'رتبه‌بندیِ بازیکنان', M.eloBoard)]);
     grp('ارتباط و زمان', [
@@ -405,7 +406,7 @@
     tab.replaceChildren.apply(tab, kids);
     if (can('pishva_panel') && !C.S.pendingLoading) {
       C.S.pendingLoading = true;
-      api('/hub/api/requests').then(function (d) {
+      swr('/hub/api/requests', function (d) {
         C.S.pending = { total: d.access.length + d.kicks.length }; C.S.pendingLoading = false;
         if (C.cur() === 'manage') renderTab();
       }, function () { C.S.pendingLoading = false; });
@@ -415,7 +416,7 @@
   window.__HubManageP2 = { init: function (core, m) {
     C = core; M = m; h = core.h; ic = core.ic; hx = core.hx; toast = core.toast; api = core.api;
     row = core.row; riconEl = core.riconEl; secTitle = core.secTitle; kv = core.kv; nn = core.nn; avatar = core.avatar;
-    post = m.post; can = m.can; feat = m.feat; push = m.push; root = m.root; back = m.back; refresh = m.refresh; lazy = m.lazy; empty = m.empty;
+    post = m.post; can = m.can; feat = m.feat; push = m.push; root = m.root; back = m.back; refresh = m.refresh; lazy = m.lazy; swr = m.swr; empty = m.empty;
     field = m.field; input = m.input; select = m.select; btn = m.btn; actBtn = m.actBtn; toggleRow = m.toggleRow; chipsBar = m.chipsBar;
     confirmView = m.confirmView; reasonView = m.reasonView; fail = m.fail; fa = m.fa;
     M.secTitle = secTitle;

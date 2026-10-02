@@ -476,7 +476,156 @@
       q.addEventListener('input', function () { clearTimeout(t); t = setTimeout(function () { st.q = q.value.trim(); draw(); }, 250); });
       draw();
       return { body: h('div', null, h('div', { style: 'margin:0 16px' }, q), chipsBox, listBox),
-        foot: can('match_create') ? btn('+ ثبت مسابقه‌ی جدید', '', function () { createMatch(); }) : null };
+        foot: (can('match_create') || can('match_scan')) ? footBtns(
+          can('match_create') ? btn('+ ثبت مسابقه‌ی جدید', '', function () { createMatch(); }) : null,
+          can('match_scan') ? btn('📷 ثبت با عکس', 'soft', function () { scanStart(); }) : null) : null };
+    });
+  }
+
+  /* ═══════════ ثبت نتیجه با عکسِ برگه (فقط مدیر ارشد) ═══════════ */
+  var SCAN_RES = [['white', 'برد سفید'], ['black', 'برد سیاه'], ['draw', 'تساوی'], ['none', 'بدون نتیجه']];
+
+  /* کوچک‌کردنِ عکس در خودِ گوشی (حجمِ آپلود کم و خواندن سریع‌تر): ضلعِ بلند حداکثر ۱۸۰۰، JPEG */
+  function prepImage(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var sc = Math.min(1, 1800 / Math.max(img.naturalWidth, img.naturalHeight));
+        var w = Math.max(1, Math.round(img.naturalWidth * sc)), hh = Math.max(1, Math.round(img.naturalHeight * sc));
+        var cv = document.createElement('canvas'); cv.width = w; cv.height = hh;
+        var cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, hh); cx.drawImage(img, 0, 0, w, hh);
+        URL.revokeObjectURL(url);
+        var data = cv.toDataURL('image/jpeg', 0.85);
+        resolve({ data: data, url: data });
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('img')); };
+      img.src = url;
+    });
+  }
+
+  function scanStart() {
+    push('ثبت با عکس', function () {
+      var shot = null, busy = false;
+      var preview = h('div', { style: 'margin:12px 16px 0;text-align:center' });
+      var go = h('button', { type: 'button', class: 'btn', text: 'خواندنِ برگه', disabled: true });
+      function pick(capture) {
+        var f = h('input', { type: 'file', accept: 'image/*', style: 'display:none' });
+        if (capture) f.setAttribute('capture', 'environment');
+        f.addEventListener('change', function () {
+          var file = f.files && f.files[0]; if (!file) return;
+          preview.replaceChildren(spin());
+          prepImage(file).then(function (r) {
+            shot = r; go.disabled = false;
+            preview.replaceChildren(h('img', { src: r.url, style: 'max-width:100%;max-height:240px;border-radius:14px;border:1px solid rgba(255,255,255,.12)' }));
+          }, function () { shot = null; go.disabled = true; preview.replaceChildren(empty('عکس باز نشد؛ عکس دیگری انتخاب کنید.')); });
+        });
+        document.body.appendChild(f); f.click(); setTimeout(function () { f.remove(); }, 60000);
+      }
+      go.addEventListener('click', function () {
+        if (busy || !shot) return;
+        busy = true; go.disabled = true; go.textContent = 'در حال خواندن… (تا یک دقیقه)';
+        post('/hub/api/match/scan', { image: shot.data, mime: 'image/jpeg' }).then(function (rv) {
+          busy = false; go.disabled = false; go.textContent = 'خواندنِ برگه'; hx.ok();
+          scanReview(rv);
+        }, function (e) { busy = false; go.disabled = false; go.textContent = 'خواندنِ برگه'; fail(e); });
+      });
+      var tips = h('div', { class: 'empty', style: 'text-align:right;padding:6px 18px', text: 'عکسِ صاف و روشن از کلِ برگه بگیرید (بدون سایه). هوش مصنوعی نتیجه‌ها را می‌خواند، ولی هیچ‌چیز بدونِ بازبینیِ شما ثبت نمی‌شود.' });
+      return { body: h('div', null, tips,
+        h('div', { class: 'foot-btns', style: 'margin:8px 16px 0' }, btn('📷 گرفتن عکس', 'soft', function () { pick(true); }), btn('🖼️ از گالری', 'soft', function () { pick(false); })),
+        preview), foot: go };
+    });
+  }
+
+  function scanReview(rv) {
+    push('بازبینیِ نتایج', function () {
+      var rows = rv.items.map(function (it) {
+        var w = it.w.id ? { id: it.w.id, name: it.w.name } : null, b = it.b.id ? { id: it.b.id, name: it.b.name } : null;
+        return { i: it.i, it: it, w: w, b: b, res: it.res === 'unknown' ? 'none' : it.res, dup: !!it.dup,
+          on: !it.issues.length && !it.dup, done: false, err: '' };
+      });
+      var date = input({ type: 'date', value: rv.today || todayTehran() });
+      var ts = (C.S.boot.tournaments || []).filter(function (t) { return t.status === 'active'; });
+      var tsel = select([['', 'تورنمنتِ پیش‌فرض']].concat(ts.map(function (t) { return [t.id, t.name]; })), '');
+      var list = h('div', null), cnt = h('div', { class: 'empty', style: 'padding:4px 18px' });
+      var sub = btn('', '', function () {});
+      var working = false;
+
+      function ready(r) { return !r.done && r.on && r.w && r.b && r.w.id !== r.b.id; }
+      function refreshFoot() {
+        var n = rows.filter(ready).length, left = rows.filter(function (r) { return !r.done; }).length;
+        sub.textContent = n ? 'ثبتِ ' + fa(n) + ' مسابقه' : 'مسابقه‌ای برای ثبت انتخاب نشده';
+        sub.disabled = working || !n;
+        cnt.textContent = fa(rows.length) + ' ردیف خوانده شد • ' + fa(left) + ' باقی‌مانده' + (rv.date_text ? ' • تاریخِ روی برگه: ' + rv.date_text : '') + (rv.sheet_note ? ' • ' + rv.sheet_note : '');
+      }
+      function sideCell(r, side, label) {
+        var cur = r[side], raw = r.it[side + '_raw'], cands = r.it[side].cands || [];
+        var pickBtn = h('button', { type: 'button', class: 'inp pick' + (cur ? ' set' : ''), text: cur ? cur.name : (raw ? '؟ ' + raw : 'انتخاب بازیکن') });
+        pickBtn.addEventListener('click', function () {
+          var ex = r[side === 'w' ? 'b' : 'w']; 
+          pickPlayer(label, function (p) { r[side] = { id: p.id, name: p.name }; r.on = true; draw(); }, { activeOnly: true, exclude: ex ? [ex.id] : [] });
+        });
+        var wrap = h('div', { style: 'margin-top:6px' }, h('div', { class: 'p-sub', style: 'font-size:12px;opacity:.7;margin-bottom:3px', text: label + (raw ? ' — روی برگه: «' + raw + '»' : '') }), pickBtn);
+        if (!cur && cands.length) {
+          wrap.append(h('div', { class: 'chips', style: 'margin-top:6px' }, cands.map(function (c) {
+            return h('button', { type: 'button', class: 'chip', text: c.name + (c.cls ? ' (' + c.cls + ')' : ''),
+              onclick: function () { r[side] = { id: c.id, name: c.name }; r.on = true; hx.sel(); draw(); } });
+          })));
+        }
+        return wrap;
+      }
+      function card(r) {
+        var bad = !r.w || !r.b || (r.w && r.b && r.w.id === r.b.id);
+        var sel = select(SCAN_RES, r.res);
+        sel.addEventListener('change', function () { r.res = sel.value; });
+        var head = h('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px' },
+          h('b', { text: '#' + fa(r.i + 1) + (r.it.raw_result ? '  ( ' + r.it.raw_result + ' )' : '') }),
+          h('button', { type: 'button', class: 'chip' + (r.on ? ' on' : ''), text: r.on ? '✓ ثبت می‌شود' : 'رد شده',
+            onclick: function () { r.on = !r.on; hx.sel(); draw(); } }));
+        var c = h('div', { class: 'group', style: 'margin:10px 16px;padding:12px;' + (r.on ? '' : 'opacity:.55') }, head,
+          sideCell(r, 'w', '⬜ سفید'), sideCell(r, 'b', '⬛ سیاه'), h('div', { style: 'margin-top:8px' }, sel));
+        if (r.dup) c.append(h('div', { class: 'empty', style: 'padding:6px 0 0;color:#e0a030', text: '⚠️ این دو نفر امروز با همین رنگ مسابقه‌ی ثبت‌شده دارند (احتمالاً تکراری).' }));
+        if (r.it.note) c.append(h('div', { class: 'empty', style: 'padding:6px 0 0', text: 'ℹ️ ' + r.it.note }));
+        if (r.w && r.b && r.w.id === r.b.id) c.append(h('div', { class: 'empty', style: 'padding:6px 0 0;color:#e05050', text: '⛔ سفید و سیاه یک نفر است.' }));
+        if (r.err) c.append(h('div', { class: 'empty', style: 'padding:6px 0 0;color:#e05050', text: '⛔ ' + r.err }));
+        if (r.res === 'none' && r.it.res === 'unknown') c.append(h('div', { class: 'empty', style: 'padding:6px 0 0', text: 'نتیجه خوانا نبود؛ انتخاب کنید یا «بدون نتیجه» بماند.' }));
+        return c;
+      }
+      function draw() {
+        list.replaceChildren.apply(list, rows.filter(function (r) { return !r.done; }).map(card));
+        if (!rows.some(function (r) { return !r.done; })) list.replaceChildren(empty('همه‌ی ردیف‌ها ثبت شدند.'));
+        refreshFoot();
+      }
+
+      sub.addEventListener('click', function () {
+        var todo = rows.filter(ready);
+        if (working || !todo.length) return;
+        working = true; sub.disabled = true; sub.textContent = 'در حال ثبت…';
+        var created = 0, failedN = 0, i = 0;
+        rows.forEach(function (r) { r.err = ''; });
+        (function next() {
+          if (i >= todo.length) {
+            working = false; dirty(); C.refreshBoot(); afterPlayerChange();
+            if (!failedN) { hx.ok(); toast(fa(created) + ' مسابقه ثبت شد'); back(); }
+            else { hx.err(); toast(fa(created) + ' ثبت شد، ' + fa(failedN) + ' ناموفق (زیرِ همان ردیف‌ها)'); draw(); }
+            return;
+          }
+          var chunk = todo.slice(i, i + 20); i += 20;
+          post('/hub/api/match/scan/commit', {
+            date: date.value, tournament_id: tsel.value ? +tsel.value : null,
+            items: chunk.map(function (r) { return { i: r.i, white_id: r.w.id, black_id: r.b.id, result: r.res === 'none' ? null : r.res }; })
+          }).then(function (res) {
+            var bad = {}; (res.failed || []).forEach(function (f) { bad[f.i] = f.message; });
+            chunk.forEach(function (r) { if (r.i in bad) { r.err = bad[r.i]; failedN++; } else { r.done = true; created++; } });
+            next();
+          }, function (e) {
+            chunk.forEach(function (r) { r.err = errMsg(e); failedN++; });
+            next();
+          });
+        })();
+      });
+
+      draw();
+      return { body: h('div', null, cnt, h('div', { style: 'margin:0 16px' }, field('تاریخِ ثبت', date), field('تورنمنت', tsel)), list), foot: sub };
     });
   }
 
@@ -629,7 +778,7 @@
     return { can: can, feat: feat, push: push, root: root, back: back, refresh: refresh, dirty: dirty, closeAll: closeAll, lazy: lazy, swr: swr, prefetch: prefetch, warmPlayer: warmPlayer, empty: empty, spin: spin,
       field: field, input: input, select: select, btn: btn, actBtn: actBtn, footBtns: footBtns, toggleRow: toggleRow, chipsBar: chipsBar,
       confirmView: confirmView, reasonView: reasonView, pickPlayer: pickPlayer, post: post, fail: fail, errBox: errBox, fa: fa,
-      registerPlayer: registerPlayer, openPlayer: openPlayer, matchesList: matchesList, createMatch: createMatch, matchDetail: matchDetail,
+      registerPlayer: registerPlayer, openPlayer: openPlayer, matchesList: matchesList, scanStart: scanStart, createMatch: createMatch, matchDetail: matchDetail,
       predict: predict, eloBoard: eloBoard, classesView: classesView, afterPlayerChange: afterPlayerChange, todayTehran: todayTehran, add: add };
   } };
 })();
