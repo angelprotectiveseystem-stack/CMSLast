@@ -120,6 +120,30 @@ function clearApiCache() {
     Object.keys(localStorage).filter(k => k.startsWith("pp1:")).forEach(k => localStorage.removeItem(k));
   } catch (err) {}
 }
+// ─── صفحه‌ی قطعی/مسدودی (هم‌ظاهرِ پنل اصلیِ تلگرام: لوگوی شناور) ─────────
+function showOutage(reason) {
+  if (document.getElementById("outage")) return;
+  const blocked = reason === "device_blocked";
+  const box = document.createElement("div");
+  box.id = "outage";
+  box.className = "outage";
+  box.setAttribute("role", "alert");
+  box.innerHTML = `
+    <div class="outage-wrap">
+      <span class="logo outage-logo" role="img" aria-label="لوگوی پروژه"></span>
+      <div class="outage-title">${blocked ? "🚫 دسترسی مسدود است" : "مدیر عزیز!"}</div>
+      <div class="outage-msg">${blocked
+        ? "دسترسیِ این دستگاه به پنل مدیر مدرسه محدود شده است.<br>در صورتی که این اشتباه است، با پارسا کریمی در ارتباط باشید."
+        : "با عرض پوزش، پنل نظارت شما بر مسابقات به دلیل مشکل در اجرای سیستم از دسترس خارج گشته‌.<br>این مشکل به زودی برطرف خواهد شد.<br>در این فاصله با پارسا کریمی در ارتباط باشید.<br>با تشکر از پیگیری و شکیبایی شما🙏"}</div>
+    </div>
+    <footer class="secured-by" dir="ltr" title="Chess Security Force">
+      <span class="logo sb-logo" aria-hidden="true"></span>
+      <span class="sb-text">Secured by <b>CSF</b></span>
+    </footer>`;
+  document.body.appendChild(box);
+  document.body.classList.add("rg-open");
+}
+
 function fetchNetwork(path, params, key) {
   if (inflight.has(key)) return inflight.get(key);
   const p = (async () => {
@@ -130,6 +154,12 @@ function fetchNetwork(path, params, key) {
     if (!res.ok) {
       // دسترسی قطع/بلاک/خاموش شده: هیچ داده‌ی قدیمی‌ای نباید بماند.
       if (res.status === 401 || res.status === 403 || res.status === 503) clearApiCache();
+      if (res.status === 403 || res.status === 503) {
+        // پنل وسطِ کار خاموش/مسدود شد: همان صفحه‌ی لوگوی پنل اصلی نشان بده.
+        let reason = "";
+        try { reason = (await res.clone().json()).error || ""; } catch (err) {}
+        if (reason === "panel_disabled" || reason === "device_blocked") showOutage(reason);
+      }
       throw new Error("request_failed:" + res.status);
     }
     const text = await res.text();

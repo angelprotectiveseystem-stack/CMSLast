@@ -880,3 +880,48 @@ body.scroll-locked { position: fixed; left: 0; right: 0; overflow: hidden; width
   .nt-item-main:hover .nt-item-title { color: var(--accent); }
   .nt-chips button:hover, .nt-sort:hover, .nt-item-actions button:hover { filter: brightness(1.06); }
 }
+
+
+/* ── صفحه‌ی قطعی/مسدودی: دقیقاً هم‌ظاهرِ صفحه‌ی بارگذاریِ پنل اصلیِ تلگرام ──
+   لوگوی ۱۲۰ پیکسلی، گوشه‌ی خمیده‌ی ۲۸ پیکسل، بدونِ قاب، با انیمیشنِ شناورِ floaty. */
+.outage {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  padding: 0 32px; text-align: center; color: #f2f4fb;
+  background: radial-gradient(circle at 50% -10%, #1c2444 0%, #0e1220 60%);
+  animation: outage-in .45s cubic-bezier(.4, 0, .2, 1) both;
+}
+.outage-wrap { display: flex; flex-direction: column; align-items: center; gap: 18px; max-width: 420px; }
+.outage .logo.outage-logo {
+  --logo: 120px; border-radius: 28px; box-shadow: none; background-color: transparent;
+  animation: outage-floaty 2.4s ease-in-out infinite;
+}
+.outage-title { font-size: 22px; font-weight: 700; line-height: 1.6; }
+.outage-msg { color: #9aa4c7; font-size: 14px; line-height: 1.9; }
+@keyframes outage-floaty { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-8px) rotate(4deg); } }
+@keyframes outage-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .outage .logo.outage-logo { animation: none; } }
+
+
+/* ── «Secured by CSF» — امضای ریزِ امنیتیِ پایینِ هر بخش ─────────────────
+   همان لوگوی اصلی (بدونِ هیچ تغییری در طرح)، فقط کوچک و کنارِ متنِ ملایم. */
+.secured-by {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  margin: 26px auto 0; padding: 8px 0 4px; width: max-content; max-width: 100%;
+  color: var(--muted); opacity: .72; user-select: none;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  transition: opacity .3s;
+}
+.secured-by:hover { opacity: 1; }
+.secured-by .logo.sb-logo {
+  --logo: 20px; border-radius: 26%;
+  box-shadow: 0 0 0 1px rgba(240, 207, 133, .8), 0 2px 6px -2px rgba(140, 10, 20, .55);
+}
+.secured-by .sb-text { font-size: 11px; font-weight: 500; letter-spacing: .04em; line-height: 1; white-space: nowrap; }
+.secured-by .sb-text b { font-weight: 800; letter-spacing: .12em; color: var(--accent); margin-inline-start: 1px; }
+
+/* صفحه‌ی قطعی/مسدودی: همان امضا، ثابت در وسطِ پایین */
+.outage .secured-by {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px)); margin: 0; color: #9aa4c7;
+}
+.outage .secured-by .sb-text b { color: #f0cf85; }
