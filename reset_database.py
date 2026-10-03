@@ -32,6 +32,7 @@ TABLES = [
     "teams",
     "access_requests",
     "kick_requests",
+    "match_scan_requests",
     "action_logs",
     "feedback",
     "tasks",

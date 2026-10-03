@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 routes = web.RouteTableDef()
 
 MATCH_CAPS = ("match_create", "match_edit", "match_delete", "predictions")
-PLAYER_PICK_CAPS = ("players_view", "player_register", "match_create", "match_edit", "predictions", "teams")
+PLAYER_PICK_CAPS = ("players_view", "player_register", "match_create", "match_edit", "match_scan", "predictions", "teams")
 # در وضعیتِ «بد» ربات این عملیات را برای مدیرانِ غیرِ ارشد می‌بندد (helpers.check_status_gate)
 BAD_STATUS_BLOCKED = {"match_edit", "match_delete", "player_warn", "player_kick"}
 ROLE_LABELS = {"pishva": "مدیر ارشد", ROLE_TOURNAMENT_MANAGER: "مسئول مسابقات",
@@ -571,111 +571,85 @@ async def api_match_create(request):
     return _ok(id=mid)
 
 
-# ─── ثبتِ نتیجه با عکس (فقط مدیر ارشد) ─────────────────────────────
-_scan_busy = set()          # جلوگیری از دوبار-زدن (هر اسکن هزینه دارد)
-SCAN_COMMIT_CHUNK = 20
+# ─── ثبتِ نتیجه با عکس ─────────────────────────────────────────────
+# مدیر ارشد: ثبتِ مستقیم. مدیر مسابقات: فقط «درخواست» ساخته می‌شود و بعد از تأییدِ مدیر ارشد ثبت می‌شود.
+import match_scan_service as scan_svc
+SCAN_COMMIT_CHUNK = scan_svc.COMMIT_CHUNK
 
 
 @routes.post("/hub/api/match/scan")
 async def api_match_scan(request):
     c = await _ctx(request, "match_scan")
-    if not c.is_pishva:
-        raise _fail("pishva_only", "این قابلیت فقط برای مدیر ارشد است.", 403)
-    if c.uid in _scan_busy:
-        raise _fail("busy", "عکسِ قبلی هنوز در حال خوانده‌شدن است.", 429)
-    _scan_busy.add(c.uid)          # بلافاصله (قبل از هر await) تا دو درخواستِ هم‌زمان رد نشوند
+    b = await _body(request)
+    import match_vision as mv
     try:
-        b = await _body(request)
-        import match_vision as mv
-        try:
-            raw, mime = mv.decode_image(b.get("image"), b.get("mime") or "")
-        except ValueError as e:
-            raise _fail("bad_image", str(e), 400)
-        players = [p for p in await db.get_all_players() if (p["status"] or "active") == "active"]
-        roster = mv.make_roster(players)
-        try:
-            data = await mv.extract_matches(raw, mime, [r["name"] for r in roster])
-        except mv.VisionError as e:
-            raise _fail("ai_" + e.code, e.message, 503 if e.code == "no_key" else 502)
-    finally:
-        _scan_busy.discard(c.uid)
-    review = mv.build_review(data, roster)
-    if not review["items"]:
-        raise _fail("nothing_found", "در عکس مسابقه‌ای پیدا نشد. عکسِ واضح‌تر و کامل‌تری بفرستید.", 422)
-    # هشدارِ تکراری: همان دو نفر با همان رنگ، هم‌تاریخِ امروز، از قبل ثبت شده
-    today = today_gregorian()
-    exist = {(r["white_player_id"], r["black_player_id"]) for r in await db.get_matches_on_date(today)}
-    for it in review["items"]:
-        it["dup"] = bool(it["w"]["id"] and it["b"]["id"] and (it["w"]["id"], it["b"]["id"]) in exist)
-    review["today"] = today
-    await db.log_action(c.uid, "scan_matches", f"خواندنِ عکسِ برگه: {len(review['items'])} ردیف")
+        raw, mime = mv.decode_image(b.get("image"), b.get("mime") or "")
+    except ValueError as e:
+        raise _fail("bad_image", str(e), 400)
+    try:
+        review = await scan_svc.scan_sheet(raw, mime, c.uid)
+    except scan_svc.ScanError as e:
+        # busy/ai_*/nothing_found: کد و پیام به کلاینت می‌رسد (وضعیتِ HTTP مثل قبل)
+        cls = {429: web.HTTPTooManyRequests, 502: web.HTTPBadGateway, 503: web.HTTPServiceUnavailable,
+               422: web.HTTPUnprocessableEntity}.get(e.status, web.HTTPBadRequest)
+        raise hub._err(cls, e.code, message=e.message)
+    review["direct"] = bool(c.is_pishva)       # false = بعد از بازبینی برای تأییدِ مدیر ارشد می‌رود
     return hub._json(review)
 
 
 @routes.post("/hub/api/match/scan/commit")
 async def api_match_scan_commit(request):
     c = await _ctx(request, "match_scan", write=True)
-    if not c.is_pishva:
-        raise _fail("pishva_only", "این قابلیت فقط برای مدیر ارشد است.", 403)
     b = await _body(request)
     items = b.get("items")
-    if not isinstance(items, list) or not items:
-        raise _fail("bad_request", "موردی برای ثبت نیست.")
-    if len(items) > SCAN_COMMIT_CHUNK:
+    # مدیر ارشد: ثبتِ مستقیم در دسته‌های ≤۲۰؛ مدیر مسابقات: یک درخواستِ کامل (سقف MAX_ITEMS در clean_items)
+    if c.is_pishva and isinstance(items, list) and len(items) > SCAN_COMMIT_CHUNK:
         raise _fail("too_many", f"در هر مرحله حداکثر {SCAN_COMMIT_CHUNK} مورد.")
-    md = _valid_date(b.get("date") or today_gregorian())
-    tid = None
-    if b.get("tournament_id"):
-        t = await db.get_tournament(_int(b["tournament_id"], "مسابقه"))
-        if not t:
-            raise _fail("not_found", "مسابقه/تورنمنت پیدا نشد.", 404)
-        tid = t["id"]
-    else:
-        dt = await db.get_default_tournament()
-        tid = dt["id"] if dt else None
-    pmap = {p["id"]: p for p in await db.get_all_players()}
-    created, failed = 0, []
     try:
-        await elo.ensure_elo_table()
-    except Exception:
-        logger.warning("hub_api: ensure_elo_table failed", exc_info=True)
-    # ترتیبِ برگه حفظ می‌شود (Elo به ترتیبِ بازی‌ها حساب می‌شود) و تک‌به‌تک؛ خطای یک ردیف بقیه را نمی‌خوابانَد.
-    for it in items:
-        idx = it.get("i") if isinstance(it, dict) else None
-        try:
-            wid, bid = _int(it.get("white_id"), "سفید"), _int(it.get("black_id"), "سیاه")
-            res = it.get("result") or None
-            if res not in (None, "white", "black", "draw"):
-                raise _fail("bad_request", "نتیجه‌ی نامعتبر.")
-            if wid == bid:
-                raise _fail("same_player", "سفید و سیاه یک نفر است.")
-            for pid_ in (wid, bid):
-                p = pmap.get(pid_)
-                if not p:
-                    raise _fail("not_found", "بازیکن پیدا نشد.", 404)
-                if (p["status"] or "active") != "active":
-                    raise _fail("inactive", f"«{p['full_name']}» فعال نیست.")
-            mid = await db.create_match(wid, bid, md, tid, c.uid)
-            if res:
-                reason = "توافقی" if res == "draw" else ""
-                fresh = await db.get_match(mid)
-                await db.record_match_result(mid, res, reason, c.uid, match=fresh)
-                try:
-                    await elo.update_elo_after_match(wid, bid, res, mid)
-                except Exception:
-                    logger.warning("hub_api: Elo update failed (scan)", exc_info=True)
-            created += 1
-        except Exception as e:
-            msg = getattr(e, "text", None) or str(e) or "خطا"
-            try:
-                msg = json.loads(msg).get("message", msg)
-            except Exception:
-                pass
-            logger.warning("hub_api: scan commit item %s failed: %s", idx, msg)
-            failed.append({"i": idx, "message": str(msg)[:120]})
+        md = scan_svc.valid_date(b.get("date") or today_gregorian())
+        tid = await scan_svc.resolve_tournament(_int(b["tournament_id"], "مسابقه") if b.get("tournament_id") else None)
+        clean = scan_svc.clean_items(items)
+    except ValueError as e:
+        raise _fail("bad_request", str(e))
+
+    if not c.is_pishva:
+        # ── مدیر مسابقات: هیچ‌چیز ثبت نمی‌شود؛ فقط درخواست برای مدیر ارشد ──
+        req_id = await scan_svc.submit_for_approval(c.uid, clean, md, tid)
+        await db.log_action(c.uid, "scan_request", f"درخواستِ ثبت با عکس: {len(clean)} مسابقه", req_id)
+
+        async def _notify():
+            import match_scan_bot as msb
+            await msb.notify_pishva_new_request(_bot(), req_id, c.name)
+        _spawn(_notify())
+        return _ok(mode="request", request_id=req_id, count=len(clean))
+
+    created, failed = await scan_svc.commit_items(clean, md, tid, c.uid)
     if created:
         await db.log_action(c.uid, "scan_commit", f"ثبت با عکس: {created} مسابقه")
-    return hub._json({"ok": True, "created": created, "failed": failed})
+    return hub._json({"ok": True, "mode": "direct", "created": created, "failed": failed})
+
+
+@routes.post("/hub/api/scan-request/{id}/{act}")
+async def api_scan_request_decide(request):
+    c = await _pishva_ctx(request)
+    act = request.match_info["act"]
+    if act not in ("approve", "reject"):
+        raise web.HTTPNotFound()
+    rid = _pid(request)
+    if act == "approve":
+        ok, created, failed, req = await scan_svc.approve_scan_request(rid, c.uid)
+        if not ok:
+            raise _fail("done", "این درخواست قبلاً بررسی شده.", 409)
+        msg = f"✅ درخواستِ ثبت با عکسِ شما توسط مدیر ارشد تایید شد: {created} مسابقه ثبت شد."
+        if failed:
+            msg += f"\n⚠️ {len(failed)} ردیف ثبت نشد."
+        await _send(req["admin_id"], msg)
+        return hub._json({"ok": True, "created": created, "failed": failed})
+    ok, req = await scan_svc.reject_scan_request(rid, c.uid)
+    if not ok:
+        raise _fail("done", "این درخواست قبلاً بررسی شده.", 409)
+    await _send(req["admin_id"], "❌ درخواستِ ثبت با عکسِ شما توسط مدیر ارشد رد شد؛ هیچ مسابقه‌ای ثبت نشد.")
+    return _ok()
 
 
 @routes.post("/hub/api/match/{id}/edit")
@@ -1342,8 +1316,8 @@ async def api_admin_create(request):
 @routes.get("/hub/api/requests")
 async def api_requests(request):
     await _pishva_ctx(request)
-    names, pend, kick_rows = await asyncio.gather(
-        _name_map(), db.get_pending_requests(), db.get_pending_kick_requests())
+    names, pend, kick_rows, scan_rows = await asyncio.gather(
+        _name_map(), db.get_pending_requests(), db.get_pending_kick_requests(), db.get_pending_scan_requests())
     pnames = await db.get_players_names([r["player_id"] for r in kick_rows])   # یک کوئری، نه یکی برای هر درخواست
     acc = [{"id": r["id"], "name": r["full_name"] or "؟", "username": r["username"] or "",
             "role": ROLE_LABELS.get(r["role"], r["role"]), "message": r["message"] or "",
@@ -1351,7 +1325,12 @@ async def api_requests(request):
     kicks = [{"id": r["id"], "admin": names.get(r["admin_id"], "؟"),
               "player": pnames.get(r["player_id"], "؟"), "player_id": r["player_id"],
               "at": _dt(r["requested_at"])} for r in kick_rows]
-    return hub._json({"access": acc, "kicks": kicks})
+    scans = []
+    for r in scan_rows:
+        rows = await scan_svc.request_rows(r)
+        scans.append({"id": r["id"], "admin": names.get(r["admin_id"], "؟"), "count": r["item_count"] or len(rows),
+                      "date": r["match_date"] or "", "at": _dt(r["created_at"]), "rows": rows[:80]})
+    return hub._json({"access": acc, "kicks": kicks, "scans": scans})
 
 
 @routes.post("/hub/api/request/{id}/{act}")

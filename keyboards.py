@@ -90,6 +90,7 @@ def kb_matches_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ ثبت مسابقه جدید", callback_data="match_add", style="success"),
         InlineKeyboardButton("🏆 ثبت نتیجه", callback_data="match_result", style="success")],
+        [InlineKeyboardButton("📷 ثبت با عکس", callback_data="mscan_start", style="success")],
         [InlineKeyboardButton("🔍 تاریخچه مسابقات", callback_data="match_history", style="primary"),
         InlineKeyboardButton("📊 پنل مدیریت", callback_data="match_panel", style="primary")],
         [InlineKeyboardButton("🎲 قرعه‌کشی", callback_data="lottery_start", style="primary"),
@@ -424,6 +425,7 @@ _PISHVA_PANEL_PAGES = [
         [("🚦 مدیریت وضعیت", "pishva_status", None), ("⚙️ تنظیمات ربات", "pishva_settings", None)],
         [("🔍 پیگیری اقدامات", "pishva_logs", None), ("📥 درخواست‌های دسترسی", "pishva_requests", None)],
         [("🚫 درخواست‌های اخراج", "pishva_kick_requests", None), ("♟️ بازی‌های مدیران", "pishva_chess_games", None)],
+        [("📷 درخواست‌های ثبت با عکس", "pishva_scan_requests", None)],
         [("💾 دریافت بکاپ", "pishva_backup", None), ("🕐 ساعت کاری", "pishva_workhours", None)],
     ],
     [

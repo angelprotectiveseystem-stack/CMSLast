@@ -353,6 +353,20 @@ async def init_db():
             requested_at TEXT,
             decided_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS match_scan_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id INTEGER,
+            status TEXT DEFAULT 'pending',
+            payload TEXT,
+            item_count INTEGER DEFAULT 0,
+            match_date TEXT,
+            tournament_id INTEGER,
+            created_at TEXT,
+            decided_at TEXT,
+            decided_by INTEGER,
+            claim_token TEXT,
+            result TEXT
+        );
         CREATE TABLE IF NOT EXISTS teams (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
@@ -2962,6 +2976,62 @@ async def get_pending_kick_requests():
             "SELECT * FROM kick_requests WHERE status='pending' ORDER BY requested_at DESC"
         ) as cur:
             return await cur.fetchall()
+
+
+# ─── درخواست‌های «ثبت نتیجه با عکس» (مدیر مسابقات ← تأییدِ مدیر ارشد) ───
+# تا مدیر ارشد تأیید نکند هیچ مسابقه‌ای ساخته نمی‌شود؛ فقط همین ردیف (با payload) ذخیره می‌شود.
+async def create_scan_request(admin_id: int, payload: str, item_count: int,
+                              match_date: str, tournament_id) -> int:
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "INSERT INTO match_scan_requests(admin_id,status,payload,item_count,match_date,tournament_id,created_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (admin_id, "pending", payload, item_count, match_date, tournament_id, now)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_scan_request(req_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM match_scan_requests WHERE id=?", (req_id,)) as cur:
+            return await cur.fetchone()
+
+
+async def get_pending_scan_requests():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM match_scan_requests WHERE status='pending' ORDER BY created_at DESC"
+        ) as cur:
+            return await cur.fetchall()
+
+
+async def claim_scan_request(req_id: int, new_status: str, decided_by: int) -> bool:
+    """تصمیم‌گیری «اتمی»: فقط یک نفر (یک کلیک) می‌تواند درخواستِ pending را تأیید/رد کند.
+    اگر هم‌زمان از ربات و هاب (یا دوبار پشت‌سرهم) زده شود، فقط یکی True می‌گیرد،
+    پس مسابقه‌ها هرگز دوبار ثبت نمی‌شوند."""
+    import uuid
+    token = uuid.uuid4().hex
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE match_scan_requests SET status=?, decided_at=?, decided_by=?, claim_token=?"
+            " WHERE id=? AND status='pending'",
+            (new_status, now, decided_by, token, req_id)
+        )
+        await db.commit()
+        async with db.execute("SELECT claim_token FROM match_scan_requests WHERE id=?", (req_id,)) as cur:
+            row = await cur.fetchone()
+    return bool(row) and row[0] == token
+
+
+async def set_scan_request_result(req_id: int, result: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE match_scan_requests SET result=? WHERE id=?", (str(result)[:500], req_id))
+        await db.commit()
 
 
 # ─── Access Requests ─────────────────────────────────────────

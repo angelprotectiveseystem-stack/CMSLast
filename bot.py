@@ -38,6 +38,7 @@ from config import (
     ST_BULK_REG_TEXT, ST_BULK_REG_PREVIEW, ST_BULK_REG_EDIT_NUM, ST_BULK_REG_EDIT_VALUE,
     ST_CHANNEL_ID,
     ST_ADV_LOTTERY_SCOPE, ST_ADV_LOTTERY_CLASS_A, ST_ADV_LOTTERY_CLASS_B, ST_ADV_LOTTERY_COUNT,
+    ST_SCAN_PHOTO, ST_SCAN_REVIEW, ST_SCAN_SEARCH, ST_SCAN_DATE,
     ST_RESTORE_FILE,
     ST_WORKHOURS_AUTOEND_MINUTES, ST_WORKHOURS_REMINDER_MINUTES,
     ST_CHESS_AI_BROADCAST_TEXT,
@@ -77,6 +78,7 @@ from players import (
     player_list_kicked, player_list_elim, player_elite_list, player_special_list,
     pishva_kick_requests, kick_request_view, kick_request_approve, kick_request_reject
 )
+import match_scan_bot as msb
 from matches import (
     match_add_start, match_white_selected, match_black_selected,
     match_white_page, match_white_search_text, match_black_page, match_black_search_text,
@@ -706,6 +708,43 @@ def build_application():
         **CONV_KWARGS
     )
 
+    # ثبت نتیجه با عکسِ برگه (مدیر ارشد: مستقیم • مدیر مسابقات: با تأییدِ مدیر ارشد)
+    _scan_cbs = [
+        CallbackQueryHandler(msb.scan_cancel, pattern=r"^mscan_cancel$"),
+        CallbackQueryHandler(msb.scan_back, pattern=r"^mscan_back$"),
+        CallbackQueryHandler(msb.scan_page, pattern=r"^mscan_p_\d+$"),
+        CallbackQueryHandler(msb.scan_toggle, pattern=r"^mscan_x_\d+$"),
+        CallbackQueryHandler(msb.scan_edit, pattern=r"^mscan_e_\d+$"),
+        CallbackQueryHandler(msb.scan_swap, pattern=r"^mscan_sw_\d+$"),
+        CallbackQueryHandler(msb.scan_result, pattern=r"^mscan_r_\d+_[wbdn]$"),
+        CallbackQueryHandler(msb.scan_pick, pattern=r"^mscan_p[wb]_\d+$"),
+        CallbackQueryHandler(msb.scan_search_start, pattern=r"^mscan_q_\d+_[wb]$"),
+        CallbackQueryHandler(msb.scan_select, pattern=r"^mscan_s_\d+_[wb]_\d+$"),
+        CallbackQueryHandler(msb.scan_date_start, pattern=r"^mscan_date$"),
+        CallbackQueryHandler(msb.scan_date_set, pattern=r"^mscan_dset_\d+$"),
+        CallbackQueryHandler(msb.scan_tour_start, pattern=r"^mscan_tour$"),
+        CallbackQueryHandler(msb.scan_tour_set, pattern=r"^mscan_tset_\d+$"),
+        CallbackQueryHandler(msb.scan_go, pattern=r"^mscan_go$"),
+        CallbackQueryHandler(msb.scan_commit, pattern=r"^mscan_ok$"),
+    ]
+    scan_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(msb.scan_start, pattern=r"^mscan_start$")],
+        states={
+            ST_SCAN_PHOTO: [
+                MessageHandler(filters.PHOTO | filters.Document.IMAGE, msb.scan_photo),
+                CallbackQueryHandler(msb.scan_cancel, pattern=r"^mscan_cancel$"),
+            ],
+            ST_SCAN_REVIEW: _scan_cbs,
+            ST_SCAN_SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, msb.scan_search_text)] + _scan_cbs,
+            ST_SCAN_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, msb.scan_date_text)] + _scan_cbs,
+        },
+        fallbacks=[
+            CallbackQueryHandler(back_matches, pattern="^back_matches$"),
+            CommandHandler("start", cmd_start),
+        ],
+        **CONV_KWARGS
+    )
+
     # Comms
     comms_conv = ConversationHandler(
         entry_points=[
@@ -930,7 +969,7 @@ def build_application():
     )
 
     # ─── Add all ConversationHandlers first ───────────────────
-    for conv in [auth_conv, tourn_conv, player_conv, match_conv,
+    for conv in [auth_conv, tourn_conv, player_conv, match_conv, scan_conv,
                  comms_conv, task_conv, feedback_conv, pishva_conv, restore_conv, team_conv,
                  workhours_conv, calendar_conv]:
         app.add_handler(conv)
@@ -1184,6 +1223,10 @@ def build_application():
     app.add_handler(CallbackQueryHandler(kick_request_view, pattern="^kickreq_view_"))
     app.add_handler(CallbackQueryHandler(kick_request_approve, pattern="^kickreq_approve_"))
     app.add_handler(CallbackQueryHandler(kick_request_reject, pattern="^kickreq_reject_"))
+    app.add_handler(CallbackQueryHandler(msb.pishva_scan_requests, pattern="^pishva_scan_requests$"))
+    app.add_handler(CallbackQueryHandler(msb.scanreq_view, pattern=r"^scanreq_view_\d+$"))
+    app.add_handler(CallbackQueryHandler(msb.scanreq_approve, pattern=r"^scanreq_approve_\d+$"))
+    app.add_handler(CallbackQueryHandler(msb.scanreq_reject, pattern=r"^scanreq_reject_\d+$"))
     app.add_handler(CallbackQueryHandler(admin_kick, pattern="^admin_kick_"))
     app.add_handler(CallbackQueryHandler(admin_revive, pattern="^admin_revive_"))
     app.add_handler(CallbackQueryHandler(admin_clear_warnings, pattern="^admin_clearwarn_"))

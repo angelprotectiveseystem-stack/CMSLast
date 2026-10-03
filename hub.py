@@ -342,7 +342,7 @@ async def _top_players(active_players, limit=5, elo_map=None):
 # ─── بازیکنان ────────────────────────────────────────────────────
 @routes.get("/hub/api/players")
 async def hub_players(request):
-    _p, _a, _u, caps, _f = await _require_cap(request, "players_view", "match_create", "match_edit", "player_register")
+    _p, _a, _u, caps, _f = await _require_cap(request, "players_view", "match_create", "match_edit", "player_register", "match_scan")
     async def _elo_map():
         await elo.ensure_elo_table()
         return await db.get_all_player_elo()

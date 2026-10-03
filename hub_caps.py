@@ -32,6 +32,7 @@ CAPS = [
     ("match_create",    "ثبتِ مسابقه",                      "مسابقات"),
     ("match_edit",      "ویرایشِ مسابقه",                   "مسابقات"),
     ("match_delete",    "حذفِ مسابقه",                      "مسابقات"),
+    ("match_scan",      "ثبت با عکس (مدیر مسابقات: با تأییدِ مدیر ارشد)", "مسابقات"),
     ("predictions",     "پیش‌بینی",                         "مسابقات"),
     ("elo",             "امتیازهای Elo",                    "مسابقات"),
     ("comms",           "مخابرات",                          "ارتباط"),
@@ -45,12 +46,12 @@ CAP_KEYS = [c[0] for c in CAPS]
 # فقط مدیر ارشد؛ هیچ override‌ای هم اثر ندارد.
 # player_delete (حذفِ کاملِ بازیکن) فقط مدیر ارشد: از CAPS برداشته شد تا نه نقشِ پیش‌فرضی بتواند داشته
 # باشد و نه هیچ overrideی (حتی اگر قبلاً در permissions یک مدیر ذخیره شده باشد) اثری داشته باشد.
-PISHVA_ONLY = ("admins_manage", "settings", "pishva_panel", "player_delete", "match_scan")
+PISHVA_ONLY = ("admins_manage", "settings", "pishva_panel", "player_delete")
 
 ROLE_DEFAULTS = {
     ROLE_TOURNAMENT_MANAGER: {
         "players_view", "player_register", "player_warn", "player_kick",
-        "match_create", "match_edit", "match_delete", "predictions", "elo",
+        "match_create", "match_edit", "match_delete", "match_scan", "predictions", "elo",
         "comms", "classes", "teams", "calendar",
     },
     ROLE_SECURITY_MANAGER: {
@@ -61,6 +62,7 @@ ROLE_DEFAULTS = {
 # معادل‌های قدیمیِ دسترسی‌های ربات: اگر صراحتاً False باشند، قابلیتِ هاب هم بسته می‌ماند.
 _LEGACY_DENY = {
     "match_create": "match_management",
+    "match_scan": "match_management",
     "match_edit": "edit_delete_match",
     "match_delete": "edit_delete_match",
     "player_warn": "issue_warning",
